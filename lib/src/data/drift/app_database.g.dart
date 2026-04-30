@@ -1902,6 +1902,14 @@ class $TrackUserStatesTable extends TrackUserStates
       type: DriftSqlType.int,
       requiredDuringInsert: false,
       defaultValue: const Constant(0));
+  static const VerificationMeta _completeCountMeta =
+      const VerificationMeta('completeCount');
+  @override
+  late final GeneratedColumn<int> completeCount = GeneratedColumn<int>(
+      'complete_count', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultValue: const Constant(0));
   static const VerificationMeta _skipCountMeta =
       const VerificationMeta('skipCount');
   @override
@@ -1955,6 +1963,7 @@ class $TrackUserStatesTable extends TrackUserStates
         isHidden,
         rating,
         playCount,
+        completeCount,
         skipCount,
         lastPlayedAt,
         lastSkippedAt,
@@ -1994,6 +2003,12 @@ class $TrackUserStatesTable extends TrackUserStates
     if (data.containsKey('play_count')) {
       context.handle(_playCountMeta,
           playCount.isAcceptableOrUnknown(data['play_count']!, _playCountMeta));
+    }
+    if (data.containsKey('complete_count')) {
+      context.handle(
+          _completeCountMeta,
+          completeCount.isAcceptableOrUnknown(
+              data['complete_count']!, _completeCountMeta));
     }
     if (data.containsKey('skip_count')) {
       context.handle(_skipCountMeta,
@@ -2054,6 +2069,8 @@ class $TrackUserStatesTable extends TrackUserStates
           .read(DriftSqlType.int, data['${effectivePrefix}rating']),
       playCount: attachedDatabase.typeMapping
           .read(DriftSqlType.int, data['${effectivePrefix}play_count'])!,
+      completeCount: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}complete_count'])!,
       skipCount: attachedDatabase.typeMapping
           .read(DriftSqlType.int, data['${effectivePrefix}skip_count'])!,
       lastPlayedAt: attachedDatabase.typeMapping.read(
@@ -2084,6 +2101,7 @@ class TrackUserStateRow extends DataClass
   final bool isHidden;
   final int? rating;
   final int playCount;
+  final int completeCount;
   final int skipCount;
   final DateTime? lastPlayedAt;
   final DateTime? lastSkippedAt;
@@ -2097,6 +2115,7 @@ class TrackUserStateRow extends DataClass
       required this.isHidden,
       this.rating,
       required this.playCount,
+      required this.completeCount,
       required this.skipCount,
       this.lastPlayedAt,
       this.lastSkippedAt,
@@ -2114,6 +2133,7 @@ class TrackUserStateRow extends DataClass
       map['rating'] = Variable<int>(rating);
     }
     map['play_count'] = Variable<int>(playCount);
+    map['complete_count'] = Variable<int>(completeCount);
     map['skip_count'] = Variable<int>(skipCount);
     if (!nullToAbsent || lastPlayedAt != null) {
       map['last_played_at'] = Variable<DateTime>(lastPlayedAt);
@@ -2140,6 +2160,7 @@ class TrackUserStateRow extends DataClass
       rating:
           rating == null && nullToAbsent ? const Value.absent() : Value(rating),
       playCount: Value(playCount),
+      completeCount: Value(completeCount),
       skipCount: Value(skipCount),
       lastPlayedAt: lastPlayedAt == null && nullToAbsent
           ? const Value.absent()
@@ -2167,6 +2188,7 @@ class TrackUserStateRow extends DataClass
       isHidden: serializer.fromJson<bool>(json['isHidden']),
       rating: serializer.fromJson<int?>(json['rating']),
       playCount: serializer.fromJson<int>(json['playCount']),
+      completeCount: serializer.fromJson<int>(json['completeCount']),
       skipCount: serializer.fromJson<int>(json['skipCount']),
       lastPlayedAt: serializer.fromJson<DateTime?>(json['lastPlayedAt']),
       lastSkippedAt: serializer.fromJson<DateTime?>(json['lastSkippedAt']),
@@ -2186,6 +2208,7 @@ class TrackUserStateRow extends DataClass
       'isHidden': serializer.toJson<bool>(isHidden),
       'rating': serializer.toJson<int?>(rating),
       'playCount': serializer.toJson<int>(playCount),
+      'completeCount': serializer.toJson<int>(completeCount),
       'skipCount': serializer.toJson<int>(skipCount),
       'lastPlayedAt': serializer.toJson<DateTime?>(lastPlayedAt),
       'lastSkippedAt': serializer.toJson<DateTime?>(lastSkippedAt),
@@ -2202,6 +2225,7 @@ class TrackUserStateRow extends DataClass
           bool? isHidden,
           Value<int?> rating = const Value.absent(),
           int? playCount,
+          int? completeCount,
           int? skipCount,
           Value<DateTime?> lastPlayedAt = const Value.absent(),
           Value<DateTime?> lastSkippedAt = const Value.absent(),
@@ -2215,6 +2239,7 @@ class TrackUserStateRow extends DataClass
         isHidden: isHidden ?? this.isHidden,
         rating: rating.present ? rating.value : this.rating,
         playCount: playCount ?? this.playCount,
+        completeCount: completeCount ?? this.completeCount,
         skipCount: skipCount ?? this.skipCount,
         lastPlayedAt:
             lastPlayedAt.present ? lastPlayedAt.value : this.lastPlayedAt,
@@ -2237,6 +2262,9 @@ class TrackUserStateRow extends DataClass
       isHidden: data.isHidden.present ? data.isHidden.value : this.isHidden,
       rating: data.rating.present ? data.rating.value : this.rating,
       playCount: data.playCount.present ? data.playCount.value : this.playCount,
+      completeCount: data.completeCount.present
+          ? data.completeCount.value
+          : this.completeCount,
       skipCount: data.skipCount.present ? data.skipCount.value : this.skipCount,
       lastPlayedAt: data.lastPlayedAt.present
           ? data.lastPlayedAt.value
@@ -2265,6 +2293,7 @@ class TrackUserStateRow extends DataClass
           ..write('isHidden: $isHidden, ')
           ..write('rating: $rating, ')
           ..write('playCount: $playCount, ')
+          ..write('completeCount: $completeCount, ')
           ..write('skipCount: $skipCount, ')
           ..write('lastPlayedAt: $lastPlayedAt, ')
           ..write('lastSkippedAt: $lastSkippedAt, ')
@@ -2283,6 +2312,7 @@ class TrackUserStateRow extends DataClass
       isHidden,
       rating,
       playCount,
+      completeCount,
       skipCount,
       lastPlayedAt,
       lastSkippedAt,
@@ -2299,6 +2329,7 @@ class TrackUserStateRow extends DataClass
           other.isHidden == this.isHidden &&
           other.rating == this.rating &&
           other.playCount == this.playCount &&
+          other.completeCount == this.completeCount &&
           other.skipCount == this.skipCount &&
           other.lastPlayedAt == this.lastPlayedAt &&
           other.lastSkippedAt == this.lastSkippedAt &&
@@ -2314,6 +2345,7 @@ class TrackUserStatesCompanion extends UpdateCompanion<TrackUserStateRow> {
   final Value<bool> isHidden;
   final Value<int?> rating;
   final Value<int> playCount;
+  final Value<int> completeCount;
   final Value<int> skipCount;
   final Value<DateTime?> lastPlayedAt;
   final Value<DateTime?> lastSkippedAt;
@@ -2327,6 +2359,7 @@ class TrackUserStatesCompanion extends UpdateCompanion<TrackUserStateRow> {
     this.isHidden = const Value.absent(),
     this.rating = const Value.absent(),
     this.playCount = const Value.absent(),
+    this.completeCount = const Value.absent(),
     this.skipCount = const Value.absent(),
     this.lastPlayedAt = const Value.absent(),
     this.lastSkippedAt = const Value.absent(),
@@ -2341,6 +2374,7 @@ class TrackUserStatesCompanion extends UpdateCompanion<TrackUserStateRow> {
     this.isHidden = const Value.absent(),
     this.rating = const Value.absent(),
     this.playCount = const Value.absent(),
+    this.completeCount = const Value.absent(),
     this.skipCount = const Value.absent(),
     this.lastPlayedAt = const Value.absent(),
     this.lastSkippedAt = const Value.absent(),
@@ -2355,6 +2389,7 @@ class TrackUserStatesCompanion extends UpdateCompanion<TrackUserStateRow> {
     Expression<bool>? isHidden,
     Expression<int>? rating,
     Expression<int>? playCount,
+    Expression<int>? completeCount,
     Expression<int>? skipCount,
     Expression<DateTime>? lastPlayedAt,
     Expression<DateTime>? lastSkippedAt,
@@ -2369,6 +2404,7 @@ class TrackUserStatesCompanion extends UpdateCompanion<TrackUserStateRow> {
       if (isHidden != null) 'is_hidden': isHidden,
       if (rating != null) 'rating': rating,
       if (playCount != null) 'play_count': playCount,
+      if (completeCount != null) 'complete_count': completeCount,
       if (skipCount != null) 'skip_count': skipCount,
       if (lastPlayedAt != null) 'last_played_at': lastPlayedAt,
       if (lastSkippedAt != null) 'last_skipped_at': lastSkippedAt,
@@ -2385,6 +2421,7 @@ class TrackUserStatesCompanion extends UpdateCompanion<TrackUserStateRow> {
       Value<bool>? isHidden,
       Value<int?>? rating,
       Value<int>? playCount,
+      Value<int>? completeCount,
       Value<int>? skipCount,
       Value<DateTime?>? lastPlayedAt,
       Value<DateTime?>? lastSkippedAt,
@@ -2398,6 +2435,7 @@ class TrackUserStatesCompanion extends UpdateCompanion<TrackUserStateRow> {
       isHidden: isHidden ?? this.isHidden,
       rating: rating ?? this.rating,
       playCount: playCount ?? this.playCount,
+      completeCount: completeCount ?? this.completeCount,
       skipCount: skipCount ?? this.skipCount,
       lastPlayedAt: lastPlayedAt ?? this.lastPlayedAt,
       lastSkippedAt: lastSkippedAt ?? this.lastSkippedAt,
@@ -2425,6 +2463,9 @@ class TrackUserStatesCompanion extends UpdateCompanion<TrackUserStateRow> {
     }
     if (playCount.present) {
       map['play_count'] = Variable<int>(playCount.value);
+    }
+    if (completeCount.present) {
+      map['complete_count'] = Variable<int>(completeCount.value);
     }
     if (skipCount.present) {
       map['skip_count'] = Variable<int>(skipCount.value);
@@ -2458,6 +2499,7 @@ class TrackUserStatesCompanion extends UpdateCompanion<TrackUserStateRow> {
           ..write('isHidden: $isHidden, ')
           ..write('rating: $rating, ')
           ..write('playCount: $playCount, ')
+          ..write('completeCount: $completeCount, ')
           ..write('skipCount: $skipCount, ')
           ..write('lastPlayedAt: $lastPlayedAt, ')
           ..write('lastSkippedAt: $lastSkippedAt, ')
@@ -4023,6 +4065,7 @@ typedef $$TrackUserStatesTableCreateCompanionBuilder = TrackUserStatesCompanion
   Value<bool> isHidden,
   Value<int?> rating,
   Value<int> playCount,
+  Value<int> completeCount,
   Value<int> skipCount,
   Value<DateTime?> lastPlayedAt,
   Value<DateTime?> lastSkippedAt,
@@ -4038,6 +4081,7 @@ typedef $$TrackUserStatesTableUpdateCompanionBuilder = TrackUserStatesCompanion
   Value<bool> isHidden,
   Value<int?> rating,
   Value<int> playCount,
+  Value<int> completeCount,
   Value<int> skipCount,
   Value<DateTime?> lastPlayedAt,
   Value<DateTime?> lastSkippedAt,
@@ -4087,6 +4131,9 @@ class $$TrackUserStatesTableFilterComposer
 
   ColumnFilters<int> get playCount => $composableBuilder(
       column: $table.playCount, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get completeCount => $composableBuilder(
+      column: $table.completeCount, builder: (column) => ColumnFilters(column));
 
   ColumnFilters<int> get skipCount => $composableBuilder(
       column: $table.skipCount, builder: (column) => ColumnFilters(column));
@@ -4153,6 +4200,10 @@ class $$TrackUserStatesTableOrderingComposer
 
   ColumnOrderings<int> get playCount => $composableBuilder(
       column: $table.playCount, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get completeCount => $composableBuilder(
+      column: $table.completeCount,
+      builder: (column) => ColumnOrderings(column));
 
   ColumnOrderings<int> get skipCount => $composableBuilder(
       column: $table.skipCount, builder: (column) => ColumnOrderings(column));
@@ -4221,6 +4272,9 @@ class $$TrackUserStatesTableAnnotationComposer
 
   GeneratedColumn<int> get playCount =>
       $composableBuilder(column: $table.playCount, builder: (column) => column);
+
+  GeneratedColumn<int> get completeCount => $composableBuilder(
+      column: $table.completeCount, builder: (column) => column);
 
   GeneratedColumn<int> get skipCount =>
       $composableBuilder(column: $table.skipCount, builder: (column) => column);
@@ -4293,6 +4347,7 @@ class $$TrackUserStatesTableTableManager extends RootTableManager<
             Value<bool> isHidden = const Value.absent(),
             Value<int?> rating = const Value.absent(),
             Value<int> playCount = const Value.absent(),
+            Value<int> completeCount = const Value.absent(),
             Value<int> skipCount = const Value.absent(),
             Value<DateTime?> lastPlayedAt = const Value.absent(),
             Value<DateTime?> lastSkippedAt = const Value.absent(),
@@ -4307,6 +4362,7 @@ class $$TrackUserStatesTableTableManager extends RootTableManager<
             isHidden: isHidden,
             rating: rating,
             playCount: playCount,
+            completeCount: completeCount,
             skipCount: skipCount,
             lastPlayedAt: lastPlayedAt,
             lastSkippedAt: lastSkippedAt,
@@ -4321,6 +4377,7 @@ class $$TrackUserStatesTableTableManager extends RootTableManager<
             Value<bool> isHidden = const Value.absent(),
             Value<int?> rating = const Value.absent(),
             Value<int> playCount = const Value.absent(),
+            Value<int> completeCount = const Value.absent(),
             Value<int> skipCount = const Value.absent(),
             Value<DateTime?> lastPlayedAt = const Value.absent(),
             Value<DateTime?> lastSkippedAt = const Value.absent(),
@@ -4335,6 +4392,7 @@ class $$TrackUserStatesTableTableManager extends RootTableManager<
             isHidden: isHidden,
             rating: rating,
             playCount: playCount,
+            completeCount: completeCount,
             skipCount: skipCount,
             lastPlayedAt: lastPlayedAt,
             lastSkippedAt: lastSkippedAt,

@@ -70,6 +70,7 @@ class TrackUserStates extends Table {
   BoolColumn get isHidden => boolean().withDefault(const Constant(false))();
   IntColumn get rating => integer().nullable()();
   IntColumn get playCount => integer().withDefault(const Constant(0))();
+  IntColumn get completeCount => integer().withDefault(const Constant(0))();
   IntColumn get skipCount => integer().withDefault(const Constant(0))();
   DateTimeColumn get lastPlayedAt => dateTime().nullable()();
   DateTimeColumn get lastSkippedAt => dateTime().nullable()();
@@ -107,7 +108,7 @@ class AppDatabase extends _$AppDatabase {
   factory AppDatabase.open() => AppDatabase(_openConnection());
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -121,6 +122,12 @@ class AppDatabase extends _$AppDatabase {
             await migrator.addColumn(tracks, tracks.codec);
             await migrator.addColumn(tracks, tracks.lastSeenAt);
             await migrator.addColumn(tracks, tracks.isMissing);
+          }
+          if (from < 3) {
+            await migrator.addColumn(
+              trackUserStates,
+              trackUserStates.completeCount,
+            );
           }
           await _createIndexes();
         },

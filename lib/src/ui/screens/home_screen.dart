@@ -1,8 +1,13 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../app/dependency_scope.dart';
 import '../../domain/models/models.dart';
 import '../../library/library_scanner_service.dart';
+import '../../player/player_progress.dart';
+import '../../player/player_service.dart';
+import '../../player/player_state.dart';
 
 final class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -74,6 +79,8 @@ final class _HomeScreenState extends State<HomeScreen> {
                 isScanning: _isScanning,
               ),
               const SizedBox(height: 24),
+              _PlayerControls(playerService: dependencies.playerService),
+              const SizedBox(height: 24),
               Text('Tracks', style: textTheme.titleLarge),
               const SizedBox(height: 8),
               Expanded(
@@ -98,7 +105,15 @@ final class _HomeScreenState extends State<HomeScreen> {
                       separatorBuilder: (context, index) =>
                           const Divider(height: 1),
                       itemBuilder: (context, index) {
-                        return _TrackListTile(track: tracks[index]);
+                        final track = tracks[index];
+                        return _TrackListTile(
+                          track: track,
+                          onTap: () {
+                            unawaited(
+                              dependencies.playerService.playTrack(track),
+                            );
+                          },
+                        );
                       },
                     );
                   },
@@ -176,6 +191,186 @@ final class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
+final class _PlayerControls extends StatefulWidget {
+  const _PlayerControls({required this.playerService});
+
+  final PlayerService playerService;
+
+  @override
+  State<_PlayerControls> createState() => _PlayerControlsState();
+}
+
+final class _PlayerControlsState extends State<_PlayerControls> {
+  Duration? _dragPosition;
+  Object? _dragTrackKey;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+
+    return StreamBuilder<PlayerState>(
+      stream: widget.playerService.stateStream,
+      initialData: widget.playerService.state,
+      builder: (context, snapshot) {
+        final state = snapshot.data ?? const PlayerState.idle();
+        final track = state.currentTrack;
+        final duration = state.duration;
+        final trackKey = _trackKey(track);
+        final activeDragPosition =
+            _dragTrackKey == trackKey ? _dragPosition : null;
+        final progress = PlayerProgress(
+          position: state.position,
+          duration: duration,
+          dragPosition: activeDragPosition,
+        );
+        final canSeek = track != null &&
+            progress.canSeek &&
+            state.status != PlayerPlaybackStatus.loading;
+
+        return DecoratedBox(
+          decoration: BoxDecoration(
+            border: Border.all(color: colorScheme.outlineVariant),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(
+                      state.isPlaying
+                          ? Icons.graphic_eq_outlined
+                          : Icons.music_note_outlined,
+                      color: colorScheme.primary,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            track?.displayTitle ?? 'No track playing',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: textTheme.titleMedium,
+                          ),
+                          Text(
+                            _artistLabel(track),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: textTheme.bodyMedium,
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    IconButton.filledTonal(
+                      tooltip: state.isPlaying ? 'Pause' : 'Play',
+                      onPressed: track == null
+                          ? null
+                          : () {
+                              unawaited(
+                                state.isPlaying
+                                    ? widget.playerService.pause()
+                                    : widget.playerService.play(),
+                              );
+                            },
+                      icon: Icon(
+                        state.isPlaying
+                            ? Icons.pause_outlined
+                            : Icons.play_arrow_outlined,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    IconButton.outlined(
+                      tooltip: 'Stop',
+                      onPressed: track == null
+                          ? null
+                          : () {
+                              unawaited(widget.playerService.stop());
+                            },
+                      icon: const Icon(Icons.stop_outlined),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Text(PlayerProgress.formatDuration(
+                      progress.displayPosition,
+                    )),
+                    Expanded(
+                      child: Slider(
+                        value: progress.valueMilliseconds,
+                        min: 0,
+                        max: progress.maxMilliseconds,
+                        onChanged: canSeek
+                            ? (value) {
+                                setState(() {
+                                  _dragTrackKey = trackKey;
+                                  _dragPosition =
+                                      PlayerProgress.fromSliderValue(
+                                    value,
+                                    duration!,
+                                  );
+                                });
+                              }
+                            : null,
+                        onChangeEnd: canSeek
+                            ? (value) {
+                                final target = PlayerProgress.fromSliderValue(
+                                  value,
+                                  duration!,
+                                );
+                                unawaited(widget.playerService.seek(target));
+                                setState(() {
+                                  _dragPosition = null;
+                                  _dragTrackKey = null;
+                                });
+                              }
+                            : null,
+                      ),
+                    ),
+                    Text(PlayerProgress.formatDuration(
+                      progress.displayDuration,
+                    )),
+                  ],
+                ),
+                if (state.status == PlayerPlaybackStatus.loading)
+                  const LinearProgressIndicator(),
+                if (state.hasError) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    state.errorMessage!,
+                    style: TextStyle(color: colorScheme.error),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  static String _artistLabel(Track? track) {
+    final artist = track?.artist?.trim();
+    if (artist != null && artist.isNotEmpty) {
+      return artist;
+    }
+    return track == null
+        ? 'Select a local track to start playback'
+        : 'Unknown artist';
+  }
+
+  static Object? _trackKey(Track? track) {
+    return track?.id ?? track?.filePath;
+  }
+}
+
 final class _ScanStatus extends StatelessWidget {
   const _ScanStatus({
     required this.result,
@@ -215,9 +410,13 @@ final class _ScanStatus extends StatelessWidget {
 }
 
 final class _TrackListTile extends StatelessWidget {
-  const _TrackListTile({required this.track});
+  const _TrackListTile({
+    required this.track,
+    required this.onTap,
+  });
 
   final Track track;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -230,6 +429,7 @@ final class _TrackListTile extends StatelessWidget {
 
     return ListTile(
       contentPadding: EdgeInsets.zero,
+      onTap: onTap,
       title: Text(
         track.displayTitle,
         maxLines: 1,
@@ -240,7 +440,7 @@ final class _TrackListTile extends StatelessWidget {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
-      trailing: const Icon(Icons.music_note_outlined),
+      trailing: const Icon(Icons.play_arrow_outlined),
     );
   }
 }
