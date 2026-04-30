@@ -25,6 +25,7 @@ class Tracks extends Table {
   IntColumn get libraryFolderId => integer()
       .nullable()
       .references(LibraryFolders, #id, onDelete: KeyAction.setNull)();
+  TextColumn get stableId => text().nullable()();
   TextColumn get filePath => text().unique()();
   TextColumn get contentHash => text().nullable()();
   TextColumn get title => text().nullable()();
@@ -32,12 +33,15 @@ class Tracks extends Table {
   TextColumn get album => text().nullable()();
   TextColumn get albumArtist => text().nullable()();
   TextColumn get genre => text().nullable()();
+  TextColumn get codec => text().nullable()();
   IntColumn get durationMs => integer().nullable()();
   IntColumn get trackNumber => integer().nullable()();
   IntColumn get discNumber => integer().nullable()();
   IntColumn get year => integer().nullable()();
   IntColumn get fileSizeBytes => integer().nullable()();
   DateTimeColumn get modifiedAt => dateTime().nullable()();
+  DateTimeColumn get lastSeenAt => dateTime().nullable()();
+  BoolColumn get isMissing => boolean().withDefault(const Constant(false))();
   DateTimeColumn get addedAt => dateTime()();
   DateTimeColumn get updatedAt => dateTime()();
 }
@@ -103,26 +107,47 @@ class AppDatabase extends _$AppDatabase {
   factory AppDatabase.open() => AppDatabase(_openConnection());
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
         onCreate: (migrator) async {
           await migrator.createAll();
-          await customStatement(
-            'CREATE INDEX IF NOT EXISTS idx_tracks_library_folder '
-            'ON tracks(library_folder_id);',
-          );
-          await customStatement(
-            'CREATE INDEX IF NOT EXISTS idx_playback_events_track_time '
-            'ON playback_events(track_id, occurred_at);',
-          );
-          await customStatement(
-            'CREATE INDEX IF NOT EXISTS idx_track_user_state_updated '
-            'ON track_user_state(updated_at);',
-          );
+          await _createIndexes();
+        },
+        onUpgrade: (migrator, from, to) async {
+          if (from < 2) {
+            await migrator.addColumn(tracks, tracks.stableId);
+            await migrator.addColumn(tracks, tracks.codec);
+            await migrator.addColumn(tracks, tracks.lastSeenAt);
+            await migrator.addColumn(tracks, tracks.isMissing);
+          }
+          await _createIndexes();
         },
       );
+
+  Future<void> _createIndexes() async {
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_tracks_library_folder '
+      'ON tracks(library_folder_id);',
+    );
+    await customStatement(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_tracks_stable_id '
+      'ON tracks(stable_id) WHERE stable_id IS NOT NULL;',
+    );
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_tracks_last_seen '
+      'ON tracks(last_seen_at);',
+    );
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_playback_events_track_time '
+      'ON playback_events(track_id, occurred_at);',
+    );
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_track_user_state_updated '
+      'ON track_user_state(updated_at);',
+    );
+  }
 }
 
 LazyDatabase _openConnection() {

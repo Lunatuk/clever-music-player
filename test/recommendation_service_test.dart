@@ -87,12 +87,33 @@ final class _FakeTrackRepository implements TrackRepository {
   }
 
   @override
+  Future<List<Track>> listTracksByLibraryFolder(
+    int libraryFolderId, {
+    bool includeMissing = true,
+  }) async {
+    return _tracks
+        .where((track) => track.libraryFolderId == libraryFolderId)
+        .where((track) => includeMissing || !track.isMissing)
+        .toList(growable: false);
+  }
+
+  @override
   Future<void> deleteTrack(int id) async {}
 
   @override
   Future<Track?> findById(int id) async {
     for (final track in _tracks) {
       if (track.id == id) {
+        return track;
+      }
+    }
+    return null;
+  }
+
+  @override
+  Future<Track?> findByStableId(String stableId) async {
+    for (final track in _tracks) {
+      if (track.stableId == stableId) {
         return track;
       }
     }
@@ -117,6 +138,15 @@ final class _FakeTrackRepository implements TrackRepository {
   @override
   Stream<List<Track>> watchTracks({int limit = 100}) {
     return Stream.value(_tracks.take(limit).toList(growable: false));
+  }
+
+  @override
+  Stream<List<Track>> watchAllTracks({bool includeMissing = false}) {
+    return Stream.value(
+      _tracks
+          .where((track) => includeMissing || !track.isMissing)
+          .toList(growable: false),
+    );
   }
 }
 

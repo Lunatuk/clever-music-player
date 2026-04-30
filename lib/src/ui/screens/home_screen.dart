@@ -2,9 +2,19 @@ import 'package:flutter/material.dart';
 
 import '../../app/dependency_scope.dart';
 import '../../domain/models/models.dart';
+import '../../library/library_scanner_service.dart';
 
-final class HomeScreen extends StatelessWidget {
+final class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+final class _HomeScreenState extends State<HomeScreen> {
+  LibraryScanResult? _lastScanResult;
+  Object? _lastError;
+  bool _isScanning = false;
 
   @override
   Widget build(BuildContext context) {
@@ -22,56 +32,77 @@ final class HomeScreen extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Local-first music intelligence',
+                'Local-first music library',
                 style: textTheme.headlineMedium,
               ),
               const SizedBox(height: 8),
               Text(
-                'Desktop architecture is wired and ready for library scanning.',
+                'Choose a folder, scan local audio files, and persist them in '
+                'the on-device SQLite library.',
                 style: textTheme.bodyLarge,
               ),
-              const SizedBox(height: 32),
+              const SizedBox(height: 24),
               Wrap(
                 spacing: 12,
                 runSpacing: 12,
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
-                  _ArchitectureChip(
-                    label: 'Drift SQLite',
-                    isReady: dependencies.database.schemaVersion == 1,
+                  FilledButton.icon(
+                    onPressed: _isScanning
+                        ? null
+                        : () => _addMusicFolder(dependencies),
+                    icon: const Icon(Icons.create_new_folder_outlined),
+                    label: const Text('Add music folder'),
                   ),
-                  const _ArchitectureChip(
-                    label: 'Repositories',
-                    isReady: true,
+                  OutlinedButton.icon(
+                    onPressed:
+                        _isScanning ? null : () => _rescanLibrary(dependencies),
+                    icon: const Icon(Icons.refresh_outlined),
+                    label: const Text('Rescan library'),
                   ),
-                  const _ArchitectureChip(
-                    label: 'Recommendations',
-                    isReady: true,
-                  ),
-                  const _ArchitectureChip(
-                    label: 'Playback pending',
-                    isReady: false,
-                  ),
-                  const _ArchitectureChip(
-                    label: 'Scanning pending',
-                    isReady: false,
-                  ),
+                  if (_isScanning)
+                    const SizedBox.square(
+                      dimension: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
                 ],
               ),
-              const SizedBox(height: 32),
-              FutureBuilder<List<Track>>(
-                future: dependencies.repositories.tracks.listTracks(limit: 5),
-                builder: (context, snapshot) {
-                  final trackCount = snapshot.data?.length ?? 0;
-                  return Text(
-                    'Indexed tracks visible to UI: $trackCount',
-                    style: textTheme.titleMedium,
-                  );
-                },
+              const SizedBox(height: 20),
+              _ScanStatus(
+                result: _lastScanResult,
+                error: _lastError,
+                isScanning: _isScanning,
               ),
-              const Spacer(),
-              Text(
-                'Next: library folder scanning.',
-                style: textTheme.labelLarge,
+              const SizedBox(height: 24),
+              Text('Tracks', style: textTheme.titleLarge),
+              const SizedBox(height: 8),
+              Expanded(
+                child: StreamBuilder<List<Track>>(
+                  stream: dependencies.repositories.tracks.watchAllTracks(),
+                  builder: (context, snapshot) {
+                    if (snapshot.hasError) {
+                      return _EmptyState(
+                        message: 'Could not load tracks: ${snapshot.error}',
+                      );
+                    }
+
+                    final tracks = snapshot.data ?? const <Track>[];
+                    if (tracks.isEmpty) {
+                      return const _EmptyState(
+                        message: 'No tracks indexed yet.',
+                      );
+                    }
+
+                    return ListView.separated(
+                      itemCount: tracks.length,
+                      separatorBuilder: (context, index) =>
+                          const Divider(height: 1),
+                      itemBuilder: (context, index) {
+                        return _TrackListTile(track: tracks[index]);
+                      },
+                    );
+                  },
+                ),
               ),
             ],
           ),
@@ -79,35 +110,153 @@ final class HomeScreen extends StatelessWidget {
       ),
     );
   }
+
+  Future<void> _addMusicFolder(AppDependencies dependencies) async {
+    final folderPath = await dependencies.directoryPicker.pickMusicFolder();
+    if (folderPath == null || folderPath.isEmpty) {
+      return;
+    }
+
+    await _scanFolders(dependencies, [folderPath]);
+  }
+
+  Future<void> _rescanLibrary(AppDependencies dependencies) async {
+    final folders = await dependencies.repositories.libraryFolders.listFolders(
+      includeDisabled: false,
+    );
+    if (folders.isEmpty) {
+      setState(() {
+        _lastScanResult = null;
+        _lastError = 'No music folders have been added yet.';
+      });
+      return;
+    }
+
+    await _scanFolders(
+      dependencies,
+      folders.map((folder) => folder.path).toList(growable: false),
+    );
+  }
+
+  Future<void> _scanFolders(
+    AppDependencies dependencies,
+    List<String> folderPaths,
+  ) async {
+    setState(() {
+      _isScanning = true;
+      _lastError = null;
+    });
+
+    try {
+      final results = <LibraryScanResult>[];
+      for (final folderPath in folderPaths) {
+        results.add(await dependencies.libraryScanner.scanFolder(folderPath));
+      }
+
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _lastScanResult = LibraryScanResult.combine(results);
+      });
+    } on Object catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _lastError = error;
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isScanning = false;
+        });
+      }
+    }
+  }
 }
 
-final class _ArchitectureChip extends StatelessWidget {
-  const _ArchitectureChip({
-    required this.label,
-    required this.isReady,
+final class _ScanStatus extends StatelessWidget {
+  const _ScanStatus({
+    required this.result,
+    required this.error,
+    required this.isScanning,
   });
 
-  final String label;
-  final bool isReady;
+  final LibraryScanResult? result;
+  final Object? error;
+  final bool isScanning;
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final backgroundColor =
-        isReady ? colorScheme.primaryContainer : colorScheme.surfaceContainer;
-    final foregroundColor =
-        isReady ? colorScheme.onPrimaryContainer : colorScheme.onSurfaceVariant;
 
-    return Chip(
-      avatar: Icon(
-        isReady ? Icons.check_circle_outline : Icons.pending_outlined,
-        size: 18,
-        color: foregroundColor,
+    if (isScanning) {
+      return const Text('Scanning local folders...');
+    }
+
+    if (error != null) {
+      return Text(
+        error.toString(),
+        style: TextStyle(color: colorScheme.error),
+      );
+    }
+
+    final result = this.result;
+    if (result == null) {
+      return const Text('No scan has run yet.');
+    }
+
+    final errorSuffix = result.hasErrors
+        ? ' ${result.errors.length} file errors were recorded.'
+        : '';
+    return Text('${result.summary}$errorSuffix');
+  }
+}
+
+final class _TrackListTile extends StatelessWidget {
+  const _TrackListTile({required this.track});
+
+  final Track track;
+
+  @override
+  Widget build(BuildContext context) {
+    final metadata = [
+      track.artist,
+      track.album,
+      track.codec?.toUpperCase(),
+    ].where((value) => value != null && value.trim().isNotEmpty).join(' - ');
+    final subtitle = metadata.isEmpty ? track.filePath : metadata;
+
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      title: Text(
+        track.displayTitle,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
       ),
-      label: Text(label),
-      backgroundColor: backgroundColor,
-      labelStyle: TextStyle(color: foregroundColor),
-      side: BorderSide.none,
+      subtitle: Text(
+        subtitle,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      trailing: const Icon(Icons.music_note_outlined),
+    );
+  }
+}
+
+final class _EmptyState extends StatelessWidget {
+  const _EmptyState({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Text(
+        message,
+        textAlign: TextAlign.center,
+      ),
     );
   }
 }

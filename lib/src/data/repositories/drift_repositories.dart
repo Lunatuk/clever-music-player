@@ -42,6 +42,15 @@ final class DriftLibraryRepository implements LibraryRepository {
   }
 
   @override
+  Future<LibraryFolder?> findFolderByPath(String path) async {
+    final row = await (_database.select(_database.libraryFolders)
+          ..where((table) => table.path.equals(path)))
+        .getSingleOrNull();
+
+    return row == null ? null : libraryFolderFromRow(row);
+  }
+
+  @override
   Future<List<LibraryFolder>> listFolders({bool includeDisabled = true}) {
     final query = _database.select(_database.libraryFolders);
     if (!includeDisabled) {
@@ -79,16 +88,32 @@ final class DriftTrackRepository implements TrackRepository {
   final AppDatabase _database;
 
   @override
-  Future<int> upsertTrack(Track track) {
-    return _database
-        .into(_database.tracks)
-        .insertOnConflictUpdate(trackToCompanion(track));
+  Future<int> upsertTrack(Track track) async {
+    final existing = await _findExistingTrackForUpsert(track);
+    if (existing == null) {
+      return _database.into(_database.tracks).insert(trackToCompanion(track));
+    }
+
+    final id = existing.id!;
+    await (_database.update(_database.tracks)
+          ..where((table) => table.id.equals(id)))
+        .write(trackToCompanion(track.copyWith(id: id)));
+    return id;
   }
 
   @override
   Future<Track?> findById(int id) async {
     final row = await (_database.select(_database.tracks)
           ..where((table) => table.id.equals(id)))
+        .getSingleOrNull();
+
+    return row == null ? null : trackFromRow(row);
+  }
+
+  @override
+  Future<Track?> findByStableId(String stableId) async {
+    final row = await (_database.select(_database.tracks)
+          ..where((table) => table.stableId.equals(stableId)))
         .getSingleOrNull();
 
     return row == null ? null : trackFromRow(row);
@@ -106,6 +131,7 @@ final class DriftTrackRepository implements TrackRepository {
   @override
   Future<List<Track>> listTracks({int limit = 100, int offset = 0}) {
     final query = _database.select(_database.tracks)
+      ..where((table) => table.isMissing.equals(false))
       ..orderBy([
         (table) => OrderingTerm(expression: table.title),
         (table) => OrderingTerm(expression: table.filePath),
@@ -116,8 +142,44 @@ final class DriftTrackRepository implements TrackRepository {
   }
 
   @override
+  Future<List<Track>> listTracksByLibraryFolder(
+    int libraryFolderId, {
+    bool includeMissing = true,
+  }) {
+    final query = _database.select(_database.tracks)
+      ..where((table) {
+        final folderExpression = table.libraryFolderId.equals(libraryFolderId);
+        if (includeMissing) {
+          return folderExpression;
+        }
+        return folderExpression & table.isMissing.equals(false);
+      })
+      ..orderBy([
+        (table) => OrderingTerm(expression: table.title),
+        (table) => OrderingTerm(expression: table.filePath),
+      ]);
+
+    return query.get().then((rows) => rows.map(trackFromRow).toList());
+  }
+
+  @override
+  Stream<List<Track>> watchAllTracks({bool includeMissing = false}) {
+    final query = _database.select(_database.tracks);
+    if (!includeMissing) {
+      query.where((table) => table.isMissing.equals(false));
+    }
+    query.orderBy([
+      (table) => OrderingTerm(expression: table.title),
+      (table) => OrderingTerm(expression: table.filePath),
+    ]);
+
+    return query.watch().map((rows) => rows.map(trackFromRow).toList());
+  }
+
+  @override
   Stream<List<Track>> watchTracks({int limit = 100}) {
     final query = _database.select(_database.tracks)
+      ..where((table) => table.isMissing.equals(false))
       ..orderBy([
         (table) => OrderingTerm(expression: table.title),
         (table) => OrderingTerm(expression: table.filePath),
@@ -132,6 +194,25 @@ final class DriftTrackRepository implements TrackRepository {
     await (_database.delete(_database.tracks)
           ..where((table) => table.id.equals(id)))
         .go();
+  }
+
+  Future<Track?> _findExistingTrackForUpsert(Track track) async {
+    if (track.id != null) {
+      final byId = await findById(track.id!);
+      if (byId != null) {
+        return byId;
+      }
+    }
+
+    final stableId = track.stableId;
+    if (stableId != null && stableId.isNotEmpty) {
+      final byStableId = await findByStableId(stableId);
+      if (byStableId != null) {
+        return byStableId;
+      }
+    }
+
+    return findByPath(track.filePath);
   }
 }
 
