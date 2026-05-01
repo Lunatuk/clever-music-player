@@ -284,6 +284,16 @@ final class _FakeTrackUserStateRepository implements TrackUserStateRepository {
   }
 
   @override
+  Stream<Map<int, TrackUserState>> watchTrackStatesByTrackIds(
+    Iterable<int> trackIds,
+  ) {
+    return Stream.value({
+      for (final trackId in trackIds)
+        if (states[trackId] != null) trackId: states[trackId]!,
+    });
+  }
+
+  @override
   Future<void> deleteState(int trackId) async {
     states.remove(trackId);
   }

@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:clever_music_player/src/data/drift/app_database.dart';
 import 'package:clever_music_player/src/data/repositories/drift_repositories.dart';
+import 'package:clever_music_player/src/domain/models/models.dart';
 import 'package:clever_music_player/src/library/library_scanner_service.dart';
 import 'package:clever_music_player/src/library/metadata_reader_service.dart';
 import 'package:drift/native.dart';
@@ -51,7 +52,8 @@ void main() {
     expect(result.errors, isEmpty);
 
     final tracks = await repositories.tracks.listTracks(limit: 10);
-    expect(tracks.map((track) => track.title), containsAll(['first', 'second']));
+    expect(
+        tracks.map((track) => track.title), containsAll(['first', 'second']));
     expect(tracks.every((track) => track.stableId != null), isTrue);
     expect(tracks.every((track) => track.lastSeenAt != null), isTrue);
     expect(tracks.every((track) => !track.isMissing), isTrue);
@@ -97,4 +99,118 @@ void main() {
     expect(tracks.where((track) => track.isMissing), hasLength(1));
     expect(tracks.where((track) => !track.isMissing), hasLength(1));
   });
+
+  test('scanner does not mark tracks missing when traversal fails', () async {
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'clever_music_traversal_error_test_',
+    );
+    addTearDown(() => tempDirectory.delete(recursive: true));
+
+    final database = AppDatabase(NativeDatabase.memory());
+    addTearDown(database.close);
+    final repositories = DriftRepositories(database);
+    final folder = await _seedKnownFolder(
+      repositories,
+      tempDirectory.path,
+    );
+    await _seedKnownTrack(
+      repositories,
+      folderId: folder.id!,
+      filePath: p.join(tempDirectory.path, 'known.mp3'),
+    );
+    final scanner = LibraryScannerService(
+      libraryRepository: repositories.libraryFolders,
+      trackRepository: repositories.tracks,
+      metadataReader: const FallbackMetadataReaderService(),
+      listEntities: (directory) {
+        return Stream.error(
+          FileSystemException('Permission denied', directory.path),
+        );
+      },
+    );
+
+    final result = await scanner.scanFolder(tempDirectory.path);
+
+    expect(result.errors, hasLength(1));
+    expect(result.missingTracks, 0);
+
+    final tracks = await repositories.tracks.listTracksByLibraryFolder(
+      folder.id!,
+      includeMissing: true,
+    );
+    expect(tracks.single.isMissing, isFalse);
+  });
+
+  test('scanner does not mark tracks missing when folder does not exist',
+      () async {
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'clever_music_missing_folder_test_',
+    );
+    addTearDown(() => tempDirectory.delete(recursive: true));
+    final missingFolderPath = p.join(tempDirectory.path, 'missing');
+
+    final database = AppDatabase(NativeDatabase.memory());
+    addTearDown(database.close);
+    final repositories = DriftRepositories(database);
+    final folder = await _seedKnownFolder(
+      repositories,
+      missingFolderPath,
+    );
+    await _seedKnownTrack(
+      repositories,
+      folderId: folder.id!,
+      filePath: p.join(missingFolderPath, 'known.mp3'),
+    );
+    final scanner = LibraryScannerService(
+      libraryRepository: repositories.libraryFolders,
+      trackRepository: repositories.tracks,
+      metadataReader: const FallbackMetadataReaderService(),
+    );
+
+    final result = await scanner.scanFolder(missingFolderPath);
+
+    expect(result.errors, hasLength(1));
+    expect(result.errors.single.message, 'Folder does not exist.');
+    expect(result.missingTracks, 0);
+
+    final tracks = await repositories.tracks.listTracksByLibraryFolder(
+      folder.id!,
+      includeMissing: true,
+    );
+    expect(tracks.single.isMissing, isFalse);
+  });
+}
+
+Future<LibraryFolder> _seedKnownFolder(
+  DriftRepositories repositories,
+  String folderPath,
+) async {
+  final now = DateTime(2026);
+  final normalizedPath = p.normalize(Directory(folderPath).absolute.path);
+  final folder = LibraryFolder(
+    path: normalizedPath,
+    displayName: p.basename(normalizedPath),
+    createdAt: now,
+    updatedAt: now,
+  );
+  final id = await repositories.libraryFolders.upsertFolder(folder);
+  return folder.copyWith(id: id);
+}
+
+Future<void> _seedKnownTrack(
+  DriftRepositories repositories, {
+  required int folderId,
+  required String filePath,
+}) async {
+  final now = DateTime(2026);
+  await repositories.tracks.upsertTrack(
+    Track(
+      libraryFolderId: folderId,
+      stableId: 'known-${p.basename(filePath)}',
+      filePath: p.normalize(filePath),
+      title: 'Known',
+      addedAt: now,
+      updatedAt: now,
+    ),
+  );
 }

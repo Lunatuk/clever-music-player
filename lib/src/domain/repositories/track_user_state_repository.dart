@@ -9,5 +9,9 @@ abstract interface class TrackUserStateRepository {
 
   Stream<TrackUserState?> watchTrackState(int trackId);
 
+  Stream<Map<int, TrackUserState>> watchTrackStatesByTrackIds(
+    Iterable<int> trackIds,
+  );
+
   Future<void> deleteState(int trackId);
 }

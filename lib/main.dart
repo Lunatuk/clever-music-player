@@ -10,6 +10,7 @@ import 'src/library/directory_picker_service.dart';
 import 'src/library/library_scanner_service.dart';
 import 'src/library/metadata_reader_service.dart';
 import 'src/player/just_audio_player_service.dart';
+import 'src/queue/playback_queue_service.dart';
 import 'src/recommendation/recommendation_service.dart';
 
 void main() {
@@ -31,6 +32,13 @@ void main() {
     playbackEvents: repositories.playbackEvents,
     trackUserState: repositories.trackUserState,
   );
+  final playbackQueue = PlaybackQueueService(
+    playerService: playerService,
+    tracks: repositories.tracks,
+    trackUserState: repositories.trackUserState,
+    playbackEvents: repositories.playbackEvents,
+    recommendationService: recommendationService,
+  );
   final dependencies = AppDependencies(
     database: database,
     repositories: repositories,
@@ -38,6 +46,7 @@ void main() {
     libraryScanner: libraryScanner,
     directoryPicker: const FilePickerDirectoryPickerService(),
     playerService: playerService,
+    playbackQueue: playbackQueue,
   );
 
   runApp(
