@@ -38,6 +38,8 @@ class Tracks extends Table {
   IntColumn get trackNumber => integer().nullable()();
   IntColumn get discNumber => integer().nullable()();
   IntColumn get year => integer().nullable()();
+  TextColumn get metadataSource => text().nullable()();
+  RealColumn get metadataConfidence => real().nullable()();
   IntColumn get fileSizeBytes => integer().nullable()();
   DateTimeColumn get modifiedAt => dateTime().nullable()();
   DateTimeColumn get lastSeenAt => dateTime().nullable()();
@@ -108,7 +110,7 @@ class AppDatabase extends _$AppDatabase {
   factory AppDatabase.open() => AppDatabase(_openConnection());
 
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 4;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -128,6 +130,10 @@ class AppDatabase extends _$AppDatabase {
               trackUserStates,
               trackUserStates.completeCount,
             );
+          }
+          if (from < 4) {
+            await migrator.addColumn(tracks, tracks.metadataSource);
+            await migrator.addColumn(tracks, tracks.metadataConfidence);
           }
           await _createIndexes();
         },

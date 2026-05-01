@@ -261,25 +261,36 @@ final class LibraryScannerService {
       fileSizeBytes: metadata.fileSizeBytes,
       durationMs: durationMs,
     );
-    final existing = knownByStableId[stableId] ??
-        knownByFilePath[p.normalize(metadata.filePath)];
+    final existing = knownByFilePath[p.normalize(metadata.filePath)] ??
+        knownByStableId[stableId];
+    final preserveManualMetadata =
+        existing?.metadataSource == MetadataSource.manual;
 
     return Track(
       id: existing?.id,
       libraryFolderId: folderId,
-      stableId: stableId,
+      stableId:
+          preserveManualMetadata ? existing?.stableId ?? stableId : stableId,
       filePath: metadata.filePath,
       contentHash: existing?.contentHash,
-      title: metadata.title,
-      artist: metadata.artist,
-      album: metadata.album,
-      albumArtist: metadata.albumArtist,
-      genre: metadata.genre,
+      title: preserveManualMetadata ? existing?.title : metadata.title,
+      artist: preserveManualMetadata ? existing?.artist : metadata.artist,
+      album: preserveManualMetadata ? existing?.album : metadata.album,
+      albumArtist:
+          preserveManualMetadata ? existing?.albumArtist : metadata.albumArtist,
+      genre: preserveManualMetadata ? existing?.genre : metadata.genre,
       codec: metadata.codec,
       duration: metadata.duration,
-      trackNumber: metadata.trackNumber,
-      discNumber: metadata.discNumber,
-      year: metadata.year,
+      trackNumber:
+          preserveManualMetadata ? existing?.trackNumber : metadata.trackNumber,
+      discNumber:
+          preserveManualMetadata ? existing?.discNumber : metadata.discNumber,
+      year: preserveManualMetadata ? existing?.year : metadata.year,
+      metadataSource: preserveManualMetadata
+          ? MetadataSource.manual
+          : metadata.metadataSource,
+      metadataConfidence:
+          preserveManualMetadata ? 1.0 : metadata.metadataConfidence,
       fileSizeBytes: metadata.fileSizeBytes,
       modifiedAt: metadata.modifiedAt,
       lastSeenAt: now,

@@ -9,5 +9,11 @@ abstract interface class LibraryRepository {
 
   Stream<List<LibraryFolder>> watchFolders({bool includeDisabled = true});
 
+  Future<void> setFolderEnabled(
+    int id, {
+    required bool isEnabled,
+    required DateTime updatedAt,
+  });
+
   Future<void> deleteFolder(int id);
 }

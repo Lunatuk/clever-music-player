@@ -536,6 +536,18 @@ class $TracksTable extends Tracks with TableInfo<$TracksTable, TrackRow> {
   late final GeneratedColumn<int> year = GeneratedColumn<int>(
       'year', aliasedName, true,
       type: DriftSqlType.int, requiredDuringInsert: false);
+  static const VerificationMeta _metadataSourceMeta =
+      const VerificationMeta('metadataSource');
+  @override
+  late final GeneratedColumn<String> metadataSource = GeneratedColumn<String>(
+      'metadata_source', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _metadataConfidenceMeta =
+      const VerificationMeta('metadataConfidence');
+  @override
+  late final GeneratedColumn<double> metadataConfidence =
+      GeneratedColumn<double>('metadata_confidence', aliasedName, true,
+          type: DriftSqlType.double, requiredDuringInsert: false);
   static const VerificationMeta _fileSizeBytesMeta =
       const VerificationMeta('fileSizeBytes');
   @override
@@ -593,6 +605,8 @@ class $TracksTable extends Tracks with TableInfo<$TracksTable, TrackRow> {
         trackNumber,
         discNumber,
         year,
+        metadataSource,
+        metadataConfidence,
         fileSizeBytes,
         modifiedAt,
         lastSeenAt,
@@ -683,6 +697,18 @@ class $TracksTable extends Tracks with TableInfo<$TracksTable, TrackRow> {
       context.handle(
           _yearMeta, year.isAcceptableOrUnknown(data['year']!, _yearMeta));
     }
+    if (data.containsKey('metadata_source')) {
+      context.handle(
+          _metadataSourceMeta,
+          metadataSource.isAcceptableOrUnknown(
+              data['metadata_source']!, _metadataSourceMeta));
+    }
+    if (data.containsKey('metadata_confidence')) {
+      context.handle(
+          _metadataConfidenceMeta,
+          metadataConfidence.isAcceptableOrUnknown(
+              data['metadata_confidence']!, _metadataConfidenceMeta));
+    }
     if (data.containsKey('file_size_bytes')) {
       context.handle(
           _fileSizeBytesMeta,
@@ -756,6 +782,10 @@ class $TracksTable extends Tracks with TableInfo<$TracksTable, TrackRow> {
           .read(DriftSqlType.int, data['${effectivePrefix}disc_number']),
       year: attachedDatabase.typeMapping
           .read(DriftSqlType.int, data['${effectivePrefix}year']),
+      metadataSource: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}metadata_source']),
+      metadataConfidence: attachedDatabase.typeMapping.read(
+          DriftSqlType.double, data['${effectivePrefix}metadata_confidence']),
       fileSizeBytes: attachedDatabase.typeMapping
           .read(DriftSqlType.int, data['${effectivePrefix}file_size_bytes']),
       modifiedAt: attachedDatabase.typeMapping
@@ -793,6 +823,8 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
   final int? trackNumber;
   final int? discNumber;
   final int? year;
+  final String? metadataSource;
+  final double? metadataConfidence;
   final int? fileSizeBytes;
   final DateTime? modifiedAt;
   final DateTime? lastSeenAt;
@@ -815,6 +847,8 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
       this.trackNumber,
       this.discNumber,
       this.year,
+      this.metadataSource,
+      this.metadataConfidence,
       this.fileSizeBytes,
       this.modifiedAt,
       this.lastSeenAt,
@@ -864,6 +898,12 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
     }
     if (!nullToAbsent || year != null) {
       map['year'] = Variable<int>(year);
+    }
+    if (!nullToAbsent || metadataSource != null) {
+      map['metadata_source'] = Variable<String>(metadataSource);
+    }
+    if (!nullToAbsent || metadataConfidence != null) {
+      map['metadata_confidence'] = Variable<double>(metadataConfidence);
     }
     if (!nullToAbsent || fileSizeBytes != null) {
       map['file_size_bytes'] = Variable<int>(fileSizeBytes);
@@ -916,6 +956,12 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
           ? const Value.absent()
           : Value(discNumber),
       year: year == null && nullToAbsent ? const Value.absent() : Value(year),
+      metadataSource: metadataSource == null && nullToAbsent
+          ? const Value.absent()
+          : Value(metadataSource),
+      metadataConfidence: metadataConfidence == null && nullToAbsent
+          ? const Value.absent()
+          : Value(metadataConfidence),
       fileSizeBytes: fileSizeBytes == null && nullToAbsent
           ? const Value.absent()
           : Value(fileSizeBytes),
@@ -950,6 +996,9 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
       trackNumber: serializer.fromJson<int?>(json['trackNumber']),
       discNumber: serializer.fromJson<int?>(json['discNumber']),
       year: serializer.fromJson<int?>(json['year']),
+      metadataSource: serializer.fromJson<String?>(json['metadataSource']),
+      metadataConfidence:
+          serializer.fromJson<double?>(json['metadataConfidence']),
       fileSizeBytes: serializer.fromJson<int?>(json['fileSizeBytes']),
       modifiedAt: serializer.fromJson<DateTime?>(json['modifiedAt']),
       lastSeenAt: serializer.fromJson<DateTime?>(json['lastSeenAt']),
@@ -977,6 +1026,8 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
       'trackNumber': serializer.toJson<int?>(trackNumber),
       'discNumber': serializer.toJson<int?>(discNumber),
       'year': serializer.toJson<int?>(year),
+      'metadataSource': serializer.toJson<String?>(metadataSource),
+      'metadataConfidence': serializer.toJson<double?>(metadataConfidence),
       'fileSizeBytes': serializer.toJson<int?>(fileSizeBytes),
       'modifiedAt': serializer.toJson<DateTime?>(modifiedAt),
       'lastSeenAt': serializer.toJson<DateTime?>(lastSeenAt),
@@ -1002,6 +1053,8 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
           Value<int?> trackNumber = const Value.absent(),
           Value<int?> discNumber = const Value.absent(),
           Value<int?> year = const Value.absent(),
+          Value<String?> metadataSource = const Value.absent(),
+          Value<double?> metadataConfidence = const Value.absent(),
           Value<int?> fileSizeBytes = const Value.absent(),
           Value<DateTime?> modifiedAt = const Value.absent(),
           Value<DateTime?> lastSeenAt = const Value.absent(),
@@ -1026,6 +1079,11 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
         trackNumber: trackNumber.present ? trackNumber.value : this.trackNumber,
         discNumber: discNumber.present ? discNumber.value : this.discNumber,
         year: year.present ? year.value : this.year,
+        metadataSource:
+            metadataSource.present ? metadataSource.value : this.metadataSource,
+        metadataConfidence: metadataConfidence.present
+            ? metadataConfidence.value
+            : this.metadataConfidence,
         fileSizeBytes:
             fileSizeBytes.present ? fileSizeBytes.value : this.fileSizeBytes,
         modifiedAt: modifiedAt.present ? modifiedAt.value : this.modifiedAt,
@@ -1058,6 +1116,12 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
       discNumber:
           data.discNumber.present ? data.discNumber.value : this.discNumber,
       year: data.year.present ? data.year.value : this.year,
+      metadataSource: data.metadataSource.present
+          ? data.metadataSource.value
+          : this.metadataSource,
+      metadataConfidence: data.metadataConfidence.present
+          ? data.metadataConfidence.value
+          : this.metadataConfidence,
       fileSizeBytes: data.fileSizeBytes.present
           ? data.fileSizeBytes.value
           : this.fileSizeBytes,
@@ -1089,6 +1153,8 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
           ..write('trackNumber: $trackNumber, ')
           ..write('discNumber: $discNumber, ')
           ..write('year: $year, ')
+          ..write('metadataSource: $metadataSource, ')
+          ..write('metadataConfidence: $metadataConfidence, ')
           ..write('fileSizeBytes: $fileSizeBytes, ')
           ..write('modifiedAt: $modifiedAt, ')
           ..write('lastSeenAt: $lastSeenAt, ')
@@ -1116,6 +1182,8 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
         trackNumber,
         discNumber,
         year,
+        metadataSource,
+        metadataConfidence,
         fileSizeBytes,
         modifiedAt,
         lastSeenAt,
@@ -1142,6 +1210,8 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
           other.trackNumber == this.trackNumber &&
           other.discNumber == this.discNumber &&
           other.year == this.year &&
+          other.metadataSource == this.metadataSource &&
+          other.metadataConfidence == this.metadataConfidence &&
           other.fileSizeBytes == this.fileSizeBytes &&
           other.modifiedAt == this.modifiedAt &&
           other.lastSeenAt == this.lastSeenAt &&
@@ -1166,6 +1236,8 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
   final Value<int?> trackNumber;
   final Value<int?> discNumber;
   final Value<int?> year;
+  final Value<String?> metadataSource;
+  final Value<double?> metadataConfidence;
   final Value<int?> fileSizeBytes;
   final Value<DateTime?> modifiedAt;
   final Value<DateTime?> lastSeenAt;
@@ -1188,6 +1260,8 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
     this.trackNumber = const Value.absent(),
     this.discNumber = const Value.absent(),
     this.year = const Value.absent(),
+    this.metadataSource = const Value.absent(),
+    this.metadataConfidence = const Value.absent(),
     this.fileSizeBytes = const Value.absent(),
     this.modifiedAt = const Value.absent(),
     this.lastSeenAt = const Value.absent(),
@@ -1211,6 +1285,8 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
     this.trackNumber = const Value.absent(),
     this.discNumber = const Value.absent(),
     this.year = const Value.absent(),
+    this.metadataSource = const Value.absent(),
+    this.metadataConfidence = const Value.absent(),
     this.fileSizeBytes = const Value.absent(),
     this.modifiedAt = const Value.absent(),
     this.lastSeenAt = const Value.absent(),
@@ -1236,6 +1312,8 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
     Expression<int>? trackNumber,
     Expression<int>? discNumber,
     Expression<int>? year,
+    Expression<String>? metadataSource,
+    Expression<double>? metadataConfidence,
     Expression<int>? fileSizeBytes,
     Expression<DateTime>? modifiedAt,
     Expression<DateTime>? lastSeenAt,
@@ -1259,6 +1337,8 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
       if (trackNumber != null) 'track_number': trackNumber,
       if (discNumber != null) 'disc_number': discNumber,
       if (year != null) 'year': year,
+      if (metadataSource != null) 'metadata_source': metadataSource,
+      if (metadataConfidence != null) 'metadata_confidence': metadataConfidence,
       if (fileSizeBytes != null) 'file_size_bytes': fileSizeBytes,
       if (modifiedAt != null) 'modified_at': modifiedAt,
       if (lastSeenAt != null) 'last_seen_at': lastSeenAt,
@@ -1284,6 +1364,8 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
       Value<int?>? trackNumber,
       Value<int?>? discNumber,
       Value<int?>? year,
+      Value<String?>? metadataSource,
+      Value<double?>? metadataConfidence,
       Value<int?>? fileSizeBytes,
       Value<DateTime?>? modifiedAt,
       Value<DateTime?>? lastSeenAt,
@@ -1306,6 +1388,8 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
       trackNumber: trackNumber ?? this.trackNumber,
       discNumber: discNumber ?? this.discNumber,
       year: year ?? this.year,
+      metadataSource: metadataSource ?? this.metadataSource,
+      metadataConfidence: metadataConfidence ?? this.metadataConfidence,
       fileSizeBytes: fileSizeBytes ?? this.fileSizeBytes,
       modifiedAt: modifiedAt ?? this.modifiedAt,
       lastSeenAt: lastSeenAt ?? this.lastSeenAt,
@@ -1363,6 +1447,12 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
     if (year.present) {
       map['year'] = Variable<int>(year.value);
     }
+    if (metadataSource.present) {
+      map['metadata_source'] = Variable<String>(metadataSource.value);
+    }
+    if (metadataConfidence.present) {
+      map['metadata_confidence'] = Variable<double>(metadataConfidence.value);
+    }
     if (fileSizeBytes.present) {
       map['file_size_bytes'] = Variable<int>(fileSizeBytes.value);
     }
@@ -1402,6 +1492,8 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
           ..write('trackNumber: $trackNumber, ')
           ..write('discNumber: $discNumber, ')
           ..write('year: $year, ')
+          ..write('metadataSource: $metadataSource, ')
+          ..write('metadataConfidence: $metadataConfidence, ')
           ..write('fileSizeBytes: $fileSizeBytes, ')
           ..write('modifiedAt: $modifiedAt, ')
           ..write('lastSeenAt: $lastSeenAt, ')
@@ -3097,6 +3189,8 @@ typedef $$TracksTableCreateCompanionBuilder = TracksCompanion Function({
   Value<int?> trackNumber,
   Value<int?> discNumber,
   Value<int?> year,
+  Value<String?> metadataSource,
+  Value<double?> metadataConfidence,
   Value<int?> fileSizeBytes,
   Value<DateTime?> modifiedAt,
   Value<DateTime?> lastSeenAt,
@@ -3120,6 +3214,8 @@ typedef $$TracksTableUpdateCompanionBuilder = TracksCompanion Function({
   Value<int?> trackNumber,
   Value<int?> discNumber,
   Value<int?> year,
+  Value<String?> metadataSource,
+  Value<double?> metadataConfidence,
   Value<int?> fileSizeBytes,
   Value<DateTime?> modifiedAt,
   Value<DateTime?> lastSeenAt,
@@ -3230,6 +3326,14 @@ class $$TracksTableFilterComposer
 
   ColumnFilters<int> get year => $composableBuilder(
       column: $table.year, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get metadataSource => $composableBuilder(
+      column: $table.metadataSource,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<double> get metadataConfidence => $composableBuilder(
+      column: $table.metadataConfidence,
+      builder: (column) => ColumnFilters(column));
 
   ColumnFilters<int> get fileSizeBytes => $composableBuilder(
       column: $table.fileSizeBytes, builder: (column) => ColumnFilters(column));
@@ -3363,6 +3467,14 @@ class $$TracksTableOrderingComposer
   ColumnOrderings<int> get year => $composableBuilder(
       column: $table.year, builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<String> get metadataSource => $composableBuilder(
+      column: $table.metadataSource,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<double> get metadataConfidence => $composableBuilder(
+      column: $table.metadataConfidence,
+      builder: (column) => ColumnOrderings(column));
+
   ColumnOrderings<int> get fileSizeBytes => $composableBuilder(
       column: $table.fileSizeBytes,
       builder: (column) => ColumnOrderings(column));
@@ -3453,6 +3565,12 @@ class $$TracksTableAnnotationComposer
 
   GeneratedColumn<int> get year =>
       $composableBuilder(column: $table.year, builder: (column) => column);
+
+  GeneratedColumn<String> get metadataSource => $composableBuilder(
+      column: $table.metadataSource, builder: (column) => column);
+
+  GeneratedColumn<double> get metadataConfidence => $composableBuilder(
+      column: $table.metadataConfidence, builder: (column) => column);
 
   GeneratedColumn<int> get fileSizeBytes => $composableBuilder(
       column: $table.fileSizeBytes, builder: (column) => column);
@@ -3576,6 +3694,8 @@ class $$TracksTableTableManager extends RootTableManager<
             Value<int?> trackNumber = const Value.absent(),
             Value<int?> discNumber = const Value.absent(),
             Value<int?> year = const Value.absent(),
+            Value<String?> metadataSource = const Value.absent(),
+            Value<double?> metadataConfidence = const Value.absent(),
             Value<int?> fileSizeBytes = const Value.absent(),
             Value<DateTime?> modifiedAt = const Value.absent(),
             Value<DateTime?> lastSeenAt = const Value.absent(),
@@ -3599,6 +3719,8 @@ class $$TracksTableTableManager extends RootTableManager<
             trackNumber: trackNumber,
             discNumber: discNumber,
             year: year,
+            metadataSource: metadataSource,
+            metadataConfidence: metadataConfidence,
             fileSizeBytes: fileSizeBytes,
             modifiedAt: modifiedAt,
             lastSeenAt: lastSeenAt,
@@ -3622,6 +3744,8 @@ class $$TracksTableTableManager extends RootTableManager<
             Value<int?> trackNumber = const Value.absent(),
             Value<int?> discNumber = const Value.absent(),
             Value<int?> year = const Value.absent(),
+            Value<String?> metadataSource = const Value.absent(),
+            Value<double?> metadataConfidence = const Value.absent(),
             Value<int?> fileSizeBytes = const Value.absent(),
             Value<DateTime?> modifiedAt = const Value.absent(),
             Value<DateTime?> lastSeenAt = const Value.absent(),
@@ -3645,6 +3769,8 @@ class $$TracksTableTableManager extends RootTableManager<
             trackNumber: trackNumber,
             discNumber: discNumber,
             year: year,
+            metadataSource: metadataSource,
+            metadataConfidence: metadataConfidence,
             fileSizeBytes: fileSizeBytes,
             modifiedAt: modifiedAt,
             lastSeenAt: lastSeenAt,

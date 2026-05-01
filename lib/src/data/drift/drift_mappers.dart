@@ -46,6 +46,8 @@ Track trackFromRow(TrackRow row) {
     trackNumber: row.trackNumber,
     discNumber: row.discNumber,
     year: row.year,
+    metadataSource: MetadataSource.fromStorageKey(row.metadataSource),
+    metadataConfidence: row.metadataConfidence,
     fileSizeBytes: row.fileSizeBytes,
     modifiedAt: row.modifiedAt,
     lastSeenAt: row.lastSeenAt,
@@ -72,6 +74,8 @@ TracksCompanion trackToCompanion(Track track) {
     trackNumber: Value(track.trackNumber),
     discNumber: Value(track.discNumber),
     year: Value(track.year),
+    metadataSource: Value(track.metadataSource?.storageKey),
+    metadataConfidence: Value(track.metadataConfidence),
     fileSizeBytes: Value(track.fileSizeBytes),
     modifiedAt: Value(track.modifiedAt),
     lastSeenAt: Value(track.lastSeenAt),
@@ -89,9 +93,8 @@ PlaybackEvent playbackEventFromRow(PlaybackEventRow row) {
     occurredAt: row.occurredAt,
     position: _durationFromMilliseconds(row.positionMs),
     trackDuration: _durationFromMilliseconds(row.durationMs),
-    waveMode: row.waveMode == null
-        ? null
-        : WaveMode.fromStorageKey(row.waveMode),
+    waveMode:
+        row.waveMode == null ? null : WaveMode.fromStorageKey(row.waveMode),
     metadataJson: row.metadataJson,
   );
 }

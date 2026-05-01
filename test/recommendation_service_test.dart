@@ -351,7 +351,11 @@ final class _FakeTrackRepository implements TrackRepository {
   final List<Track> _tracks;
 
   @override
-  Future<List<Track>> listTracks({int limit = 100, int offset = 0}) async {
+  Future<List<Track>> listTracks({
+    int limit = 100,
+    int offset = 0,
+    bool includeDisabledFolders = false,
+  }) async {
     return _tracks.skip(offset).take(limit).toList(growable: false);
   }
 
@@ -368,6 +372,9 @@ final class _FakeTrackRepository implements TrackRepository {
 
   @override
   Future<void> deleteTrack(int id) async {}
+
+  @override
+  Future<void> deleteTracksByLibraryFolder(int libraryFolderId) async {}
 
   @override
   Future<Track?> findById(int id) async {
@@ -405,12 +412,21 @@ final class _FakeTrackRepository implements TrackRepository {
   }
 
   @override
-  Stream<List<Track>> watchTracks({int limit = 100}) {
+  Future<void> updateTrackMetadata(TrackMetadataUpdate metadata) async {}
+
+  @override
+  Stream<List<Track>> watchTracks({
+    int limit = 100,
+    bool includeDisabledFolders = false,
+  }) {
     return Stream.value(_tracks.take(limit).toList(growable: false));
   }
 
   @override
-  Stream<List<Track>> watchAllTracks({bool includeMissing = false}) {
+  Stream<List<Track>> watchAllTracks({
+    bool includeMissing = false,
+    bool includeDisabledFolders = false,
+  }) {
     return Stream.value(
       _tracks
           .where((track) => includeMissing || !track.isMissing)

@@ -10,17 +10,59 @@ import 'queue_state.dart';
 
 const Object _unsetFeedbackValue = Object();
 const int recommendationSelectionPoolLimit = 10;
+const double negativeScoreSelectionTolerance = 10.0;
 const double _maxSelectionWeightBoost = 12;
 
 List<RecommendationResult> buildWeightedSelectionPool(
   List<RecommendationResult> recommendations, {
   int limit = recommendationSelectionPoolLimit,
 }) {
+  return buildWeightedSelectionPoolResult(
+    recommendations,
+    limit: limit,
+  ).candidates;
+}
+
+WeightedSelectionPoolResult buildWeightedSelectionPoolResult(
+  List<RecommendationResult> recommendations, {
+  int limit = recommendationSelectionPoolLimit,
+  double negativeScoreTolerance = negativeScoreSelectionTolerance,
+}) {
   final preferred = recommendations
       .where((recommendation) => _safeScore(recommendation.score) >= 1)
       .toList(growable: false);
-  final source = preferred.isNotEmpty ? preferred : recommendations;
-  return source.take(limit).toList(growable: false);
+  if (preferred.isNotEmpty) {
+    return WeightedSelectionPoolResult(
+      candidates: preferred.take(limit).toList(growable: false),
+    );
+  }
+
+  if (recommendations.isEmpty) {
+    return WeightedSelectionPoolResult(candidates: const []);
+  }
+
+  final bestScore = recommendations
+      .map((recommendation) => _safeScore(recommendation.score))
+      .reduce(max);
+  final minimumAllowedScore = bestScore - negativeScoreTolerance;
+  final cutoffCandidates = recommendations
+      .where(
+        (recommendation) =>
+            _safeScore(recommendation.score) >= minimumAllowedScore,
+      )
+      .toList(growable: false);
+  final source = cutoffCandidates.isEmpty ? recommendations : cutoffCandidates;
+  final cutoffApplied = cutoffCandidates.isNotEmpty &&
+      cutoffCandidates.length < recommendations.length;
+
+  return WeightedSelectionPoolResult(
+    candidates: source.take(limit).toList(growable: false),
+    message: cutoffApplied
+        ? 'Negative score cutoff active: showing candidates within '
+            '${negativeScoreTolerance.toStringAsFixed(1)} points of best '
+            'available score.'
+        : null,
+  );
 }
 
 List<double> selectionWeightsForRecommendations(
@@ -66,6 +108,16 @@ double selectionWeightForScore(
 
 double _safeScore(double score) {
   return score.isFinite ? score : 0;
+}
+
+final class WeightedSelectionPoolResult {
+  WeightedSelectionPoolResult({
+    required Iterable<RecommendationResult> candidates,
+    this.message,
+  }) : candidates = List.unmodifiable(candidates);
+
+  final List<RecommendationResult> candidates;
+  final String? message;
 }
 
 final class PlaybackQueueService {
@@ -124,6 +176,7 @@ final class PlaybackQueueService {
         lastRecommendationResult: null,
         recommendationCandidates: const [],
         repeatGuardMessage: null,
+        selectionPoolMessage: null,
         lastError: null,
       ),
     );
@@ -265,6 +318,7 @@ final class PlaybackQueueService {
             lastRecommendationResult: null,
             recommendationCandidates: const [],
             repeatGuardMessage: null,
+            selectionPoolMessage: null,
             lastError: 'No playable tracks are available in the library.',
           ),
         );
@@ -293,6 +347,7 @@ final class PlaybackQueueService {
             lastRecommendationResult: null,
             recommendationCandidates: const [],
             repeatGuardMessage: null,
+            selectionPoolMessage: null,
             lastError: 'No tracks match the current wave settings.',
           ),
         );
@@ -304,7 +359,9 @@ final class PlaybackQueueService {
         recentEvents: recentEvents,
         tracks: availableTracks,
       );
-      final selectionPool = buildWeightedSelectionPool(guarded.candidates);
+      final selectionPoolResult =
+          buildWeightedSelectionPoolResult(guarded.candidates);
+      final selectionPool = selectionPoolResult.candidates;
       final selected = _selectWeightedRecommendation(selectionPool);
       final upcoming = _firstAlternativeTrack(selectionPool, selected.track);
 
@@ -316,6 +373,7 @@ final class PlaybackQueueService {
           lastRecommendationResult: selected,
           recommendationCandidates: selectionPool,
           repeatGuardMessage: guarded.message,
+          selectionPoolMessage: selectionPoolResult.message,
           lastError: null,
         ),
       );

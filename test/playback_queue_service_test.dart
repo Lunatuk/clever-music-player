@@ -1,11 +1,16 @@
 import 'dart:async';
 
+import 'package:clever_music_player/src/data/drift/app_database.dart';
+import 'package:clever_music_player/src/data/repositories/drift_repositories.dart';
 import 'package:clever_music_player/src/domain/models/models.dart';
 import 'package:clever_music_player/src/domain/repositories/repositories.dart';
 import 'package:clever_music_player/src/player/player_service.dart';
 import 'package:clever_music_player/src/player/player_state.dart';
 import 'package:clever_music_player/src/queue/playback_queue_service.dart';
 import 'package:clever_music_player/src/recommendation/recommendation_service.dart';
+import 'package:clever_music_player/src/library/library_management_service.dart';
+import 'package:clever_music_player/src/library/library_scanner_service.dart';
+import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -56,12 +61,39 @@ void main() {
     expect(pool.map((result) => result.track.id), [1, 4]);
   });
 
-  test('weighted selection pool uses negatives when no positive scores exist',
+  test('weighted selection pool uses negative cutoff when no positives exist',
       () {
     final now = DateTime(2026);
     final pool = buildWeightedSelectionPool([
-      _recommendationResult(id: 1, title: 'Minus One', score: -1, now: now),
-      _recommendationResult(id: 2, title: 'Minus Seven', score: -7, now: now),
+      _recommendationResult(id: 1, title: 'Minus Five', score: -5, now: now),
+      _recommendationResult(
+        id: 2,
+        title: 'Minus Thirteen',
+        score: -13,
+        now: now,
+      ),
+      _recommendationResult(
+        id: 3,
+        title: 'Minus Fifteen',
+        score: -15,
+        now: now,
+      ),
+      _recommendationResult(
+        id: 4,
+        title: 'Minus Twenty Three',
+        score: -23,
+        now: now,
+      ),
+    ]);
+
+    expect(pool.map((result) => result.track.id), [1, 2, 3]);
+  });
+
+  test('negative cutoff excludes distant scores', () {
+    final now = DateTime(2026);
+    final pool = buildWeightedSelectionPool([
+      _recommendationResult(id: 1, title: 'Minus Seven', score: -7, now: now),
+      _recommendationResult(id: 2, title: 'Minus Eight', score: -8, now: now),
       _recommendationResult(
         id: 3,
         title: 'Minus Thirty Five',
@@ -70,7 +102,79 @@ void main() {
       ),
     ]);
 
+    expect(pool.map((result) => result.track.id), [1, 2]);
+  });
+
+  test('negative cutoff keeps all scores within tolerance', () {
+    final now = DateTime(2026);
+    final pool = buildWeightedSelectionPool([
+      _recommendationResult(id: 1, title: 'Minus Twenty', score: -20, now: now),
+      _recommendationResult(
+        id: 2,
+        title: 'Minus Twenty Five',
+        score: -25,
+        now: now,
+      ),
+      _recommendationResult(
+        id: 3,
+        title: 'Minus Twenty Eight',
+        score: -28,
+        now: now,
+      ),
+    ]);
+
     expect(pool.map((result) => result.track.id), [1, 2, 3]);
+  });
+
+  test('negative cutoff result reports when cutoff is active', () {
+    final now = DateTime(2026);
+    final result = buildWeightedSelectionPoolResult([
+      _recommendationResult(id: 1, title: 'Minus Seven', score: -7, now: now),
+      _recommendationResult(id: 2, title: 'Minus Eight', score: -8, now: now),
+      _recommendationResult(
+        id: 3,
+        title: 'Minus Thirty Five',
+        score: -35,
+        now: now,
+      ),
+    ]);
+
+    expect(result.candidates.map((item) => item.track.id), [1, 2]);
+    expect(
+      result.message,
+      'Negative score cutoff active: showing candidates within 10.0 points '
+      'of best available score.',
+    );
+  });
+
+  test('selection weights prefer higher scores within effective pool', () {
+    final now = DateTime(2026);
+    final pool = buildWeightedSelectionPool([
+      _recommendationResult(id: 1, title: 'Minus Five', score: -5, now: now),
+      _recommendationResult(
+        id: 2,
+        title: 'Minus Thirteen',
+        score: -13,
+        now: now,
+      ),
+      _recommendationResult(
+        id: 3,
+        title: 'Minus Fifteen',
+        score: -15,
+        now: now,
+      ),
+      _recommendationResult(
+        id: 4,
+        title: 'Minus Twenty Three',
+        score: -23,
+        now: now,
+      ),
+    ]);
+    final weights = selectionWeightsForRecommendations(pool);
+
+    expect(pool.map((result) => result.track.id), [1, 2, 3]);
+    expect(weights[0], greaterThan(weights[1]));
+    expect(weights[1], greaterThanOrEqualTo(weights[2]));
   });
 
   test('playSmartNext selects and plays a recommended track', () async {
@@ -172,6 +276,71 @@ void main() {
         (result) => result.score >= 1,
       ),
       isTrue,
+    );
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
+  test('negative cutoff updates debug candidate pool', () async {
+    final now = DateTime(2026);
+    final minusFive = _track(id: 1, title: 'Minus Five', now: now);
+    final minusThirteen = _track(id: 2, title: 'Minus Thirteen', now: now);
+    final minusFifteen = _track(id: 3, title: 'Minus Fifteen', now: now);
+    final minusTwentyThree =
+        _track(id: 4, title: 'Minus Twenty Three', now: now);
+    final tracks = _FakeTrackRepository([
+      minusFive,
+      minusThirteen,
+      minusFifteen,
+      minusTwentyThree,
+    ]);
+    final userState = _FakeTrackUserStateRepository({
+      1: TrackUserState(
+        trackId: 1,
+        playCount: 1,
+        userScoreBoost: -8,
+        updatedAt: now,
+      ),
+      2: TrackUserState(
+        trackId: 2,
+        playCount: 1,
+        userScoreBoost: -16,
+        updatedAt: now,
+      ),
+      3: TrackUserState(
+        trackId: 3,
+        playCount: 1,
+        userScoreBoost: -18,
+        updatedAt: now,
+      ),
+      4: TrackUserState(
+        trackId: 4,
+        playCount: 1,
+        userScoreBoost: -26,
+        updatedAt: now,
+      ),
+    });
+    final player = _FakePlayerService();
+    final queue = _queue(
+      player: player,
+      tracks: tracks,
+      userState: userState,
+      now: now,
+      randomDouble: () => 0.99,
+    );
+
+    await queue.playSmartNext();
+
+    expect(
+      queue.state.recommendationCandidates.map((result) => result.track.id),
+      [1, 2, 3],
+    );
+    expect(queue.state.lastRecommendationResult?.track.id, isNot(4));
+    expect(
+      queue.state.selectionPoolMessage,
+      'Negative score cutoff active: showing candidates within 10.0 points '
+      'of best available score.',
     );
 
     await queue.dispose();
@@ -401,6 +570,149 @@ void main() {
 
     expect(queue.state.lastRecommendationResult?.track.id, 4);
     expect(player.playedTracks.single.id, 4);
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
+  test('smart next excludes tracks from disabled folders', () async {
+    final now = DateTime(2026);
+    final database = AppDatabase(NativeDatabase.memory());
+    addTearDown(database.close);
+    final repositories = DriftRepositories(database);
+    final enabledFolderId = await repositories.libraryFolders.upsertFolder(
+      LibraryFolder(
+        path: '/music/enabled',
+        displayName: 'Enabled',
+        createdAt: now,
+        updatedAt: now,
+      ),
+    );
+    final disabledFolderId = await repositories.libraryFolders.upsertFolder(
+      LibraryFolder(
+        path: '/music/disabled',
+        displayName: 'Disabled',
+        isEnabled: false,
+        createdAt: now,
+        updatedAt: now,
+      ),
+    );
+    await repositories.tracks.upsertTrack(
+      _track(id: 1, title: 'Disabled Track', now: now).copyWith(
+        libraryFolderId: disabledFolderId,
+        filePath: '/music/disabled/disabled-track.flac',
+      ),
+    );
+    await repositories.tracks.upsertTrack(
+      _track(id: 2, title: 'Enabled Track', now: now).copyWith(
+        libraryFolderId: enabledFolderId,
+        filePath: '/music/enabled/enabled-track.flac',
+      ),
+    );
+    final player = _FakePlayerService();
+    final recommendation = RecommendationService(
+      tracks: repositories.tracks,
+      trackUserState: repositories.trackUserState,
+      playbackEvents: repositories.playbackEvents,
+    );
+    final queue = PlaybackQueueService(
+      playerService: player,
+      tracks: repositories.tracks,
+      trackUserState: repositories.trackUserState,
+      playbackEvents: repositories.playbackEvents,
+      recommendationService: recommendation,
+      clock: () => now,
+      randomDouble: () => 0,
+    );
+
+    await queue.playSmartNext();
+
+    expect(player.playedTracks.single.title, 'Enabled Track');
+    expect(
+      queue.state.recommendationCandidates.map(
+        (result) => result.track.title,
+      ),
+      isNot(contains('Disabled Track')),
+    );
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
+  test('smart next excludes tracks from removed folders', () async {
+    final now = DateTime(2026);
+    final database = AppDatabase(NativeDatabase.memory());
+    addTearDown(database.close);
+    final repositories = DriftRepositories(database);
+    final enabledFolderId = await repositories.libraryFolders.upsertFolder(
+      LibraryFolder(
+        path: '/music/enabled',
+        displayName: 'Enabled',
+        createdAt: now,
+        updatedAt: now,
+      ),
+    );
+    final removedFolder = LibraryFolder(
+      path: '/music/removed',
+      displayName: 'Removed',
+      isEnabled: false,
+      createdAt: now,
+      updatedAt: now,
+    );
+    final removedFolderId = await repositories.libraryFolders.upsertFolder(
+      removedFolder,
+    );
+    final persistedRemovedFolder = removedFolder.copyWith(id: removedFolderId);
+    await repositories.tracks.upsertTrack(
+      _track(id: 1, title: 'Removed Track', now: now).copyWith(
+        libraryFolderId: removedFolderId,
+        filePath: '/music/removed/removed-track.flac',
+      ),
+    );
+    await repositories.tracks.upsertTrack(
+      _track(id: 2, title: 'Enabled Track', now: now).copyWith(
+        libraryFolderId: enabledFolderId,
+        filePath: '/music/enabled/enabled-track.flac',
+      ),
+    );
+    final service = LibraryManagementService(
+      libraryRepository: repositories.libraryFolders,
+      trackRepository: repositories.tracks,
+      scanFolder: (path) async => LibraryScanResult(
+        folderPath: path,
+        scannedFiles: 0,
+        addedTracks: 0,
+        updatedTracks: 0,
+        missingTracks: 0,
+        errors: const [],
+      ),
+    );
+    await service.removeFolderFromLibrary(persistedRemovedFolder);
+    final player = _FakePlayerService();
+    final recommendation = RecommendationService(
+      tracks: repositories.tracks,
+      trackUserState: repositories.trackUserState,
+      playbackEvents: repositories.playbackEvents,
+    );
+    final queue = PlaybackQueueService(
+      playerService: player,
+      tracks: repositories.tracks,
+      trackUserState: repositories.trackUserState,
+      playbackEvents: repositories.playbackEvents,
+      recommendationService: recommendation,
+      clock: () => now,
+      randomDouble: () => 0,
+    );
+
+    await queue.playSmartNext();
+
+    expect(player.playedTracks.single.title, 'Enabled Track');
+    expect(
+      queue.state.recommendationCandidates.map(
+        (result) => result.track.title,
+      ),
+      isNot(contains('Removed Track')),
+    );
 
     await queue.dispose();
     await player.dispose();
@@ -1096,6 +1408,9 @@ final class _FakeTrackRepository implements TrackRepository {
   }
 
   @override
+  Future<void> updateTrackMetadata(TrackMetadataUpdate metadata) async {}
+
+  @override
   Future<Track?> findById(int id) async {
     for (final track in _tracks) {
       if (track.id == id) {
@@ -1126,7 +1441,11 @@ final class _FakeTrackRepository implements TrackRepository {
   }
 
   @override
-  Future<List<Track>> listTracks({int limit = 100, int offset = 0}) async {
+  Future<List<Track>> listTracks({
+    int limit = 100,
+    int offset = 0,
+    bool includeDisabledFolders = false,
+  }) async {
     return _tracks.skip(offset).take(limit).toList(growable: false);
   }
 
@@ -1142,7 +1461,10 @@ final class _FakeTrackRepository implements TrackRepository {
   }
 
   @override
-  Stream<List<Track>> watchAllTracks({bool includeMissing = false}) {
+  Stream<List<Track>> watchAllTracks({
+    bool includeMissing = false,
+    bool includeDisabledFolders = false,
+  }) {
     return Stream.value(
       _tracks
           .where((track) => includeMissing || !track.isMissing)
@@ -1151,9 +1473,15 @@ final class _FakeTrackRepository implements TrackRepository {
   }
 
   @override
-  Stream<List<Track>> watchTracks({int limit = 100}) {
+  Stream<List<Track>> watchTracks({
+    int limit = 100,
+    bool includeDisabledFolders = false,
+  }) {
     return Stream.value(_tracks.take(limit).toList(growable: false));
   }
+
+  @override
+  Future<void> deleteTracksByLibraryFolder(int libraryFolderId) async {}
 
   @override
   Future<void> deleteTrack(int id) async {}

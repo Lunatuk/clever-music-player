@@ -1,3 +1,5 @@
+import 'metadata_source.dart';
+
 final class Track {
   const Track({
     this.id,
@@ -15,6 +17,8 @@ final class Track {
     this.trackNumber,
     this.discNumber,
     this.year,
+    this.metadataSource,
+    this.metadataConfidence,
     this.fileSizeBytes,
     this.modifiedAt,
     this.lastSeenAt,
@@ -38,6 +42,8 @@ final class Track {
   final int? trackNumber;
   final int? discNumber;
   final int? year;
+  final MetadataSource? metadataSource;
+  final double? metadataConfidence;
   final int? fileSizeBytes;
   final DateTime? modifiedAt;
   final DateTime? lastSeenAt;
@@ -70,6 +76,8 @@ final class Track {
     int? trackNumber,
     int? discNumber,
     int? year,
+    MetadataSource? metadataSource,
+    double? metadataConfidence,
     int? fileSizeBytes,
     DateTime? modifiedAt,
     DateTime? lastSeenAt,
@@ -93,6 +101,8 @@ final class Track {
       trackNumber: trackNumber ?? this.trackNumber,
       discNumber: discNumber ?? this.discNumber,
       year: year ?? this.year,
+      metadataSource: metadataSource ?? this.metadataSource,
+      metadataConfidence: metadataConfidence ?? this.metadataConfidence,
       fileSizeBytes: fileSizeBytes ?? this.fileSizeBytes,
       modifiedAt: modifiedAt ?? this.modifiedAt,
       lastSeenAt: lastSeenAt ?? this.lastSeenAt,
@@ -121,6 +131,8 @@ final class Track {
             other.trackNumber == trackNumber &&
             other.discNumber == discNumber &&
             other.year == year &&
+            other.metadataSource == metadataSource &&
+            other.metadataConfidence == metadataConfidence &&
             other.fileSizeBytes == fileSizeBytes &&
             other.modifiedAt == modifiedAt &&
             other.lastSeenAt == lastSeenAt &&
@@ -147,6 +159,8 @@ final class Track {
       trackNumber,
       discNumber,
       year,
+      metadataSource,
+      metadataConfidence,
       fileSizeBytes,
       modifiedAt,
       lastSeenAt,
