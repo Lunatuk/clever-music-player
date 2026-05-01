@@ -19,6 +19,28 @@ final class LibraryFolder {
   final DateTime createdAt;
   final DateTime updatedAt;
 
+  LibraryFolder copyWith({
+    int? id,
+    String? path,
+    String? displayName,
+    bool? isEnabled,
+    bool? isRecursive,
+    DateTime? lastScannedAt,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+  }) {
+    return LibraryFolder(
+      id: id ?? this.id,
+      path: path ?? this.path,
+      displayName: displayName ?? this.displayName,
+      isEnabled: isEnabled ?? this.isEnabled,
+      isRecursive: isRecursive ?? this.isRecursive,
+      lastScannedAt: lastScannedAt ?? this.lastScannedAt,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
+
   @override
   bool operator ==(Object other) {
     return identical(this, other) ||

@@ -1,7 +1,10 @@
+import 'metadata_source.dart';
+
 final class Track {
   const Track({
     this.id,
     this.libraryFolderId,
+    this.stableId,
     required this.filePath,
     this.contentHash,
     this.title,
@@ -9,18 +12,24 @@ final class Track {
     this.album,
     this.albumArtist,
     this.genre,
+    this.codec,
     this.duration,
     this.trackNumber,
     this.discNumber,
     this.year,
+    this.metadataSource,
+    this.metadataConfidence,
     this.fileSizeBytes,
     this.modifiedAt,
+    this.lastSeenAt,
+    this.isMissing = false,
     required this.addedAt,
     required this.updatedAt,
   });
 
   final int? id;
   final int? libraryFolderId;
+  final String? stableId;
   final String filePath;
   final String? contentHash;
   final String? title;
@@ -28,12 +37,17 @@ final class Track {
   final String? album;
   final String? albumArtist;
   final String? genre;
+  final String? codec;
   final Duration? duration;
   final int? trackNumber;
   final int? discNumber;
   final int? year;
+  final MetadataSource? metadataSource;
+  final double? metadataConfidence;
   final int? fileSizeBytes;
   final DateTime? modifiedAt;
+  final DateTime? lastSeenAt;
+  final bool isMissing;
   final DateTime addedAt;
   final DateTime updatedAt;
 
@@ -49,6 +63,7 @@ final class Track {
   Track copyWith({
     int? id,
     int? libraryFolderId,
+    String? stableId,
     String? filePath,
     String? contentHash,
     String? title,
@@ -56,18 +71,24 @@ final class Track {
     String? album,
     String? albumArtist,
     String? genre,
+    String? codec,
     Duration? duration,
     int? trackNumber,
     int? discNumber,
     int? year,
+    MetadataSource? metadataSource,
+    double? metadataConfidence,
     int? fileSizeBytes,
     DateTime? modifiedAt,
+    DateTime? lastSeenAt,
+    bool? isMissing,
     DateTime? addedAt,
     DateTime? updatedAt,
   }) {
     return Track(
       id: id ?? this.id,
       libraryFolderId: libraryFolderId ?? this.libraryFolderId,
+      stableId: stableId ?? this.stableId,
       filePath: filePath ?? this.filePath,
       contentHash: contentHash ?? this.contentHash,
       title: title ?? this.title,
@@ -75,12 +96,17 @@ final class Track {
       album: album ?? this.album,
       albumArtist: albumArtist ?? this.albumArtist,
       genre: genre ?? this.genre,
+      codec: codec ?? this.codec,
       duration: duration ?? this.duration,
       trackNumber: trackNumber ?? this.trackNumber,
       discNumber: discNumber ?? this.discNumber,
       year: year ?? this.year,
+      metadataSource: metadataSource ?? this.metadataSource,
+      metadataConfidence: metadataConfidence ?? this.metadataConfidence,
       fileSizeBytes: fileSizeBytes ?? this.fileSizeBytes,
       modifiedAt: modifiedAt ?? this.modifiedAt,
+      lastSeenAt: lastSeenAt ?? this.lastSeenAt,
+      isMissing: isMissing ?? this.isMissing,
       addedAt: addedAt ?? this.addedAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );
@@ -92,6 +118,7 @@ final class Track {
         other is Track &&
             other.id == id &&
             other.libraryFolderId == libraryFolderId &&
+            other.stableId == stableId &&
             other.filePath == filePath &&
             other.contentHash == contentHash &&
             other.title == title &&
@@ -99,21 +126,27 @@ final class Track {
             other.album == album &&
             other.albumArtist == albumArtist &&
             other.genre == genre &&
+            other.codec == codec &&
             other.duration == duration &&
             other.trackNumber == trackNumber &&
             other.discNumber == discNumber &&
             other.year == year &&
+            other.metadataSource == metadataSource &&
+            other.metadataConfidence == metadataConfidence &&
             other.fileSizeBytes == fileSizeBytes &&
             other.modifiedAt == modifiedAt &&
+            other.lastSeenAt == lastSeenAt &&
+            other.isMissing == isMissing &&
             other.addedAt == addedAt &&
             other.updatedAt == updatedAt;
   }
 
   @override
   int get hashCode {
-    return Object.hash(
+    return Object.hashAll([
       id,
       libraryFolderId,
+      stableId,
       filePath,
       contentHash,
       title,
@@ -121,14 +154,19 @@ final class Track {
       album,
       albumArtist,
       genre,
+      codec,
       duration,
       trackNumber,
       discNumber,
       year,
+      metadataSource,
+      metadataConfidence,
       fileSizeBytes,
       modifiedAt,
+      lastSeenAt,
+      isMissing,
       addedAt,
       updatedAt,
-    );
+    ]);
   }
 }

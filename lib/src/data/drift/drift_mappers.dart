@@ -33,6 +33,7 @@ Track trackFromRow(TrackRow row) {
   return Track(
     id: row.id,
     libraryFolderId: row.libraryFolderId,
+    stableId: row.stableId,
     filePath: row.filePath,
     contentHash: row.contentHash,
     title: row.title,
@@ -40,12 +41,17 @@ Track trackFromRow(TrackRow row) {
     album: row.album,
     albumArtist: row.albumArtist,
     genre: row.genre,
+    codec: row.codec,
     duration: _durationFromMilliseconds(row.durationMs),
     trackNumber: row.trackNumber,
     discNumber: row.discNumber,
     year: row.year,
+    metadataSource: MetadataSource.fromStorageKey(row.metadataSource),
+    metadataConfidence: row.metadataConfidence,
     fileSizeBytes: row.fileSizeBytes,
     modifiedAt: row.modifiedAt,
+    lastSeenAt: row.lastSeenAt,
+    isMissing: row.isMissing,
     addedAt: row.addedAt,
     updatedAt: row.updatedAt,
   );
@@ -55,6 +61,7 @@ TracksCompanion trackToCompanion(Track track) {
   return TracksCompanion(
     id: track.id == null ? const Value.absent() : Value(track.id!),
     libraryFolderId: Value(track.libraryFolderId),
+    stableId: Value(track.stableId),
     filePath: Value(track.filePath),
     contentHash: Value(track.contentHash),
     title: Value(track.title),
@@ -62,12 +69,17 @@ TracksCompanion trackToCompanion(Track track) {
     album: Value(track.album),
     albumArtist: Value(track.albumArtist),
     genre: Value(track.genre),
+    codec: Value(track.codec),
     durationMs: Value(track.duration?.inMilliseconds),
     trackNumber: Value(track.trackNumber),
     discNumber: Value(track.discNumber),
     year: Value(track.year),
+    metadataSource: Value(track.metadataSource?.storageKey),
+    metadataConfidence: Value(track.metadataConfidence),
     fileSizeBytes: Value(track.fileSizeBytes),
     modifiedAt: Value(track.modifiedAt),
+    lastSeenAt: Value(track.lastSeenAt),
+    isMissing: Value(track.isMissing),
     addedAt: Value(track.addedAt),
     updatedAt: Value(track.updatedAt),
   );
@@ -81,9 +93,8 @@ PlaybackEvent playbackEventFromRow(PlaybackEventRow row) {
     occurredAt: row.occurredAt,
     position: _durationFromMilliseconds(row.positionMs),
     trackDuration: _durationFromMilliseconds(row.durationMs),
-    waveMode: row.waveMode == null
-        ? null
-        : WaveMode.fromStorageKey(row.waveMode),
+    waveMode:
+        row.waveMode == null ? null : WaveMode.fromStorageKey(row.waveMode),
     metadataJson: row.metadataJson,
   );
 }
@@ -108,6 +119,7 @@ TrackUserState trackUserStateFromRow(TrackUserStateRow row) {
     isHidden: row.isHidden,
     rating: row.rating,
     playCount: row.playCount,
+    completeCount: row.completeCount,
     skipCount: row.skipCount,
     lastPlayedAt: row.lastPlayedAt,
     lastSkippedAt: row.lastSkippedAt,
@@ -127,6 +139,7 @@ TrackUserStatesCompanion trackUserStateToCompanion(TrackUserState state) {
     isHidden: Value(state.isHidden),
     rating: Value(state.rating),
     playCount: Value(state.playCount),
+    completeCount: Value(state.completeCount),
     skipCount: Value(state.skipCount),
     lastPlayedAt: Value(state.lastPlayedAt),
     lastSkippedAt: Value(state.lastSkippedAt),

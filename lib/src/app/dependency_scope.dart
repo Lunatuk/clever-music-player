@@ -2,6 +2,10 @@ import 'package:flutter/widgets.dart';
 
 import '../data/drift/app_database.dart';
 import '../domain/repositories/repositories.dart';
+import '../library/directory_picker_service.dart';
+import '../library/library_scanner_service.dart';
+import '../player/player_service.dart';
+import '../queue/playback_queue_service.dart';
 import '../recommendation/recommendation_service.dart';
 
 final class AppDependencies {
@@ -9,11 +13,25 @@ final class AppDependencies {
     required this.database,
     required this.repositories,
     required this.recommendationService,
+    required this.libraryScanner,
+    required this.directoryPicker,
+    required this.playerService,
+    required this.playbackQueue,
   });
 
   final AppDatabase database;
   final AppRepositories repositories;
   final RecommendationService recommendationService;
+  final LibraryScannerService libraryScanner;
+  final DirectoryPickerService directoryPicker;
+  final PlayerService playerService;
+  final PlaybackQueueService playbackQueue;
+
+  Future<void> dispose() async {
+    await playbackQueue.dispose();
+    await playerService.dispose();
+    await database.close();
+  }
 }
 
 final class AppDependenciesScope extends InheritedWidget {

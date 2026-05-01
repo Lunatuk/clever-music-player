@@ -7,6 +7,7 @@ final class TrackUserState {
     this.isHidden = false,
     this.rating,
     this.playCount = 0,
+    this.completeCount = 0,
     this.skipCount = 0,
     this.lastPlayedAt,
     this.lastSkippedAt,
@@ -21,6 +22,7 @@ final class TrackUserState {
   final bool isHidden;
   final int? rating;
   final int playCount;
+  final int completeCount;
   final int skipCount;
   final DateTime? lastPlayedAt;
   final DateTime? lastSkippedAt;
@@ -38,6 +40,7 @@ final class TrackUserState {
             other.isHidden == isHidden &&
             other.rating == rating &&
             other.playCount == playCount &&
+            other.completeCount == completeCount &&
             other.skipCount == skipCount &&
             other.lastPlayedAt == lastPlayedAt &&
             other.lastSkippedAt == lastSkippedAt &&
@@ -55,6 +58,7 @@ final class TrackUserState {
       isHidden,
       rating,
       playCount,
+      completeCount,
       skipCount,
       lastPlayedAt,
       lastSkippedAt,

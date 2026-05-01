@@ -42,6 +42,15 @@ final class DriftLibraryRepository implements LibraryRepository {
   }
 
   @override
+  Future<LibraryFolder?> findFolderByPath(String path) async {
+    final row = await (_database.select(_database.libraryFolders)
+          ..where((table) => table.path.equals(path)))
+        .getSingleOrNull();
+
+    return row == null ? null : libraryFolderFromRow(row);
+  }
+
+  @override
   Future<List<LibraryFolder>> listFolders({bool includeDisabled = true}) {
     final query = _database.select(_database.libraryFolders);
     if (!includeDisabled) {
@@ -66,6 +75,22 @@ final class DriftLibraryRepository implements LibraryRepository {
   }
 
   @override
+  Future<void> setFolderEnabled(
+    int id, {
+    required bool isEnabled,
+    required DateTime updatedAt,
+  }) async {
+    await (_database.update(_database.libraryFolders)
+          ..where((table) => table.id.equals(id)))
+        .write(
+      LibraryFoldersCompanion(
+        isEnabled: Value(isEnabled),
+        updatedAt: Value(updatedAt),
+      ),
+    );
+  }
+
+  @override
   Future<void> deleteFolder(int id) async {
     await (_database.delete(_database.libraryFolders)
           ..where((table) => table.id.equals(id)))
@@ -79,16 +104,57 @@ final class DriftTrackRepository implements TrackRepository {
   final AppDatabase _database;
 
   @override
-  Future<int> upsertTrack(Track track) {
-    return _database
-        .into(_database.tracks)
-        .insertOnConflictUpdate(trackToCompanion(track));
+  Future<int> upsertTrack(Track track) async {
+    final existing = await _findExistingTrackForUpsert(track);
+    if (existing == null) {
+      return _database.into(_database.tracks).insert(trackToCompanion(track));
+    }
+
+    final id = existing.id!;
+    await (_database.update(_database.tracks)
+          ..where((table) => table.id.equals(id)))
+        .write(trackToCompanion(track.copyWith(id: id)));
+    return id;
+  }
+
+  @override
+  Future<void> updateTrackMetadata(TrackMetadataUpdate metadata) async {
+    final updatedRows = await (_database.update(_database.tracks)
+          ..where((table) => table.id.equals(metadata.trackId)))
+        .write(
+      TracksCompanion(
+        title: Value(metadata.title),
+        artist: Value(metadata.artist),
+        album: Value(metadata.album),
+        albumArtist: Value(metadata.albumArtist),
+        genre: Value(metadata.genre),
+        year: Value(metadata.year),
+        trackNumber: Value(metadata.trackNumber),
+        discNumber: Value(metadata.discNumber),
+        metadataSource: Value(MetadataSource.manual.storageKey),
+        metadataConfidence: const Value(1.0),
+        updatedAt: Value(metadata.updatedAt),
+      ),
+    );
+
+    if (updatedRows == 0) {
+      throw StateError('Track ${metadata.trackId} was not found.');
+    }
   }
 
   @override
   Future<Track?> findById(int id) async {
     final row = await (_database.select(_database.tracks)
           ..where((table) => table.id.equals(id)))
+        .getSingleOrNull();
+
+    return row == null ? null : trackFromRow(row);
+  }
+
+  @override
+  Future<Track?> findByStableId(String stableId) async {
+    final row = await (_database.select(_database.tracks)
+          ..where((table) => table.stableId.equals(stableId)))
         .getSingleOrNull();
 
     return row == null ? null : trackFromRow(row);
@@ -104,34 +170,163 @@ final class DriftTrackRepository implements TrackRepository {
   }
 
   @override
-  Future<List<Track>> listTracks({int limit = 100, int offset = 0}) {
+  Future<List<Track>> listTracks({
+    int limit = 100,
+    int offset = 0,
+    bool includeDisabledFolders = false,
+  }) {
+    final query = _selectTracks(
+      includeMissing: false,
+      includeDisabledFolders: includeDisabledFolders,
+    )..limit(limit, offset: offset);
+
+    return query.get().then(_tracksFromJoinedRows);
+  }
+
+  @override
+  Future<List<Track>> listTracksByLibraryFolder(
+    int libraryFolderId, {
+    bool includeMissing = true,
+  }) {
     final query = _database.select(_database.tracks)
+      ..where((table) {
+        final folderExpression = table.libraryFolderId.equals(libraryFolderId);
+        if (includeMissing) {
+          return folderExpression;
+        }
+        return folderExpression & table.isMissing.equals(false);
+      })
       ..orderBy([
         (table) => OrderingTerm(expression: table.title),
         (table) => OrderingTerm(expression: table.filePath),
-      ])
-      ..limit(limit, offset: offset);
+      ]);
 
     return query.get().then((rows) => rows.map(trackFromRow).toList());
   }
 
   @override
-  Stream<List<Track>> watchTracks({int limit = 100}) {
-    final query = _database.select(_database.tracks)
-      ..orderBy([
-        (table) => OrderingTerm(expression: table.title),
-        (table) => OrderingTerm(expression: table.filePath),
-      ])
-      ..limit(limit);
+  Stream<List<Track>> watchAllTracks({
+    bool includeMissing = false,
+    bool includeDisabledFolders = false,
+  }) {
+    final query = _selectTracks(
+      includeMissing: includeMissing,
+      includeDisabledFolders: includeDisabledFolders,
+    );
 
-    return query.watch().map((rows) => rows.map(trackFromRow).toList());
+    return query.watch().map(_tracksFromJoinedRows);
+  }
+
+  @override
+  Stream<List<Track>> watchTracks({
+    int limit = 100,
+    bool includeDisabledFolders = false,
+  }) {
+    final query = _selectTracks(
+      includeMissing: false,
+      includeDisabledFolders: includeDisabledFolders,
+    )..limit(limit);
+
+    return query.watch().map(_tracksFromJoinedRows);
+  }
+
+  @override
+  Future<void> deleteTracksByLibraryFolder(int libraryFolderId) async {
+    await _database.transaction(() async {
+      final trackIds = await (_database.select(_database.tracks)
+            ..where(
+              (table) => table.libraryFolderId.equals(libraryFolderId),
+            ))
+          .map((row) => row.id)
+          .get();
+      if (trackIds.isEmpty) {
+        return;
+      }
+
+      await (_database.delete(_database.playbackEvents)
+            ..where((table) => table.trackId.isIn(trackIds)))
+          .go();
+      await (_database.delete(_database.trackUserStates)
+            ..where((table) => table.trackId.isIn(trackIds)))
+          .go();
+      await (_database.delete(_database.tracks)
+            ..where((table) => table.id.isIn(trackIds)))
+          .go();
+    });
   }
 
   @override
   Future<void> deleteTrack(int id) async {
-    await (_database.delete(_database.tracks)
-          ..where((table) => table.id.equals(id)))
-        .go();
+    await _database.transaction(() async {
+      await (_database.delete(_database.playbackEvents)
+            ..where((table) => table.trackId.equals(id)))
+          .go();
+      await (_database.delete(_database.trackUserStates)
+            ..where((table) => table.trackId.equals(id)))
+          .go();
+      await (_database.delete(_database.tracks)
+            ..where((table) => table.id.equals(id)))
+          .go();
+    });
+  }
+
+  Future<Track?> _findExistingTrackForUpsert(Track track) async {
+    if (track.id != null) {
+      final byId = await findById(track.id!);
+      if (byId != null) {
+        return byId;
+      }
+    }
+
+    final byPath = await findByPath(track.filePath);
+    if (byPath != null) {
+      return byPath;
+    }
+
+    final stableId = track.stableId;
+    if (stableId != null && stableId.isNotEmpty) {
+      return findByStableId(stableId);
+    }
+
+    return null;
+  }
+
+  JoinedSelectStatement<HasResultSet, dynamic> _selectTracks({
+    required bool includeMissing,
+    required bool includeDisabledFolders,
+  }) {
+    final tracks = _database.tracks;
+    final folders = _database.libraryFolders;
+    final query = _database.select(tracks).join([
+      leftOuterJoin(
+        folders,
+        folders.id.equalsExp(tracks.libraryFolderId),
+      ),
+    ]);
+
+    final filters = <Expression<bool>>[];
+    if (!includeMissing) {
+      filters.add(tracks.isMissing.equals(false));
+    }
+    if (!includeDisabledFolders) {
+      filters.add(
+        tracks.libraryFolderId.isNull() | folders.isEnabled.equals(true),
+      );
+    }
+    for (final filter in filters) {
+      query.where(filter);
+    }
+    query.orderBy([
+      OrderingTerm(expression: tracks.title),
+      OrderingTerm(expression: tracks.filePath),
+    ]);
+    return query;
+  }
+
+  List<Track> _tracksFromJoinedRows(List<TypedResult> rows) {
+    return rows
+        .map((row) => trackFromRow(row.readTable(_database.tracks)))
+        .toList();
   }
 }
 
@@ -177,8 +372,7 @@ final class DriftPlaybackEventRepository implements PlaybackEventRepository {
   }
 }
 
-final class DriftTrackUserStateRepository
-    implements TrackUserStateRepository {
+final class DriftTrackUserStateRepository implements TrackUserStateRepository {
   const DriftTrackUserStateRepository(this._database);
 
   final AppDatabase _database;
@@ -225,6 +419,25 @@ final class DriftTrackUserStateRepository
     return query
         .watchSingleOrNull()
         .map((row) => row == null ? null : trackUserStateFromRow(row));
+  }
+
+  @override
+  Stream<Map<int, TrackUserState>> watchTrackStatesByTrackIds(
+    Iterable<int> trackIds,
+  ) {
+    final ids = trackIds.toSet().toList();
+    if (ids.isEmpty) {
+      return Stream.value(const {});
+    }
+
+    final query = _database.select(_database.trackUserStates)
+      ..where((table) => table.trackId.isIn(ids));
+
+    return query.watch().map((rows) {
+      return {
+        for (final row in rows) row.trackId: trackUserStateFromRow(row),
+      };
+    });
   }
 
   @override

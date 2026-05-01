@@ -462,6 +462,12 @@ class $TracksTable extends Tracks with TableInfo<$TracksTable, TrackRow> {
       requiredDuringInsert: false,
       defaultConstraints: GeneratedColumn.constraintIsAlways(
           'REFERENCES library_folders (id) ON DELETE SET NULL'));
+  static const VerificationMeta _stableIdMeta =
+      const VerificationMeta('stableId');
+  @override
+  late final GeneratedColumn<String> stableId = GeneratedColumn<String>(
+      'stable_id', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
   static const VerificationMeta _filePathMeta =
       const VerificationMeta('filePath');
   @override
@@ -502,6 +508,11 @@ class $TracksTable extends Tracks with TableInfo<$TracksTable, TrackRow> {
   late final GeneratedColumn<String> genre = GeneratedColumn<String>(
       'genre', aliasedName, true,
       type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _codecMeta = const VerificationMeta('codec');
+  @override
+  late final GeneratedColumn<String> codec = GeneratedColumn<String>(
+      'codec', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
   static const VerificationMeta _durationMsMeta =
       const VerificationMeta('durationMs');
   @override
@@ -525,6 +536,18 @@ class $TracksTable extends Tracks with TableInfo<$TracksTable, TrackRow> {
   late final GeneratedColumn<int> year = GeneratedColumn<int>(
       'year', aliasedName, true,
       type: DriftSqlType.int, requiredDuringInsert: false);
+  static const VerificationMeta _metadataSourceMeta =
+      const VerificationMeta('metadataSource');
+  @override
+  late final GeneratedColumn<String> metadataSource = GeneratedColumn<String>(
+      'metadata_source', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _metadataConfidenceMeta =
+      const VerificationMeta('metadataConfidence');
+  @override
+  late final GeneratedColumn<double> metadataConfidence =
+      GeneratedColumn<double>('metadata_confidence', aliasedName, true,
+          type: DriftSqlType.double, requiredDuringInsert: false);
   static const VerificationMeta _fileSizeBytesMeta =
       const VerificationMeta('fileSizeBytes');
   @override
@@ -537,6 +560,22 @@ class $TracksTable extends Tracks with TableInfo<$TracksTable, TrackRow> {
   late final GeneratedColumn<DateTime> modifiedAt = GeneratedColumn<DateTime>(
       'modified_at', aliasedName, true,
       type: DriftSqlType.dateTime, requiredDuringInsert: false);
+  static const VerificationMeta _lastSeenAtMeta =
+      const VerificationMeta('lastSeenAt');
+  @override
+  late final GeneratedColumn<DateTime> lastSeenAt = GeneratedColumn<DateTime>(
+      'last_seen_at', aliasedName, true,
+      type: DriftSqlType.dateTime, requiredDuringInsert: false);
+  static const VerificationMeta _isMissingMeta =
+      const VerificationMeta('isMissing');
+  @override
+  late final GeneratedColumn<bool> isMissing = GeneratedColumn<bool>(
+      'is_missing', aliasedName, false,
+      type: DriftSqlType.bool,
+      requiredDuringInsert: false,
+      defaultConstraints:
+          GeneratedColumn.constraintIsAlways('CHECK ("is_missing" IN (0, 1))'),
+      defaultValue: const Constant(false));
   static const VerificationMeta _addedAtMeta =
       const VerificationMeta('addedAt');
   @override
@@ -553,6 +592,7 @@ class $TracksTable extends Tracks with TableInfo<$TracksTable, TrackRow> {
   List<GeneratedColumn> get $columns => [
         id,
         libraryFolderId,
+        stableId,
         filePath,
         contentHash,
         title,
@@ -560,12 +600,17 @@ class $TracksTable extends Tracks with TableInfo<$TracksTable, TrackRow> {
         album,
         albumArtist,
         genre,
+        codec,
         durationMs,
         trackNumber,
         discNumber,
         year,
+        metadataSource,
+        metadataConfidence,
         fileSizeBytes,
         modifiedAt,
+        lastSeenAt,
+        isMissing,
         addedAt,
         updatedAt
       ];
@@ -587,6 +632,10 @@ class $TracksTable extends Tracks with TableInfo<$TracksTable, TrackRow> {
           _libraryFolderIdMeta,
           libraryFolderId.isAcceptableOrUnknown(
               data['library_folder_id']!, _libraryFolderIdMeta));
+    }
+    if (data.containsKey('stable_id')) {
+      context.handle(_stableIdMeta,
+          stableId.isAcceptableOrUnknown(data['stable_id']!, _stableIdMeta));
     }
     if (data.containsKey('file_path')) {
       context.handle(_filePathMeta,
@@ -622,6 +671,10 @@ class $TracksTable extends Tracks with TableInfo<$TracksTable, TrackRow> {
       context.handle(
           _genreMeta, genre.isAcceptableOrUnknown(data['genre']!, _genreMeta));
     }
+    if (data.containsKey('codec')) {
+      context.handle(
+          _codecMeta, codec.isAcceptableOrUnknown(data['codec']!, _codecMeta));
+    }
     if (data.containsKey('duration_ms')) {
       context.handle(
           _durationMsMeta,
@@ -644,6 +697,18 @@ class $TracksTable extends Tracks with TableInfo<$TracksTable, TrackRow> {
       context.handle(
           _yearMeta, year.isAcceptableOrUnknown(data['year']!, _yearMeta));
     }
+    if (data.containsKey('metadata_source')) {
+      context.handle(
+          _metadataSourceMeta,
+          metadataSource.isAcceptableOrUnknown(
+              data['metadata_source']!, _metadataSourceMeta));
+    }
+    if (data.containsKey('metadata_confidence')) {
+      context.handle(
+          _metadataConfidenceMeta,
+          metadataConfidence.isAcceptableOrUnknown(
+              data['metadata_confidence']!, _metadataConfidenceMeta));
+    }
     if (data.containsKey('file_size_bytes')) {
       context.handle(
           _fileSizeBytesMeta,
@@ -655,6 +720,16 @@ class $TracksTable extends Tracks with TableInfo<$TracksTable, TrackRow> {
           _modifiedAtMeta,
           modifiedAt.isAcceptableOrUnknown(
               data['modified_at']!, _modifiedAtMeta));
+    }
+    if (data.containsKey('last_seen_at')) {
+      context.handle(
+          _lastSeenAtMeta,
+          lastSeenAt.isAcceptableOrUnknown(
+              data['last_seen_at']!, _lastSeenAtMeta));
+    }
+    if (data.containsKey('is_missing')) {
+      context.handle(_isMissingMeta,
+          isMissing.isAcceptableOrUnknown(data['is_missing']!, _isMissingMeta));
     }
     if (data.containsKey('added_at')) {
       context.handle(_addedAtMeta,
@@ -681,6 +756,8 @@ class $TracksTable extends Tracks with TableInfo<$TracksTable, TrackRow> {
           .read(DriftSqlType.int, data['${effectivePrefix}id'])!,
       libraryFolderId: attachedDatabase.typeMapping
           .read(DriftSqlType.int, data['${effectivePrefix}library_folder_id']),
+      stableId: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}stable_id']),
       filePath: attachedDatabase.typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}file_path'])!,
       contentHash: attachedDatabase.typeMapping
@@ -695,6 +772,8 @@ class $TracksTable extends Tracks with TableInfo<$TracksTable, TrackRow> {
           .read(DriftSqlType.string, data['${effectivePrefix}album_artist']),
       genre: attachedDatabase.typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}genre']),
+      codec: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}codec']),
       durationMs: attachedDatabase.typeMapping
           .read(DriftSqlType.int, data['${effectivePrefix}duration_ms']),
       trackNumber: attachedDatabase.typeMapping
@@ -703,10 +782,18 @@ class $TracksTable extends Tracks with TableInfo<$TracksTable, TrackRow> {
           .read(DriftSqlType.int, data['${effectivePrefix}disc_number']),
       year: attachedDatabase.typeMapping
           .read(DriftSqlType.int, data['${effectivePrefix}year']),
+      metadataSource: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}metadata_source']),
+      metadataConfidence: attachedDatabase.typeMapping.read(
+          DriftSqlType.double, data['${effectivePrefix}metadata_confidence']),
       fileSizeBytes: attachedDatabase.typeMapping
           .read(DriftSqlType.int, data['${effectivePrefix}file_size_bytes']),
       modifiedAt: attachedDatabase.typeMapping
           .read(DriftSqlType.dateTime, data['${effectivePrefix}modified_at']),
+      lastSeenAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}last_seen_at']),
+      isMissing: attachedDatabase.typeMapping
+          .read(DriftSqlType.bool, data['${effectivePrefix}is_missing'])!,
       addedAt: attachedDatabase.typeMapping
           .read(DriftSqlType.dateTime, data['${effectivePrefix}added_at'])!,
       updatedAt: attachedDatabase.typeMapping
@@ -723,6 +810,7 @@ class $TracksTable extends Tracks with TableInfo<$TracksTable, TrackRow> {
 class TrackRow extends DataClass implements Insertable<TrackRow> {
   final int id;
   final int? libraryFolderId;
+  final String? stableId;
   final String filePath;
   final String? contentHash;
   final String? title;
@@ -730,17 +818,23 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
   final String? album;
   final String? albumArtist;
   final String? genre;
+  final String? codec;
   final int? durationMs;
   final int? trackNumber;
   final int? discNumber;
   final int? year;
+  final String? metadataSource;
+  final double? metadataConfidence;
   final int? fileSizeBytes;
   final DateTime? modifiedAt;
+  final DateTime? lastSeenAt;
+  final bool isMissing;
   final DateTime addedAt;
   final DateTime updatedAt;
   const TrackRow(
       {required this.id,
       this.libraryFolderId,
+      this.stableId,
       required this.filePath,
       this.contentHash,
       this.title,
@@ -748,12 +842,17 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
       this.album,
       this.albumArtist,
       this.genre,
+      this.codec,
       this.durationMs,
       this.trackNumber,
       this.discNumber,
       this.year,
+      this.metadataSource,
+      this.metadataConfidence,
       this.fileSizeBytes,
       this.modifiedAt,
+      this.lastSeenAt,
+      required this.isMissing,
       required this.addedAt,
       required this.updatedAt});
   @override
@@ -762,6 +861,9 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
     map['id'] = Variable<int>(id);
     if (!nullToAbsent || libraryFolderId != null) {
       map['library_folder_id'] = Variable<int>(libraryFolderId);
+    }
+    if (!nullToAbsent || stableId != null) {
+      map['stable_id'] = Variable<String>(stableId);
     }
     map['file_path'] = Variable<String>(filePath);
     if (!nullToAbsent || contentHash != null) {
@@ -782,6 +884,9 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
     if (!nullToAbsent || genre != null) {
       map['genre'] = Variable<String>(genre);
     }
+    if (!nullToAbsent || codec != null) {
+      map['codec'] = Variable<String>(codec);
+    }
     if (!nullToAbsent || durationMs != null) {
       map['duration_ms'] = Variable<int>(durationMs);
     }
@@ -794,12 +899,22 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
     if (!nullToAbsent || year != null) {
       map['year'] = Variable<int>(year);
     }
+    if (!nullToAbsent || metadataSource != null) {
+      map['metadata_source'] = Variable<String>(metadataSource);
+    }
+    if (!nullToAbsent || metadataConfidence != null) {
+      map['metadata_confidence'] = Variable<double>(metadataConfidence);
+    }
     if (!nullToAbsent || fileSizeBytes != null) {
       map['file_size_bytes'] = Variable<int>(fileSizeBytes);
     }
     if (!nullToAbsent || modifiedAt != null) {
       map['modified_at'] = Variable<DateTime>(modifiedAt);
     }
+    if (!nullToAbsent || lastSeenAt != null) {
+      map['last_seen_at'] = Variable<DateTime>(lastSeenAt);
+    }
+    map['is_missing'] = Variable<bool>(isMissing);
     map['added_at'] = Variable<DateTime>(addedAt);
     map['updated_at'] = Variable<DateTime>(updatedAt);
     return map;
@@ -811,6 +926,9 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
       libraryFolderId: libraryFolderId == null && nullToAbsent
           ? const Value.absent()
           : Value(libraryFolderId),
+      stableId: stableId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(stableId),
       filePath: Value(filePath),
       contentHash: contentHash == null && nullToAbsent
           ? const Value.absent()
@@ -826,6 +944,8 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
           : Value(albumArtist),
       genre:
           genre == null && nullToAbsent ? const Value.absent() : Value(genre),
+      codec:
+          codec == null && nullToAbsent ? const Value.absent() : Value(codec),
       durationMs: durationMs == null && nullToAbsent
           ? const Value.absent()
           : Value(durationMs),
@@ -836,12 +956,22 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
           ? const Value.absent()
           : Value(discNumber),
       year: year == null && nullToAbsent ? const Value.absent() : Value(year),
+      metadataSource: metadataSource == null && nullToAbsent
+          ? const Value.absent()
+          : Value(metadataSource),
+      metadataConfidence: metadataConfidence == null && nullToAbsent
+          ? const Value.absent()
+          : Value(metadataConfidence),
       fileSizeBytes: fileSizeBytes == null && nullToAbsent
           ? const Value.absent()
           : Value(fileSizeBytes),
       modifiedAt: modifiedAt == null && nullToAbsent
           ? const Value.absent()
           : Value(modifiedAt),
+      lastSeenAt: lastSeenAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(lastSeenAt),
+      isMissing: Value(isMissing),
       addedAt: Value(addedAt),
       updatedAt: Value(updatedAt),
     );
@@ -853,6 +983,7 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
     return TrackRow(
       id: serializer.fromJson<int>(json['id']),
       libraryFolderId: serializer.fromJson<int?>(json['libraryFolderId']),
+      stableId: serializer.fromJson<String?>(json['stableId']),
       filePath: serializer.fromJson<String>(json['filePath']),
       contentHash: serializer.fromJson<String?>(json['contentHash']),
       title: serializer.fromJson<String?>(json['title']),
@@ -860,12 +991,18 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
       album: serializer.fromJson<String?>(json['album']),
       albumArtist: serializer.fromJson<String?>(json['albumArtist']),
       genre: serializer.fromJson<String?>(json['genre']),
+      codec: serializer.fromJson<String?>(json['codec']),
       durationMs: serializer.fromJson<int?>(json['durationMs']),
       trackNumber: serializer.fromJson<int?>(json['trackNumber']),
       discNumber: serializer.fromJson<int?>(json['discNumber']),
       year: serializer.fromJson<int?>(json['year']),
+      metadataSource: serializer.fromJson<String?>(json['metadataSource']),
+      metadataConfidence:
+          serializer.fromJson<double?>(json['metadataConfidence']),
       fileSizeBytes: serializer.fromJson<int?>(json['fileSizeBytes']),
       modifiedAt: serializer.fromJson<DateTime?>(json['modifiedAt']),
+      lastSeenAt: serializer.fromJson<DateTime?>(json['lastSeenAt']),
+      isMissing: serializer.fromJson<bool>(json['isMissing']),
       addedAt: serializer.fromJson<DateTime>(json['addedAt']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
     );
@@ -876,6 +1013,7 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
     return <String, dynamic>{
       'id': serializer.toJson<int>(id),
       'libraryFolderId': serializer.toJson<int?>(libraryFolderId),
+      'stableId': serializer.toJson<String?>(stableId),
       'filePath': serializer.toJson<String>(filePath),
       'contentHash': serializer.toJson<String?>(contentHash),
       'title': serializer.toJson<String?>(title),
@@ -883,12 +1021,17 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
       'album': serializer.toJson<String?>(album),
       'albumArtist': serializer.toJson<String?>(albumArtist),
       'genre': serializer.toJson<String?>(genre),
+      'codec': serializer.toJson<String?>(codec),
       'durationMs': serializer.toJson<int?>(durationMs),
       'trackNumber': serializer.toJson<int?>(trackNumber),
       'discNumber': serializer.toJson<int?>(discNumber),
       'year': serializer.toJson<int?>(year),
+      'metadataSource': serializer.toJson<String?>(metadataSource),
+      'metadataConfidence': serializer.toJson<double?>(metadataConfidence),
       'fileSizeBytes': serializer.toJson<int?>(fileSizeBytes),
       'modifiedAt': serializer.toJson<DateTime?>(modifiedAt),
+      'lastSeenAt': serializer.toJson<DateTime?>(lastSeenAt),
+      'isMissing': serializer.toJson<bool>(isMissing),
       'addedAt': serializer.toJson<DateTime>(addedAt),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
     };
@@ -897,6 +1040,7 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
   TrackRow copyWith(
           {int? id,
           Value<int?> libraryFolderId = const Value.absent(),
+          Value<String?> stableId = const Value.absent(),
           String? filePath,
           Value<String?> contentHash = const Value.absent(),
           Value<String?> title = const Value.absent(),
@@ -904,12 +1048,17 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
           Value<String?> album = const Value.absent(),
           Value<String?> albumArtist = const Value.absent(),
           Value<String?> genre = const Value.absent(),
+          Value<String?> codec = const Value.absent(),
           Value<int?> durationMs = const Value.absent(),
           Value<int?> trackNumber = const Value.absent(),
           Value<int?> discNumber = const Value.absent(),
           Value<int?> year = const Value.absent(),
+          Value<String?> metadataSource = const Value.absent(),
+          Value<double?> metadataConfidence = const Value.absent(),
           Value<int?> fileSizeBytes = const Value.absent(),
           Value<DateTime?> modifiedAt = const Value.absent(),
+          Value<DateTime?> lastSeenAt = const Value.absent(),
+          bool? isMissing,
           DateTime? addedAt,
           DateTime? updatedAt}) =>
       TrackRow(
@@ -917,6 +1066,7 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
         libraryFolderId: libraryFolderId.present
             ? libraryFolderId.value
             : this.libraryFolderId,
+        stableId: stableId.present ? stableId.value : this.stableId,
         filePath: filePath ?? this.filePath,
         contentHash: contentHash.present ? contentHash.value : this.contentHash,
         title: title.present ? title.value : this.title,
@@ -924,13 +1074,21 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
         album: album.present ? album.value : this.album,
         albumArtist: albumArtist.present ? albumArtist.value : this.albumArtist,
         genre: genre.present ? genre.value : this.genre,
+        codec: codec.present ? codec.value : this.codec,
         durationMs: durationMs.present ? durationMs.value : this.durationMs,
         trackNumber: trackNumber.present ? trackNumber.value : this.trackNumber,
         discNumber: discNumber.present ? discNumber.value : this.discNumber,
         year: year.present ? year.value : this.year,
+        metadataSource:
+            metadataSource.present ? metadataSource.value : this.metadataSource,
+        metadataConfidence: metadataConfidence.present
+            ? metadataConfidence.value
+            : this.metadataConfidence,
         fileSizeBytes:
             fileSizeBytes.present ? fileSizeBytes.value : this.fileSizeBytes,
         modifiedAt: modifiedAt.present ? modifiedAt.value : this.modifiedAt,
+        lastSeenAt: lastSeenAt.present ? lastSeenAt.value : this.lastSeenAt,
+        isMissing: isMissing ?? this.isMissing,
         addedAt: addedAt ?? this.addedAt,
         updatedAt: updatedAt ?? this.updatedAt,
       );
@@ -940,6 +1098,7 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
       libraryFolderId: data.libraryFolderId.present
           ? data.libraryFolderId.value
           : this.libraryFolderId,
+      stableId: data.stableId.present ? data.stableId.value : this.stableId,
       filePath: data.filePath.present ? data.filePath.value : this.filePath,
       contentHash:
           data.contentHash.present ? data.contentHash.value : this.contentHash,
@@ -949,6 +1108,7 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
       albumArtist:
           data.albumArtist.present ? data.albumArtist.value : this.albumArtist,
       genre: data.genre.present ? data.genre.value : this.genre,
+      codec: data.codec.present ? data.codec.value : this.codec,
       durationMs:
           data.durationMs.present ? data.durationMs.value : this.durationMs,
       trackNumber:
@@ -956,11 +1116,20 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
       discNumber:
           data.discNumber.present ? data.discNumber.value : this.discNumber,
       year: data.year.present ? data.year.value : this.year,
+      metadataSource: data.metadataSource.present
+          ? data.metadataSource.value
+          : this.metadataSource,
+      metadataConfidence: data.metadataConfidence.present
+          ? data.metadataConfidence.value
+          : this.metadataConfidence,
       fileSizeBytes: data.fileSizeBytes.present
           ? data.fileSizeBytes.value
           : this.fileSizeBytes,
       modifiedAt:
           data.modifiedAt.present ? data.modifiedAt.value : this.modifiedAt,
+      lastSeenAt:
+          data.lastSeenAt.present ? data.lastSeenAt.value : this.lastSeenAt,
+      isMissing: data.isMissing.present ? data.isMissing.value : this.isMissing,
       addedAt: data.addedAt.present ? data.addedAt.value : this.addedAt,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
     );
@@ -971,6 +1140,7 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
     return (StringBuffer('TrackRow(')
           ..write('id: $id, ')
           ..write('libraryFolderId: $libraryFolderId, ')
+          ..write('stableId: $stableId, ')
           ..write('filePath: $filePath, ')
           ..write('contentHash: $contentHash, ')
           ..write('title: $title, ')
@@ -978,12 +1148,17 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
           ..write('album: $album, ')
           ..write('albumArtist: $albumArtist, ')
           ..write('genre: $genre, ')
+          ..write('codec: $codec, ')
           ..write('durationMs: $durationMs, ')
           ..write('trackNumber: $trackNumber, ')
           ..write('discNumber: $discNumber, ')
           ..write('year: $year, ')
+          ..write('metadataSource: $metadataSource, ')
+          ..write('metadataConfidence: $metadataConfidence, ')
           ..write('fileSizeBytes: $fileSizeBytes, ')
           ..write('modifiedAt: $modifiedAt, ')
+          ..write('lastSeenAt: $lastSeenAt, ')
+          ..write('isMissing: $isMissing, ')
           ..write('addedAt: $addedAt, ')
           ..write('updatedAt: $updatedAt')
           ..write(')'))
@@ -991,30 +1166,38 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
   }
 
   @override
-  int get hashCode => Object.hash(
-      id,
-      libraryFolderId,
-      filePath,
-      contentHash,
-      title,
-      artist,
-      album,
-      albumArtist,
-      genre,
-      durationMs,
-      trackNumber,
-      discNumber,
-      year,
-      fileSizeBytes,
-      modifiedAt,
-      addedAt,
-      updatedAt);
+  int get hashCode => Object.hashAll([
+        id,
+        libraryFolderId,
+        stableId,
+        filePath,
+        contentHash,
+        title,
+        artist,
+        album,
+        albumArtist,
+        genre,
+        codec,
+        durationMs,
+        trackNumber,
+        discNumber,
+        year,
+        metadataSource,
+        metadataConfidence,
+        fileSizeBytes,
+        modifiedAt,
+        lastSeenAt,
+        isMissing,
+        addedAt,
+        updatedAt
+      ]);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       (other is TrackRow &&
           other.id == this.id &&
           other.libraryFolderId == this.libraryFolderId &&
+          other.stableId == this.stableId &&
           other.filePath == this.filePath &&
           other.contentHash == this.contentHash &&
           other.title == this.title &&
@@ -1022,12 +1205,17 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
           other.album == this.album &&
           other.albumArtist == this.albumArtist &&
           other.genre == this.genre &&
+          other.codec == this.codec &&
           other.durationMs == this.durationMs &&
           other.trackNumber == this.trackNumber &&
           other.discNumber == this.discNumber &&
           other.year == this.year &&
+          other.metadataSource == this.metadataSource &&
+          other.metadataConfidence == this.metadataConfidence &&
           other.fileSizeBytes == this.fileSizeBytes &&
           other.modifiedAt == this.modifiedAt &&
+          other.lastSeenAt == this.lastSeenAt &&
+          other.isMissing == this.isMissing &&
           other.addedAt == this.addedAt &&
           other.updatedAt == this.updatedAt);
 }
@@ -1035,6 +1223,7 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
 class TracksCompanion extends UpdateCompanion<TrackRow> {
   final Value<int> id;
   final Value<int?> libraryFolderId;
+  final Value<String?> stableId;
   final Value<String> filePath;
   final Value<String?> contentHash;
   final Value<String?> title;
@@ -1042,17 +1231,23 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
   final Value<String?> album;
   final Value<String?> albumArtist;
   final Value<String?> genre;
+  final Value<String?> codec;
   final Value<int?> durationMs;
   final Value<int?> trackNumber;
   final Value<int?> discNumber;
   final Value<int?> year;
+  final Value<String?> metadataSource;
+  final Value<double?> metadataConfidence;
   final Value<int?> fileSizeBytes;
   final Value<DateTime?> modifiedAt;
+  final Value<DateTime?> lastSeenAt;
+  final Value<bool> isMissing;
   final Value<DateTime> addedAt;
   final Value<DateTime> updatedAt;
   const TracksCompanion({
     this.id = const Value.absent(),
     this.libraryFolderId = const Value.absent(),
+    this.stableId = const Value.absent(),
     this.filePath = const Value.absent(),
     this.contentHash = const Value.absent(),
     this.title = const Value.absent(),
@@ -1060,18 +1255,24 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
     this.album = const Value.absent(),
     this.albumArtist = const Value.absent(),
     this.genre = const Value.absent(),
+    this.codec = const Value.absent(),
     this.durationMs = const Value.absent(),
     this.trackNumber = const Value.absent(),
     this.discNumber = const Value.absent(),
     this.year = const Value.absent(),
+    this.metadataSource = const Value.absent(),
+    this.metadataConfidence = const Value.absent(),
     this.fileSizeBytes = const Value.absent(),
     this.modifiedAt = const Value.absent(),
+    this.lastSeenAt = const Value.absent(),
+    this.isMissing = const Value.absent(),
     this.addedAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
   });
   TracksCompanion.insert({
     this.id = const Value.absent(),
     this.libraryFolderId = const Value.absent(),
+    this.stableId = const Value.absent(),
     required String filePath,
     this.contentHash = const Value.absent(),
     this.title = const Value.absent(),
@@ -1079,12 +1280,17 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
     this.album = const Value.absent(),
     this.albumArtist = const Value.absent(),
     this.genre = const Value.absent(),
+    this.codec = const Value.absent(),
     this.durationMs = const Value.absent(),
     this.trackNumber = const Value.absent(),
     this.discNumber = const Value.absent(),
     this.year = const Value.absent(),
+    this.metadataSource = const Value.absent(),
+    this.metadataConfidence = const Value.absent(),
     this.fileSizeBytes = const Value.absent(),
     this.modifiedAt = const Value.absent(),
+    this.lastSeenAt = const Value.absent(),
+    this.isMissing = const Value.absent(),
     required DateTime addedAt,
     required DateTime updatedAt,
   })  : filePath = Value(filePath),
@@ -1093,6 +1299,7 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
   static Insertable<TrackRow> custom({
     Expression<int>? id,
     Expression<int>? libraryFolderId,
+    Expression<String>? stableId,
     Expression<String>? filePath,
     Expression<String>? contentHash,
     Expression<String>? title,
@@ -1100,18 +1307,24 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
     Expression<String>? album,
     Expression<String>? albumArtist,
     Expression<String>? genre,
+    Expression<String>? codec,
     Expression<int>? durationMs,
     Expression<int>? trackNumber,
     Expression<int>? discNumber,
     Expression<int>? year,
+    Expression<String>? metadataSource,
+    Expression<double>? metadataConfidence,
     Expression<int>? fileSizeBytes,
     Expression<DateTime>? modifiedAt,
+    Expression<DateTime>? lastSeenAt,
+    Expression<bool>? isMissing,
     Expression<DateTime>? addedAt,
     Expression<DateTime>? updatedAt,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
       if (libraryFolderId != null) 'library_folder_id': libraryFolderId,
+      if (stableId != null) 'stable_id': stableId,
       if (filePath != null) 'file_path': filePath,
       if (contentHash != null) 'content_hash': contentHash,
       if (title != null) 'title': title,
@@ -1119,12 +1332,17 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
       if (album != null) 'album': album,
       if (albumArtist != null) 'album_artist': albumArtist,
       if (genre != null) 'genre': genre,
+      if (codec != null) 'codec': codec,
       if (durationMs != null) 'duration_ms': durationMs,
       if (trackNumber != null) 'track_number': trackNumber,
       if (discNumber != null) 'disc_number': discNumber,
       if (year != null) 'year': year,
+      if (metadataSource != null) 'metadata_source': metadataSource,
+      if (metadataConfidence != null) 'metadata_confidence': metadataConfidence,
       if (fileSizeBytes != null) 'file_size_bytes': fileSizeBytes,
       if (modifiedAt != null) 'modified_at': modifiedAt,
+      if (lastSeenAt != null) 'last_seen_at': lastSeenAt,
+      if (isMissing != null) 'is_missing': isMissing,
       if (addedAt != null) 'added_at': addedAt,
       if (updatedAt != null) 'updated_at': updatedAt,
     });
@@ -1133,6 +1351,7 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
   TracksCompanion copyWith(
       {Value<int>? id,
       Value<int?>? libraryFolderId,
+      Value<String?>? stableId,
       Value<String>? filePath,
       Value<String?>? contentHash,
       Value<String?>? title,
@@ -1140,17 +1359,23 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
       Value<String?>? album,
       Value<String?>? albumArtist,
       Value<String?>? genre,
+      Value<String?>? codec,
       Value<int?>? durationMs,
       Value<int?>? trackNumber,
       Value<int?>? discNumber,
       Value<int?>? year,
+      Value<String?>? metadataSource,
+      Value<double?>? metadataConfidence,
       Value<int?>? fileSizeBytes,
       Value<DateTime?>? modifiedAt,
+      Value<DateTime?>? lastSeenAt,
+      Value<bool>? isMissing,
       Value<DateTime>? addedAt,
       Value<DateTime>? updatedAt}) {
     return TracksCompanion(
       id: id ?? this.id,
       libraryFolderId: libraryFolderId ?? this.libraryFolderId,
+      stableId: stableId ?? this.stableId,
       filePath: filePath ?? this.filePath,
       contentHash: contentHash ?? this.contentHash,
       title: title ?? this.title,
@@ -1158,12 +1383,17 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
       album: album ?? this.album,
       albumArtist: albumArtist ?? this.albumArtist,
       genre: genre ?? this.genre,
+      codec: codec ?? this.codec,
       durationMs: durationMs ?? this.durationMs,
       trackNumber: trackNumber ?? this.trackNumber,
       discNumber: discNumber ?? this.discNumber,
       year: year ?? this.year,
+      metadataSource: metadataSource ?? this.metadataSource,
+      metadataConfidence: metadataConfidence ?? this.metadataConfidence,
       fileSizeBytes: fileSizeBytes ?? this.fileSizeBytes,
       modifiedAt: modifiedAt ?? this.modifiedAt,
+      lastSeenAt: lastSeenAt ?? this.lastSeenAt,
+      isMissing: isMissing ?? this.isMissing,
       addedAt: addedAt ?? this.addedAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );
@@ -1177,6 +1407,9 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
     }
     if (libraryFolderId.present) {
       map['library_folder_id'] = Variable<int>(libraryFolderId.value);
+    }
+    if (stableId.present) {
+      map['stable_id'] = Variable<String>(stableId.value);
     }
     if (filePath.present) {
       map['file_path'] = Variable<String>(filePath.value);
@@ -1199,6 +1432,9 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
     if (genre.present) {
       map['genre'] = Variable<String>(genre.value);
     }
+    if (codec.present) {
+      map['codec'] = Variable<String>(codec.value);
+    }
     if (durationMs.present) {
       map['duration_ms'] = Variable<int>(durationMs.value);
     }
@@ -1211,11 +1447,23 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
     if (year.present) {
       map['year'] = Variable<int>(year.value);
     }
+    if (metadataSource.present) {
+      map['metadata_source'] = Variable<String>(metadataSource.value);
+    }
+    if (metadataConfidence.present) {
+      map['metadata_confidence'] = Variable<double>(metadataConfidence.value);
+    }
     if (fileSizeBytes.present) {
       map['file_size_bytes'] = Variable<int>(fileSizeBytes.value);
     }
     if (modifiedAt.present) {
       map['modified_at'] = Variable<DateTime>(modifiedAt.value);
+    }
+    if (lastSeenAt.present) {
+      map['last_seen_at'] = Variable<DateTime>(lastSeenAt.value);
+    }
+    if (isMissing.present) {
+      map['is_missing'] = Variable<bool>(isMissing.value);
     }
     if (addedAt.present) {
       map['added_at'] = Variable<DateTime>(addedAt.value);
@@ -1231,6 +1479,7 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
     return (StringBuffer('TracksCompanion(')
           ..write('id: $id, ')
           ..write('libraryFolderId: $libraryFolderId, ')
+          ..write('stableId: $stableId, ')
           ..write('filePath: $filePath, ')
           ..write('contentHash: $contentHash, ')
           ..write('title: $title, ')
@@ -1238,12 +1487,17 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
           ..write('album: $album, ')
           ..write('albumArtist: $albumArtist, ')
           ..write('genre: $genre, ')
+          ..write('codec: $codec, ')
           ..write('durationMs: $durationMs, ')
           ..write('trackNumber: $trackNumber, ')
           ..write('discNumber: $discNumber, ')
           ..write('year: $year, ')
+          ..write('metadataSource: $metadataSource, ')
+          ..write('metadataConfidence: $metadataConfidence, ')
           ..write('fileSizeBytes: $fileSizeBytes, ')
           ..write('modifiedAt: $modifiedAt, ')
+          ..write('lastSeenAt: $lastSeenAt, ')
+          ..write('isMissing: $isMissing, ')
           ..write('addedAt: $addedAt, ')
           ..write('updatedAt: $updatedAt')
           ..write(')'))
@@ -1740,6 +1994,14 @@ class $TrackUserStatesTable extends TrackUserStates
       type: DriftSqlType.int,
       requiredDuringInsert: false,
       defaultValue: const Constant(0));
+  static const VerificationMeta _completeCountMeta =
+      const VerificationMeta('completeCount');
+  @override
+  late final GeneratedColumn<int> completeCount = GeneratedColumn<int>(
+      'complete_count', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultValue: const Constant(0));
   static const VerificationMeta _skipCountMeta =
       const VerificationMeta('skipCount');
   @override
@@ -1793,6 +2055,7 @@ class $TrackUserStatesTable extends TrackUserStates
         isHidden,
         rating,
         playCount,
+        completeCount,
         skipCount,
         lastPlayedAt,
         lastSkippedAt,
@@ -1832,6 +2095,12 @@ class $TrackUserStatesTable extends TrackUserStates
     if (data.containsKey('play_count')) {
       context.handle(_playCountMeta,
           playCount.isAcceptableOrUnknown(data['play_count']!, _playCountMeta));
+    }
+    if (data.containsKey('complete_count')) {
+      context.handle(
+          _completeCountMeta,
+          completeCount.isAcceptableOrUnknown(
+              data['complete_count']!, _completeCountMeta));
     }
     if (data.containsKey('skip_count')) {
       context.handle(_skipCountMeta,
@@ -1892,6 +2161,8 @@ class $TrackUserStatesTable extends TrackUserStates
           .read(DriftSqlType.int, data['${effectivePrefix}rating']),
       playCount: attachedDatabase.typeMapping
           .read(DriftSqlType.int, data['${effectivePrefix}play_count'])!,
+      completeCount: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}complete_count'])!,
       skipCount: attachedDatabase.typeMapping
           .read(DriftSqlType.int, data['${effectivePrefix}skip_count'])!,
       lastPlayedAt: attachedDatabase.typeMapping.read(
@@ -1922,6 +2193,7 @@ class TrackUserStateRow extends DataClass
   final bool isHidden;
   final int? rating;
   final int playCount;
+  final int completeCount;
   final int skipCount;
   final DateTime? lastPlayedAt;
   final DateTime? lastSkippedAt;
@@ -1935,6 +2207,7 @@ class TrackUserStateRow extends DataClass
       required this.isHidden,
       this.rating,
       required this.playCount,
+      required this.completeCount,
       required this.skipCount,
       this.lastPlayedAt,
       this.lastSkippedAt,
@@ -1952,6 +2225,7 @@ class TrackUserStateRow extends DataClass
       map['rating'] = Variable<int>(rating);
     }
     map['play_count'] = Variable<int>(playCount);
+    map['complete_count'] = Variable<int>(completeCount);
     map['skip_count'] = Variable<int>(skipCount);
     if (!nullToAbsent || lastPlayedAt != null) {
       map['last_played_at'] = Variable<DateTime>(lastPlayedAt);
@@ -1978,6 +2252,7 @@ class TrackUserStateRow extends DataClass
       rating:
           rating == null && nullToAbsent ? const Value.absent() : Value(rating),
       playCount: Value(playCount),
+      completeCount: Value(completeCount),
       skipCount: Value(skipCount),
       lastPlayedAt: lastPlayedAt == null && nullToAbsent
           ? const Value.absent()
@@ -2005,6 +2280,7 @@ class TrackUserStateRow extends DataClass
       isHidden: serializer.fromJson<bool>(json['isHidden']),
       rating: serializer.fromJson<int?>(json['rating']),
       playCount: serializer.fromJson<int>(json['playCount']),
+      completeCount: serializer.fromJson<int>(json['completeCount']),
       skipCount: serializer.fromJson<int>(json['skipCount']),
       lastPlayedAt: serializer.fromJson<DateTime?>(json['lastPlayedAt']),
       lastSkippedAt: serializer.fromJson<DateTime?>(json['lastSkippedAt']),
@@ -2024,6 +2300,7 @@ class TrackUserStateRow extends DataClass
       'isHidden': serializer.toJson<bool>(isHidden),
       'rating': serializer.toJson<int?>(rating),
       'playCount': serializer.toJson<int>(playCount),
+      'completeCount': serializer.toJson<int>(completeCount),
       'skipCount': serializer.toJson<int>(skipCount),
       'lastPlayedAt': serializer.toJson<DateTime?>(lastPlayedAt),
       'lastSkippedAt': serializer.toJson<DateTime?>(lastSkippedAt),
@@ -2040,6 +2317,7 @@ class TrackUserStateRow extends DataClass
           bool? isHidden,
           Value<int?> rating = const Value.absent(),
           int? playCount,
+          int? completeCount,
           int? skipCount,
           Value<DateTime?> lastPlayedAt = const Value.absent(),
           Value<DateTime?> lastSkippedAt = const Value.absent(),
@@ -2053,6 +2331,7 @@ class TrackUserStateRow extends DataClass
         isHidden: isHidden ?? this.isHidden,
         rating: rating.present ? rating.value : this.rating,
         playCount: playCount ?? this.playCount,
+        completeCount: completeCount ?? this.completeCount,
         skipCount: skipCount ?? this.skipCount,
         lastPlayedAt:
             lastPlayedAt.present ? lastPlayedAt.value : this.lastPlayedAt,
@@ -2075,6 +2354,9 @@ class TrackUserStateRow extends DataClass
       isHidden: data.isHidden.present ? data.isHidden.value : this.isHidden,
       rating: data.rating.present ? data.rating.value : this.rating,
       playCount: data.playCount.present ? data.playCount.value : this.playCount,
+      completeCount: data.completeCount.present
+          ? data.completeCount.value
+          : this.completeCount,
       skipCount: data.skipCount.present ? data.skipCount.value : this.skipCount,
       lastPlayedAt: data.lastPlayedAt.present
           ? data.lastPlayedAt.value
@@ -2103,6 +2385,7 @@ class TrackUserStateRow extends DataClass
           ..write('isHidden: $isHidden, ')
           ..write('rating: $rating, ')
           ..write('playCount: $playCount, ')
+          ..write('completeCount: $completeCount, ')
           ..write('skipCount: $skipCount, ')
           ..write('lastPlayedAt: $lastPlayedAt, ')
           ..write('lastSkippedAt: $lastSkippedAt, ')
@@ -2121,6 +2404,7 @@ class TrackUserStateRow extends DataClass
       isHidden,
       rating,
       playCount,
+      completeCount,
       skipCount,
       lastPlayedAt,
       lastSkippedAt,
@@ -2137,6 +2421,7 @@ class TrackUserStateRow extends DataClass
           other.isHidden == this.isHidden &&
           other.rating == this.rating &&
           other.playCount == this.playCount &&
+          other.completeCount == this.completeCount &&
           other.skipCount == this.skipCount &&
           other.lastPlayedAt == this.lastPlayedAt &&
           other.lastSkippedAt == this.lastSkippedAt &&
@@ -2152,6 +2437,7 @@ class TrackUserStatesCompanion extends UpdateCompanion<TrackUserStateRow> {
   final Value<bool> isHidden;
   final Value<int?> rating;
   final Value<int> playCount;
+  final Value<int> completeCount;
   final Value<int> skipCount;
   final Value<DateTime?> lastPlayedAt;
   final Value<DateTime?> lastSkippedAt;
@@ -2165,6 +2451,7 @@ class TrackUserStatesCompanion extends UpdateCompanion<TrackUserStateRow> {
     this.isHidden = const Value.absent(),
     this.rating = const Value.absent(),
     this.playCount = const Value.absent(),
+    this.completeCount = const Value.absent(),
     this.skipCount = const Value.absent(),
     this.lastPlayedAt = const Value.absent(),
     this.lastSkippedAt = const Value.absent(),
@@ -2179,6 +2466,7 @@ class TrackUserStatesCompanion extends UpdateCompanion<TrackUserStateRow> {
     this.isHidden = const Value.absent(),
     this.rating = const Value.absent(),
     this.playCount = const Value.absent(),
+    this.completeCount = const Value.absent(),
     this.skipCount = const Value.absent(),
     this.lastPlayedAt = const Value.absent(),
     this.lastSkippedAt = const Value.absent(),
@@ -2193,6 +2481,7 @@ class TrackUserStatesCompanion extends UpdateCompanion<TrackUserStateRow> {
     Expression<bool>? isHidden,
     Expression<int>? rating,
     Expression<int>? playCount,
+    Expression<int>? completeCount,
     Expression<int>? skipCount,
     Expression<DateTime>? lastPlayedAt,
     Expression<DateTime>? lastSkippedAt,
@@ -2207,6 +2496,7 @@ class TrackUserStatesCompanion extends UpdateCompanion<TrackUserStateRow> {
       if (isHidden != null) 'is_hidden': isHidden,
       if (rating != null) 'rating': rating,
       if (playCount != null) 'play_count': playCount,
+      if (completeCount != null) 'complete_count': completeCount,
       if (skipCount != null) 'skip_count': skipCount,
       if (lastPlayedAt != null) 'last_played_at': lastPlayedAt,
       if (lastSkippedAt != null) 'last_skipped_at': lastSkippedAt,
@@ -2223,6 +2513,7 @@ class TrackUserStatesCompanion extends UpdateCompanion<TrackUserStateRow> {
       Value<bool>? isHidden,
       Value<int?>? rating,
       Value<int>? playCount,
+      Value<int>? completeCount,
       Value<int>? skipCount,
       Value<DateTime?>? lastPlayedAt,
       Value<DateTime?>? lastSkippedAt,
@@ -2236,6 +2527,7 @@ class TrackUserStatesCompanion extends UpdateCompanion<TrackUserStateRow> {
       isHidden: isHidden ?? this.isHidden,
       rating: rating ?? this.rating,
       playCount: playCount ?? this.playCount,
+      completeCount: completeCount ?? this.completeCount,
       skipCount: skipCount ?? this.skipCount,
       lastPlayedAt: lastPlayedAt ?? this.lastPlayedAt,
       lastSkippedAt: lastSkippedAt ?? this.lastSkippedAt,
@@ -2263,6 +2555,9 @@ class TrackUserStatesCompanion extends UpdateCompanion<TrackUserStateRow> {
     }
     if (playCount.present) {
       map['play_count'] = Variable<int>(playCount.value);
+    }
+    if (completeCount.present) {
+      map['complete_count'] = Variable<int>(completeCount.value);
     }
     if (skipCount.present) {
       map['skip_count'] = Variable<int>(skipCount.value);
@@ -2296,6 +2591,7 @@ class TrackUserStatesCompanion extends UpdateCompanion<TrackUserStateRow> {
           ..write('isHidden: $isHidden, ')
           ..write('rating: $rating, ')
           ..write('playCount: $playCount, ')
+          ..write('completeCount: $completeCount, ')
           ..write('skipCount: $skipCount, ')
           ..write('lastPlayedAt: $lastPlayedAt, ')
           ..write('lastSkippedAt: $lastSkippedAt, ')
@@ -2880,6 +3176,7 @@ typedef $$LibraryFoldersTableProcessedTableManager = ProcessedTableManager<
 typedef $$TracksTableCreateCompanionBuilder = TracksCompanion Function({
   Value<int> id,
   Value<int?> libraryFolderId,
+  Value<String?> stableId,
   required String filePath,
   Value<String?> contentHash,
   Value<String?> title,
@@ -2887,18 +3184,24 @@ typedef $$TracksTableCreateCompanionBuilder = TracksCompanion Function({
   Value<String?> album,
   Value<String?> albumArtist,
   Value<String?> genre,
+  Value<String?> codec,
   Value<int?> durationMs,
   Value<int?> trackNumber,
   Value<int?> discNumber,
   Value<int?> year,
+  Value<String?> metadataSource,
+  Value<double?> metadataConfidence,
   Value<int?> fileSizeBytes,
   Value<DateTime?> modifiedAt,
+  Value<DateTime?> lastSeenAt,
+  Value<bool> isMissing,
   required DateTime addedAt,
   required DateTime updatedAt,
 });
 typedef $$TracksTableUpdateCompanionBuilder = TracksCompanion Function({
   Value<int> id,
   Value<int?> libraryFolderId,
+  Value<String?> stableId,
   Value<String> filePath,
   Value<String?> contentHash,
   Value<String?> title,
@@ -2906,12 +3209,17 @@ typedef $$TracksTableUpdateCompanionBuilder = TracksCompanion Function({
   Value<String?> album,
   Value<String?> albumArtist,
   Value<String?> genre,
+  Value<String?> codec,
   Value<int?> durationMs,
   Value<int?> trackNumber,
   Value<int?> discNumber,
   Value<int?> year,
+  Value<String?> metadataSource,
+  Value<double?> metadataConfidence,
   Value<int?> fileSizeBytes,
   Value<DateTime?> modifiedAt,
+  Value<DateTime?> lastSeenAt,
+  Value<bool> isMissing,
   Value<DateTime> addedAt,
   Value<DateTime> updatedAt,
 });
@@ -2980,6 +3288,9 @@ class $$TracksTableFilterComposer
   ColumnFilters<int> get id => $composableBuilder(
       column: $table.id, builder: (column) => ColumnFilters(column));
 
+  ColumnFilters<String> get stableId => $composableBuilder(
+      column: $table.stableId, builder: (column) => ColumnFilters(column));
+
   ColumnFilters<String> get filePath => $composableBuilder(
       column: $table.filePath, builder: (column) => ColumnFilters(column));
 
@@ -3001,6 +3312,9 @@ class $$TracksTableFilterComposer
   ColumnFilters<String> get genre => $composableBuilder(
       column: $table.genre, builder: (column) => ColumnFilters(column));
 
+  ColumnFilters<String> get codec => $composableBuilder(
+      column: $table.codec, builder: (column) => ColumnFilters(column));
+
   ColumnFilters<int> get durationMs => $composableBuilder(
       column: $table.durationMs, builder: (column) => ColumnFilters(column));
 
@@ -3013,11 +3327,25 @@ class $$TracksTableFilterComposer
   ColumnFilters<int> get year => $composableBuilder(
       column: $table.year, builder: (column) => ColumnFilters(column));
 
+  ColumnFilters<String> get metadataSource => $composableBuilder(
+      column: $table.metadataSource,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<double> get metadataConfidence => $composableBuilder(
+      column: $table.metadataConfidence,
+      builder: (column) => ColumnFilters(column));
+
   ColumnFilters<int> get fileSizeBytes => $composableBuilder(
       column: $table.fileSizeBytes, builder: (column) => ColumnFilters(column));
 
   ColumnFilters<DateTime> get modifiedAt => $composableBuilder(
       column: $table.modifiedAt, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get lastSeenAt => $composableBuilder(
+      column: $table.lastSeenAt, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<bool> get isMissing => $composableBuilder(
+      column: $table.isMissing, builder: (column) => ColumnFilters(column));
 
   ColumnFilters<DateTime> get addedAt => $composableBuilder(
       column: $table.addedAt, builder: (column) => ColumnFilters(column));
@@ -3100,6 +3428,9 @@ class $$TracksTableOrderingComposer
   ColumnOrderings<int> get id => $composableBuilder(
       column: $table.id, builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<String> get stableId => $composableBuilder(
+      column: $table.stableId, builder: (column) => ColumnOrderings(column));
+
   ColumnOrderings<String> get filePath => $composableBuilder(
       column: $table.filePath, builder: (column) => ColumnOrderings(column));
 
@@ -3121,6 +3452,9 @@ class $$TracksTableOrderingComposer
   ColumnOrderings<String> get genre => $composableBuilder(
       column: $table.genre, builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<String> get codec => $composableBuilder(
+      column: $table.codec, builder: (column) => ColumnOrderings(column));
+
   ColumnOrderings<int> get durationMs => $composableBuilder(
       column: $table.durationMs, builder: (column) => ColumnOrderings(column));
 
@@ -3133,12 +3467,26 @@ class $$TracksTableOrderingComposer
   ColumnOrderings<int> get year => $composableBuilder(
       column: $table.year, builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<String> get metadataSource => $composableBuilder(
+      column: $table.metadataSource,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<double> get metadataConfidence => $composableBuilder(
+      column: $table.metadataConfidence,
+      builder: (column) => ColumnOrderings(column));
+
   ColumnOrderings<int> get fileSizeBytes => $composableBuilder(
       column: $table.fileSizeBytes,
       builder: (column) => ColumnOrderings(column));
 
   ColumnOrderings<DateTime> get modifiedAt => $composableBuilder(
       column: $table.modifiedAt, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get lastSeenAt => $composableBuilder(
+      column: $table.lastSeenAt, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<bool> get isMissing => $composableBuilder(
+      column: $table.isMissing, builder: (column) => ColumnOrderings(column));
 
   ColumnOrderings<DateTime> get addedAt => $composableBuilder(
       column: $table.addedAt, builder: (column) => ColumnOrderings(column));
@@ -3179,6 +3527,9 @@ class $$TracksTableAnnotationComposer
   GeneratedColumn<int> get id =>
       $composableBuilder(column: $table.id, builder: (column) => column);
 
+  GeneratedColumn<String> get stableId =>
+      $composableBuilder(column: $table.stableId, builder: (column) => column);
+
   GeneratedColumn<String> get filePath =>
       $composableBuilder(column: $table.filePath, builder: (column) => column);
 
@@ -3200,6 +3551,9 @@ class $$TracksTableAnnotationComposer
   GeneratedColumn<String> get genre =>
       $composableBuilder(column: $table.genre, builder: (column) => column);
 
+  GeneratedColumn<String> get codec =>
+      $composableBuilder(column: $table.codec, builder: (column) => column);
+
   GeneratedColumn<int> get durationMs => $composableBuilder(
       column: $table.durationMs, builder: (column) => column);
 
@@ -3212,11 +3566,23 @@ class $$TracksTableAnnotationComposer
   GeneratedColumn<int> get year =>
       $composableBuilder(column: $table.year, builder: (column) => column);
 
+  GeneratedColumn<String> get metadataSource => $composableBuilder(
+      column: $table.metadataSource, builder: (column) => column);
+
+  GeneratedColumn<double> get metadataConfidence => $composableBuilder(
+      column: $table.metadataConfidence, builder: (column) => column);
+
   GeneratedColumn<int> get fileSizeBytes => $composableBuilder(
       column: $table.fileSizeBytes, builder: (column) => column);
 
   GeneratedColumn<DateTime> get modifiedAt => $composableBuilder(
       column: $table.modifiedAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get lastSeenAt => $composableBuilder(
+      column: $table.lastSeenAt, builder: (column) => column);
+
+  GeneratedColumn<bool> get isMissing =>
+      $composableBuilder(column: $table.isMissing, builder: (column) => column);
 
   GeneratedColumn<DateTime> get addedAt =>
       $composableBuilder(column: $table.addedAt, builder: (column) => column);
@@ -3315,6 +3681,7 @@ class $$TracksTableTableManager extends RootTableManager<
           updateCompanionCallback: ({
             Value<int> id = const Value.absent(),
             Value<int?> libraryFolderId = const Value.absent(),
+            Value<String?> stableId = const Value.absent(),
             Value<String> filePath = const Value.absent(),
             Value<String?> contentHash = const Value.absent(),
             Value<String?> title = const Value.absent(),
@@ -3322,18 +3689,24 @@ class $$TracksTableTableManager extends RootTableManager<
             Value<String?> album = const Value.absent(),
             Value<String?> albumArtist = const Value.absent(),
             Value<String?> genre = const Value.absent(),
+            Value<String?> codec = const Value.absent(),
             Value<int?> durationMs = const Value.absent(),
             Value<int?> trackNumber = const Value.absent(),
             Value<int?> discNumber = const Value.absent(),
             Value<int?> year = const Value.absent(),
+            Value<String?> metadataSource = const Value.absent(),
+            Value<double?> metadataConfidence = const Value.absent(),
             Value<int?> fileSizeBytes = const Value.absent(),
             Value<DateTime?> modifiedAt = const Value.absent(),
+            Value<DateTime?> lastSeenAt = const Value.absent(),
+            Value<bool> isMissing = const Value.absent(),
             Value<DateTime> addedAt = const Value.absent(),
             Value<DateTime> updatedAt = const Value.absent(),
           }) =>
               TracksCompanion(
             id: id,
             libraryFolderId: libraryFolderId,
+            stableId: stableId,
             filePath: filePath,
             contentHash: contentHash,
             title: title,
@@ -3341,18 +3714,24 @@ class $$TracksTableTableManager extends RootTableManager<
             album: album,
             albumArtist: albumArtist,
             genre: genre,
+            codec: codec,
             durationMs: durationMs,
             trackNumber: trackNumber,
             discNumber: discNumber,
             year: year,
+            metadataSource: metadataSource,
+            metadataConfidence: metadataConfidence,
             fileSizeBytes: fileSizeBytes,
             modifiedAt: modifiedAt,
+            lastSeenAt: lastSeenAt,
+            isMissing: isMissing,
             addedAt: addedAt,
             updatedAt: updatedAt,
           ),
           createCompanionCallback: ({
             Value<int> id = const Value.absent(),
             Value<int?> libraryFolderId = const Value.absent(),
+            Value<String?> stableId = const Value.absent(),
             required String filePath,
             Value<String?> contentHash = const Value.absent(),
             Value<String?> title = const Value.absent(),
@@ -3360,18 +3739,24 @@ class $$TracksTableTableManager extends RootTableManager<
             Value<String?> album = const Value.absent(),
             Value<String?> albumArtist = const Value.absent(),
             Value<String?> genre = const Value.absent(),
+            Value<String?> codec = const Value.absent(),
             Value<int?> durationMs = const Value.absent(),
             Value<int?> trackNumber = const Value.absent(),
             Value<int?> discNumber = const Value.absent(),
             Value<int?> year = const Value.absent(),
+            Value<String?> metadataSource = const Value.absent(),
+            Value<double?> metadataConfidence = const Value.absent(),
             Value<int?> fileSizeBytes = const Value.absent(),
             Value<DateTime?> modifiedAt = const Value.absent(),
+            Value<DateTime?> lastSeenAt = const Value.absent(),
+            Value<bool> isMissing = const Value.absent(),
             required DateTime addedAt,
             required DateTime updatedAt,
           }) =>
               TracksCompanion.insert(
             id: id,
             libraryFolderId: libraryFolderId,
+            stableId: stableId,
             filePath: filePath,
             contentHash: contentHash,
             title: title,
@@ -3379,12 +3764,17 @@ class $$TracksTableTableManager extends RootTableManager<
             album: album,
             albumArtist: albumArtist,
             genre: genre,
+            codec: codec,
             durationMs: durationMs,
             trackNumber: trackNumber,
             discNumber: discNumber,
             year: year,
+            metadataSource: metadataSource,
+            metadataConfidence: metadataConfidence,
             fileSizeBytes: fileSizeBytes,
             modifiedAt: modifiedAt,
+            lastSeenAt: lastSeenAt,
+            isMissing: isMissing,
             addedAt: addedAt,
             updatedAt: updatedAt,
           ),
@@ -3801,6 +4191,7 @@ typedef $$TrackUserStatesTableCreateCompanionBuilder = TrackUserStatesCompanion
   Value<bool> isHidden,
   Value<int?> rating,
   Value<int> playCount,
+  Value<int> completeCount,
   Value<int> skipCount,
   Value<DateTime?> lastPlayedAt,
   Value<DateTime?> lastSkippedAt,
@@ -3816,6 +4207,7 @@ typedef $$TrackUserStatesTableUpdateCompanionBuilder = TrackUserStatesCompanion
   Value<bool> isHidden,
   Value<int?> rating,
   Value<int> playCount,
+  Value<int> completeCount,
   Value<int> skipCount,
   Value<DateTime?> lastPlayedAt,
   Value<DateTime?> lastSkippedAt,
@@ -3865,6 +4257,9 @@ class $$TrackUserStatesTableFilterComposer
 
   ColumnFilters<int> get playCount => $composableBuilder(
       column: $table.playCount, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get completeCount => $composableBuilder(
+      column: $table.completeCount, builder: (column) => ColumnFilters(column));
 
   ColumnFilters<int> get skipCount => $composableBuilder(
       column: $table.skipCount, builder: (column) => ColumnFilters(column));
@@ -3931,6 +4326,10 @@ class $$TrackUserStatesTableOrderingComposer
 
   ColumnOrderings<int> get playCount => $composableBuilder(
       column: $table.playCount, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get completeCount => $composableBuilder(
+      column: $table.completeCount,
+      builder: (column) => ColumnOrderings(column));
 
   ColumnOrderings<int> get skipCount => $composableBuilder(
       column: $table.skipCount, builder: (column) => ColumnOrderings(column));
@@ -3999,6 +4398,9 @@ class $$TrackUserStatesTableAnnotationComposer
 
   GeneratedColumn<int> get playCount =>
       $composableBuilder(column: $table.playCount, builder: (column) => column);
+
+  GeneratedColumn<int> get completeCount => $composableBuilder(
+      column: $table.completeCount, builder: (column) => column);
 
   GeneratedColumn<int> get skipCount =>
       $composableBuilder(column: $table.skipCount, builder: (column) => column);
@@ -4071,6 +4473,7 @@ class $$TrackUserStatesTableTableManager extends RootTableManager<
             Value<bool> isHidden = const Value.absent(),
             Value<int?> rating = const Value.absent(),
             Value<int> playCount = const Value.absent(),
+            Value<int> completeCount = const Value.absent(),
             Value<int> skipCount = const Value.absent(),
             Value<DateTime?> lastPlayedAt = const Value.absent(),
             Value<DateTime?> lastSkippedAt = const Value.absent(),
@@ -4085,6 +4488,7 @@ class $$TrackUserStatesTableTableManager extends RootTableManager<
             isHidden: isHidden,
             rating: rating,
             playCount: playCount,
+            completeCount: completeCount,
             skipCount: skipCount,
             lastPlayedAt: lastPlayedAt,
             lastSkippedAt: lastSkippedAt,
@@ -4099,6 +4503,7 @@ class $$TrackUserStatesTableTableManager extends RootTableManager<
             Value<bool> isHidden = const Value.absent(),
             Value<int?> rating = const Value.absent(),
             Value<int> playCount = const Value.absent(),
+            Value<int> completeCount = const Value.absent(),
             Value<int> skipCount = const Value.absent(),
             Value<DateTime?> lastPlayedAt = const Value.absent(),
             Value<DateTime?> lastSkippedAt = const Value.absent(),
@@ -4113,6 +4518,7 @@ class $$TrackUserStatesTableTableManager extends RootTableManager<
             isHidden: isHidden,
             rating: rating,
             playCount: playCount,
+            completeCount: completeCount,
             skipCount: skipCount,
             lastPlayedAt: lastPlayedAt,
             lastSkippedAt: lastSkippedAt,
