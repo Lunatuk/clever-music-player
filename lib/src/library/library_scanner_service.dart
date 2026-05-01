@@ -261,8 +261,8 @@ final class LibraryScannerService {
       fileSizeBytes: metadata.fileSizeBytes,
       durationMs: durationMs,
     );
-    final existing = knownByStableId[stableId] ??
-        knownByFilePath[p.normalize(metadata.filePath)];
+    final existing = knownByFilePath[p.normalize(metadata.filePath)] ??
+        knownByStableId[stableId];
 
     return Track(
       id: existing?.id,
@@ -280,6 +280,8 @@ final class LibraryScannerService {
       trackNumber: metadata.trackNumber,
       discNumber: metadata.discNumber,
       year: metadata.year,
+      metadataSource: metadata.metadataSource,
+      metadataConfidence: metadata.metadataConfidence,
       fileSizeBytes: metadata.fileSizeBytes,
       modifiedAt: metadata.modifiedAt,
       lastSeenAt: now,

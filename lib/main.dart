@@ -26,7 +26,7 @@ void main() {
   final libraryScanner = LibraryScannerService(
     libraryRepository: repositories.libraryFolders,
     trackRepository: repositories.tracks,
-    metadataReader: const FallbackMetadataReaderService(),
+    metadataReader: const AudioMetadataReaderService(),
   );
   final playerService = JustAudioPlayerService(
     playbackEvents: repositories.playbackEvents,

@@ -13,6 +13,7 @@ final class QueueState {
     this.isWaveEnabled = false,
     this.isChoosingNext = false,
     this.repeatGuardMessage,
+    this.selectionPoolMessage,
     this.lastError,
   }) : recommendationCandidates = List.unmodifiable(recommendationCandidates);
 
@@ -25,6 +26,7 @@ final class QueueState {
   final bool isWaveEnabled;
   final bool isChoosingNext;
   final String? repeatGuardMessage;
+  final String? selectionPoolMessage;
   final String? lastError;
 
   bool get smartModeEnabled => isWaveEnabled;
@@ -55,6 +57,7 @@ final class QueueState {
     bool? isWaveEnabled,
     bool? isChoosingNext,
     Object? repeatGuardMessage = _unset,
+    Object? selectionPoolMessage = _unset,
     Object? lastError = _unset,
   }) {
     return QueueState(
@@ -78,6 +81,9 @@ final class QueueState {
       repeatGuardMessage: identical(repeatGuardMessage, _unset)
           ? this.repeatGuardMessage
           : repeatGuardMessage as String?,
+      selectionPoolMessage: identical(selectionPoolMessage, _unset)
+          ? this.selectionPoolMessage
+          : selectionPoolMessage as String?,
       lastError:
           identical(lastError, _unset) ? this.lastError : lastError as String?,
     );
@@ -99,6 +105,7 @@ final class QueueState {
             other.isWaveEnabled == isWaveEnabled &&
             other.isChoosingNext == isChoosingNext &&
             other.repeatGuardMessage == repeatGuardMessage &&
+            other.selectionPoolMessage == selectionPoolMessage &&
             other.lastError == lastError;
   }
 
@@ -114,6 +121,7 @@ final class QueueState {
       isWaveEnabled,
       isChoosingNext,
       repeatGuardMessage,
+      selectionPoolMessage,
       lastError,
     );
   }

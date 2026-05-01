@@ -179,6 +179,118 @@ void main() {
     );
     expect(tracks.single.isMissing, isFalse);
   });
+
+  test('rescan with improved metadata updates existing track by file path',
+      () async {
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'clever_music_improved_metadata_test_',
+    );
+    addTearDown(() => tempDirectory.delete(recursive: true));
+
+    final file = File(p.join(tempDirectory.path, 'scars.mp3'));
+    await file.writeAsBytes([1, 2, 3]);
+
+    final database = AppDatabase(NativeDatabase.memory());
+    addTearDown(database.close);
+    final repositories = DriftRepositories(database);
+    final reader = _SequenceMetadataReader([
+      _audioMetadata(
+        file,
+        title: 'scars',
+        metadataSource: MetadataSource.fallback,
+        metadataConfidence: 0.2,
+      ),
+      _audioMetadata(
+        file,
+        title: 'Scars',
+        artist: 'Known Artist',
+        album: 'Known Album',
+        metadataSource: MetadataSource.embeddedTags,
+        metadataConfidence: 0.95,
+      ),
+    ]);
+    final scanner = LibraryScannerService(
+      libraryRepository: repositories.libraryFolders,
+      trackRepository: repositories.tracks,
+      metadataReader: reader,
+    );
+
+    await scanner.scanFolder(tempDirectory.path);
+    final firstTrack = (await repositories.tracks.listTracks(limit: 10)).single;
+    await repositories.trackUserState.upsertState(
+      TrackUserState(
+        trackId: firstTrack.id!,
+        isFavorite: true,
+        rating: 1,
+        updatedAt: DateTime(2026),
+      ),
+    );
+    await repositories.playbackEvents.addEvent(
+      PlaybackEvent(
+        trackId: firstTrack.id!,
+        type: PlaybackEventType.started,
+        occurredAt: DateTime(2026),
+      ),
+    );
+
+    final result = await scanner.scanFolder(tempDirectory.path);
+
+    expect(result.addedTracks, 0);
+    expect(result.updatedTracks, 1);
+
+    final tracks = await repositories.tracks.listTracks(limit: 10);
+    expect(tracks, hasLength(1));
+    final updatedTrack = tracks.single;
+    expect(updatedTrack.id, firstTrack.id);
+    expect(updatedTrack.title, 'Scars');
+    expect(updatedTrack.artist, 'Known Artist');
+    expect(updatedTrack.album, 'Known Album');
+    expect(updatedTrack.metadataSource, MetadataSource.embeddedTags);
+
+    final state = await repositories.trackUserState.findByTrackId(
+      firstTrack.id!,
+    );
+    expect(state?.isFavorite, isTrue);
+    expect(state?.rating, 1);
+
+    final events = await repositories.playbackEvents.recentForTrack(
+      firstTrack.id!,
+    );
+    expect(events, hasLength(1));
+  });
+
+  test('metadata reader failure records an error and continues scanning',
+      () async {
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'clever_music_reader_failure_test_',
+    );
+    addTearDown(() => tempDirectory.delete(recursive: true));
+
+    final badFile = File(p.join(tempDirectory.path, 'bad.mp3'));
+    final goodFile = File(p.join(tempDirectory.path, 'Artist - Good.mp3'));
+    await badFile.writeAsBytes([1]);
+    await goodFile.writeAsBytes([2]);
+
+    final database = AppDatabase(NativeDatabase.memory());
+    addTearDown(database.close);
+    final repositories = DriftRepositories(database);
+    final scanner = LibraryScannerService(
+      libraryRepository: repositories.libraryFolders,
+      trackRepository: repositories.tracks,
+      metadataReader:
+          _SelectiveFailingMetadataReader(failingPath: badFile.path),
+    );
+
+    final result = await scanner.scanFolder(tempDirectory.path);
+
+    expect(result.scannedFiles, 2);
+    expect(result.addedTracks, 1);
+    expect(result.errors, hasLength(1));
+
+    final tracks = await repositories.tracks.listTracks(limit: 10);
+    expect(tracks.single.title, 'Good');
+    expect(tracks.single.artist, 'Artist');
+  });
 }
 
 Future<LibraryFolder> _seedKnownFolder(
@@ -213,4 +325,55 @@ Future<void> _seedKnownTrack(
       updatedAt: now,
     ),
   );
+}
+
+AudioMetadata _audioMetadata(
+  File file, {
+  required String title,
+  required MetadataSource metadataSource,
+  required double metadataConfidence,
+  String? artist,
+  String? album,
+}) {
+  final stat = file.statSync();
+  return AudioMetadata(
+    filePath: p.normalize(file.absolute.path),
+    fileSizeBytes: stat.size,
+    modifiedAt: stat.modified,
+    title: title,
+    codec: p.extension(file.path).replaceFirst('.', '').toLowerCase(),
+    metadataSource: metadataSource,
+    metadataConfidence: metadataConfidence,
+    artist: artist,
+    album: album,
+  );
+}
+
+final class _SequenceMetadataReader implements MetadataReaderService {
+  _SequenceMetadataReader(this._metadata);
+
+  final List<AudioMetadata> _metadata;
+  var _index = 0;
+
+  @override
+  Future<AudioMetadata> read(File file) async {
+    final metadata = _metadata[_index];
+    _index = (_index + 1).clamp(0, _metadata.length - 1).toInt();
+    return metadata;
+  }
+}
+
+final class _SelectiveFailingMetadataReader implements MetadataReaderService {
+  const _SelectiveFailingMetadataReader({required this.failingPath});
+
+  final String failingPath;
+
+  @override
+  Future<AudioMetadata> read(File file) async {
+    if (p.equals(file.path, failingPath)) {
+      throw StateError('metadata failure');
+    }
+
+    return const FallbackMetadataReaderService().read(file);
+  }
 }
