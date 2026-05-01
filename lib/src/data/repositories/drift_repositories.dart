@@ -118,6 +118,31 @@ final class DriftTrackRepository implements TrackRepository {
   }
 
   @override
+  Future<void> updateTrackMetadata(TrackMetadataUpdate metadata) async {
+    final updatedRows = await (_database.update(_database.tracks)
+          ..where((table) => table.id.equals(metadata.trackId)))
+        .write(
+      TracksCompanion(
+        title: Value(metadata.title),
+        artist: Value(metadata.artist),
+        album: Value(metadata.album),
+        albumArtist: Value(metadata.albumArtist),
+        genre: Value(metadata.genre),
+        year: Value(metadata.year),
+        trackNumber: Value(metadata.trackNumber),
+        discNumber: Value(metadata.discNumber),
+        metadataSource: Value(MetadataSource.manual.storageKey),
+        metadataConfidence: const Value(1.0),
+        updatedAt: Value(metadata.updatedAt),
+      ),
+    );
+
+    if (updatedRows == 0) {
+      throw StateError('Track ${metadata.trackId} was not found.');
+    }
+  }
+
+  @override
   Future<Track?> findById(int id) async {
     final row = await (_database.select(_database.tracks)
           ..where((table) => table.id.equals(id)))

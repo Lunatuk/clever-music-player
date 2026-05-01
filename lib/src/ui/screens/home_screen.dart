@@ -13,6 +13,7 @@ import '../../player/player_state.dart';
 import '../../queue/playback_queue_service.dart';
 import '../../queue/queue_state.dart';
 import '../track_metadata_subtitle.dart';
+import '../track_metadata_edit_dialog.dart';
 
 final class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -167,6 +168,7 @@ final class _HomeScreenState extends State<HomeScreen> {
                 _PlayerControls(
                   playerService: dependencies.playerService,
                   queueService: dependencies.playbackQueue,
+                  libraryTracks: activeTracks,
                 ),
                 const SizedBox(height: 24),
                 _LibraryFoldersPanel(
@@ -252,6 +254,9 @@ final class _HomeScreenState extends State<HomeScreen> {
             },
             onDislikeTrack: (track) {
               unawaited(dependencies.playbackQueue.toggleDislike(track));
+            },
+            onEditTrack: (track) {
+              unawaited(_editTrackMetadata(dependencies, track));
             },
           ),
         const SliverToBoxAdapter(child: SizedBox(height: 24)),
@@ -343,6 +348,36 @@ final class _HomeScreenState extends State<HomeScreen> {
 
     try {
       await _libraryManagement(dependencies).removeFolderFromLibrary(folder);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _lastError = null;
+      });
+    } on Object catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _lastError = error;
+      });
+    }
+  }
+
+  Future<void> _editTrackMetadata(
+    AppDependencies dependencies,
+    Track track,
+  ) async {
+    final metadata = await showDialog<TrackMetadataUpdate>(
+      context: context,
+      builder: (context) => TrackMetadataEditDialog(track: track),
+    );
+    if (metadata == null) {
+      return;
+    }
+
+    try {
+      await dependencies.repositories.tracks.updateTrackMetadata(metadata);
       if (!mounted) {
         return;
       }
@@ -808,6 +843,7 @@ final class _TrackListSliver extends StatelessWidget {
     required this.onPlayTrack,
     required this.onLikeTrack,
     required this.onDislikeTrack,
+    required this.onEditTrack,
   });
 
   final List<Track> tracks;
@@ -816,6 +852,7 @@ final class _TrackListSliver extends StatelessWidget {
   final ValueChanged<Track> onPlayTrack;
   final ValueChanged<Track> onLikeTrack;
   final ValueChanged<Track> onDislikeTrack;
+  final ValueChanged<Track> onEditTrack;
 
   @override
   Widget build(BuildContext context) {
@@ -836,6 +873,7 @@ final class _TrackListSliver extends StatelessWidget {
               onTap: track.isMissing ? null : () => onPlayTrack(track),
               onLike: () => onLikeTrack(track),
               onDislike: () => onDislikeTrack(track),
+              onEdit: () => onEditTrack(track),
             );
           },
           childCount: tracks.length * 2 - 1,
@@ -859,10 +897,12 @@ final class _PlayerControls extends StatefulWidget {
   const _PlayerControls({
     required this.playerService,
     required this.queueService,
+    required this.libraryTracks,
   });
 
   final PlayerService playerService;
   final PlaybackQueueService queueService;
+  final List<Track> libraryTracks;
 
   @override
   State<_PlayerControls> createState() => _PlayerControlsState();
@@ -888,7 +928,10 @@ final class _PlayerControlsState extends State<_PlayerControls> {
           initialData: widget.playerService.state,
           builder: (context, snapshot) {
             final state = snapshot.data ?? const PlayerState.idle();
-            final track = state.currentTrack;
+            final track = _latestTrackFor(
+              state.currentTrack,
+              widget.libraryTracks,
+            );
             final duration = state.duration;
             final trackKey = _trackKey(track);
             final activeDragPosition =
@@ -1091,6 +1134,20 @@ final class _PlayerControlsState extends State<_PlayerControls> {
 
   static Object? _trackKey(Track? track) {
     return track?.id ?? track?.filePath;
+  }
+
+  static Track? _latestTrackFor(
+      Track? currentTrack, List<Track> libraryTracks) {
+    if (currentTrack == null) {
+      return null;
+    }
+
+    for (final track in libraryTracks) {
+      if (_isSameTrack(track, currentTrack)) {
+        return track;
+      }
+    }
+    return currentTrack;
   }
 }
 
@@ -1436,6 +1493,7 @@ final class _TrackListTile extends StatelessWidget {
     required this.onTap,
     required this.onLike,
     required this.onDislike,
+    required this.onEdit,
   });
 
   final Track track;
@@ -1444,6 +1502,7 @@ final class _TrackListTile extends StatelessWidget {
   final VoidCallback? onTap;
   final VoidCallback onLike;
   final VoidCallback onDislike;
+  final VoidCallback onEdit;
 
   @override
   Widget build(BuildContext context) {
@@ -1496,6 +1555,12 @@ final class _TrackListTile extends StatelessWidget {
             inactiveIcon: Icons.thumb_down_outlined,
             activeTooltip: 'Undislike',
             inactiveTooltip: 'Dislike',
+          ),
+          const SizedBox(width: 4),
+          IconButton.outlined(
+            tooltip: 'Edit metadata',
+            onPressed: track.id == null ? null : onEdit,
+            icon: const Icon(Icons.edit_outlined),
           ),
           const SizedBox(width: 4),
           Icon(

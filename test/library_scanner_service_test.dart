@@ -259,6 +259,100 @@ void main() {
     expect(events, hasLength(1));
   });
 
+  test('rescan preserves manual metadata and updates technical fields',
+      () async {
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'clever_music_manual_metadata_rescan_test_',
+    );
+    addTearDown(() => tempDirectory.delete(recursive: true));
+
+    final file = File(p.join(tempDirectory.path, 'manual.mp3'));
+    await file.writeAsBytes([1, 2, 3]);
+
+    final database = AppDatabase(NativeDatabase.memory());
+    addTearDown(database.close);
+    final repositories = DriftRepositories(database);
+    final initialModifiedAt = DateTime(2026);
+    final rescannedModifiedAt = DateTime(2026, 2);
+    final reader = _SequenceMetadataReader([
+      _audioMetadata(
+        file,
+        title: 'Scanned Title',
+        artist: 'Scanned Artist',
+        album: 'Scanned Album',
+        duration: const Duration(minutes: 1),
+        fileSizeBytes: 3,
+        modifiedAt: initialModifiedAt,
+        metadataSource: MetadataSource.embeddedTags,
+        metadataConfidence: 0.95,
+      ),
+      _audioMetadata(
+        file,
+        title: 'Auto Title',
+        artist: 'Auto Artist',
+        album: 'Auto Album',
+        albumArtist: 'Auto Album Artist',
+        genre: 'Auto Genre',
+        duration: const Duration(minutes: 2),
+        trackNumber: 9,
+        discNumber: 3,
+        year: 1999,
+        codec: 'flac',
+        fileSizeBytes: 99,
+        modifiedAt: rescannedModifiedAt,
+        metadataSource: MetadataSource.embeddedTags,
+        metadataConfidence: 0.95,
+      ),
+    ]);
+    final scanner = LibraryScannerService(
+      libraryRepository: repositories.libraryFolders,
+      trackRepository: repositories.tracks,
+      metadataReader: reader,
+    );
+
+    await scanner.scanFolder(tempDirectory.path);
+    final firstTrack = (await repositories.tracks.listTracks(limit: 10)).single;
+    await repositories.tracks.updateTrackMetadata(
+      TrackMetadataUpdate(
+        trackId: firstTrack.id!,
+        title: 'Manual Title',
+        artist: 'Manual Artist',
+        album: 'Manual Album',
+        albumArtist: 'Manual Album Artist',
+        genre: 'Manual Genre',
+        year: 2026,
+        trackNumber: 7,
+        discNumber: 2,
+        updatedAt: DateTime(2026, 1, 2),
+      ),
+    );
+
+    final result = await scanner.scanFolder(tempDirectory.path);
+
+    expect(result.addedTracks, 0);
+    expect(result.updatedTracks, 1);
+    final updatedTrack =
+        (await repositories.tracks.listTracks(limit: 10)).single;
+    expect(updatedTrack.id, firstTrack.id);
+    expect(updatedTrack.stableId, firstTrack.stableId);
+    expect(updatedTrack.title, 'Manual Title');
+    expect(updatedTrack.artist, 'Manual Artist');
+    expect(updatedTrack.album, 'Manual Album');
+    expect(updatedTrack.albumArtist, 'Manual Album Artist');
+    expect(updatedTrack.genre, 'Manual Genre');
+    expect(updatedTrack.year, 2026);
+    expect(updatedTrack.trackNumber, 7);
+    expect(updatedTrack.discNumber, 2);
+    expect(updatedTrack.metadataSource, MetadataSource.manual);
+    expect(updatedTrack.metadataConfidence, 1.0);
+    expect(updatedTrack.fileSizeBytes, 99);
+    expect(updatedTrack.modifiedAt, rescannedModifiedAt);
+    expect(updatedTrack.duration, const Duration(minutes: 2));
+    expect(updatedTrack.codec, 'flac');
+    expect(updatedTrack.lastSeenAt, isNotNull);
+    expect(updatedTrack.isMissing, isFalse);
+  });
+
   test('metadata reader failure records an error and continues scanning',
       () async {
     final tempDirectory = await Directory.systemTemp.createTemp(
@@ -334,18 +428,33 @@ AudioMetadata _audioMetadata(
   required double metadataConfidence,
   String? artist,
   String? album,
+  String? albumArtist,
+  String? genre,
+  Duration? duration,
+  int? trackNumber,
+  int? discNumber,
+  int? year,
+  String? codec,
+  int? fileSizeBytes,
+  DateTime? modifiedAt,
 }) {
   final stat = file.statSync();
   return AudioMetadata(
     filePath: p.normalize(file.absolute.path),
-    fileSizeBytes: stat.size,
-    modifiedAt: stat.modified,
+    fileSizeBytes: fileSizeBytes ?? stat.size,
+    modifiedAt: modifiedAt ?? stat.modified,
     title: title,
-    codec: p.extension(file.path).replaceFirst('.', '').toLowerCase(),
+    codec: codec ?? p.extension(file.path).replaceFirst('.', '').toLowerCase(),
     metadataSource: metadataSource,
     metadataConfidence: metadataConfidence,
     artist: artist,
     album: album,
+    albumArtist: albumArtist,
+    genre: genre,
+    duration: duration,
+    trackNumber: trackNumber,
+    discNumber: discNumber,
+    year: year,
   );
 }
 

@@ -1,7 +1,10 @@
 import '../models/track.dart';
+import '../models/track_metadata_update.dart';
 
 abstract interface class TrackRepository {
   Future<int> upsertTrack(Track track);
+
+  Future<void> updateTrackMetadata(TrackMetadataUpdate metadata);
 
   Future<Track?> findById(int id);
 

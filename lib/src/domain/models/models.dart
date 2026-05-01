@@ -5,5 +5,6 @@ export 'playback_event.dart';
 export 'recommendation_input.dart';
 export 'recommendation_result.dart';
 export 'track.dart';
+export 'track_metadata_update.dart';
 export 'track_user_state.dart';
 export 'wave_mode.dart';

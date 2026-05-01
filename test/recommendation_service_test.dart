@@ -412,6 +412,9 @@ final class _FakeTrackRepository implements TrackRepository {
   }
 
   @override
+  Future<void> updateTrackMetadata(TrackMetadataUpdate metadata) async {}
+
+  @override
   Stream<List<Track>> watchTracks({
     int limit = 100,
     bool includeDisabledFolders = false,

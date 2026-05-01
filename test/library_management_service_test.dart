@@ -285,6 +285,9 @@ final class _FakeTrackRepository implements TrackRepository {
   Future<int> upsertTrack(Track track) async => track.id ?? 0;
 
   @override
+  Future<void> updateTrackMetadata(TrackMetadataUpdate metadata) async {}
+
+  @override
   Stream<List<Track>> watchAllTracks({
     bool includeMissing = false,
     bool includeDisabledFolders = false,

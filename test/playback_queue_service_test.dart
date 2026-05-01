@@ -1408,6 +1408,9 @@ final class _FakeTrackRepository implements TrackRepository {
   }
 
   @override
+  Future<void> updateTrackMetadata(TrackMetadataUpdate metadata) async {}
+
+  @override
   Future<Track?> findById(int id) async {
     for (final track in _tracks) {
       if (track.id == id) {
