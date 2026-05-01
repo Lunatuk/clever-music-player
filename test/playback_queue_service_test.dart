@@ -207,6 +207,382 @@ void main() {
     await player.dispose();
   });
 
+  test('addToQueue adds a track without starting playback', () async {
+    final now = DateTime(2026);
+    final track = _track(id: 1, title: 'Queued', now: now);
+    final player = _FakePlayerService();
+    final queue = _queue(
+      player: player,
+      tracks: _FakeTrackRepository([track]),
+      now: now,
+    );
+
+    await queue.addToQueue(track);
+
+    expect(queue.state.manualQueue.map((track) => track.id), [1]);
+    expect(player.playedTracks, isEmpty);
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
+  test('missing track cannot be queued', () async {
+    final now = DateTime(2026);
+    final missing = _track(id: 1, title: 'Missing', now: now, isMissing: true);
+    final player = _FakePlayerService();
+    final queue = _queue(
+      player: player,
+      tracks: _FakeTrackRepository([missing]),
+      now: now,
+    );
+
+    await queue.addToQueue(missing);
+
+    expect(queue.state.manualQueue, isEmpty);
+    expect(queue.state.lastError, contains('Missing tracks'));
+    expect(player.playedTracks, isEmpty);
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
+  test('manual queue preserves order', () async {
+    final now = DateTime(2026);
+    final first = _track(id: 1, title: 'First', now: now);
+    final second = _track(id: 2, title: 'Second', now: now);
+    final third = _track(id: 3, title: 'Third', now: now);
+    final player = _FakePlayerService();
+    final queue = _queue(
+      player: player,
+      tracks: _FakeTrackRepository([first, second, third]),
+      now: now,
+    );
+
+    await queue.addToQueue(first);
+    await queue.addToQueue(second);
+    await queue.addToQueue(third);
+
+    expect(queue.state.manualQueue.map((track) => track.id), [1, 2, 3]);
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
+  test('next plays first manual queued track before Smart Wave', () async {
+    final now = DateTime(2026);
+    final current = _track(id: 1, title: 'Current', artist: 'A', now: now);
+    final queued = _track(id: 2, title: 'Queued', artist: 'B', now: now);
+    final smart = _track(id: 3, title: 'Smart', artist: 'C', now: now);
+    final events = _FakePlaybackEventRepository();
+    final player = _FakePlayerService();
+    final queue = _queue(
+      player: player,
+      tracks: _FakeTrackRepository([current, queued, smart]),
+      events: events,
+      now: now,
+    );
+
+    queue.enableWave();
+    await queue.addToQueue(queued);
+    player.emit(
+      PlayerState(
+        currentTrack: current,
+        isPlaying: true,
+        position: const Duration(seconds: 12),
+        duration: current.duration,
+        status: PlayerPlaybackStatus.playing,
+      ),
+    );
+
+    await queue.next();
+
+    expect(player.playedTracks.single.id, 2);
+    expect(queue.state.manualQueue, isEmpty);
+    expect(queue.state.lastRecommendationResult, isNull);
+    expect(events.events.single.type, PlaybackEventType.skipped);
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
+  test('next plays manualQueue.first and removes exactly one item', () async {
+    final now = DateTime(2026);
+    final first = _track(id: 1, title: 'First', now: now);
+    final second = _track(id: 2, title: 'Second', now: now);
+    final player = _FakePlayerService();
+    final queue = _queue(
+      player: player,
+      tracks: _FakeTrackRepository([first, second]),
+      now: now,
+    );
+
+    await queue.addToQueue(first);
+    await queue.addToQueue(second);
+    await queue.next();
+
+    expect(player.playedTracks.map((track) => track.id), [1]);
+    expect(queue.state.manualQueue.map((track) => track.id), [2]);
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
+  test('completion plays first manual queued track before Smart Wave',
+      () async {
+    final now = DateTime(2026);
+    final completed = _track(id: 1, title: 'Completed', artist: 'A', now: now);
+    final queued = _track(id: 2, title: 'Queued', artist: 'B', now: now);
+    final smart = _track(id: 3, title: 'Smart', artist: 'C', now: now);
+    final player = _FakePlayerService();
+    final queue = _queue(
+      player: player,
+      tracks: _FakeTrackRepository([completed, queued, smart]),
+      now: now,
+    );
+
+    queue.enableWave();
+    await queue.addToQueue(queued);
+    player.emit(
+      PlayerState(
+        currentTrack: completed,
+        isPlaying: false,
+        position: completed.duration!,
+        duration: completed.duration,
+        status: PlayerPlaybackStatus.completed,
+      ),
+    );
+
+    await _waitUntil(() => player.playedTracks.isNotEmpty);
+
+    expect(player.playedTracks.single.id, 2);
+    expect(queue.state.manualQueue, isEmpty);
+    expect(queue.state.lastRecommendationResult, isNull);
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
+  test('completion plays manualQueue.first and removes exactly one item',
+      () async {
+    final now = DateTime(2026);
+    final completed = _track(id: 1, title: 'Completed', now: now);
+    final first = _track(id: 2, title: 'First', now: now);
+    final second = _track(id: 3, title: 'Second', now: now);
+    final player = _FakePlayerService();
+    final queue = _queue(
+      player: player,
+      tracks: _FakeTrackRepository([completed, first, second]),
+      now: now,
+    );
+
+    await queue.addToQueue(first);
+    await queue.addToQueue(second);
+    player.emit(
+      PlayerState(
+        currentTrack: completed,
+        isPlaying: false,
+        position: completed.duration!,
+        duration: completed.duration,
+        status: PlayerPlaybackStatus.completed,
+      ),
+    );
+
+    await _waitUntil(() => player.playedTracks.isNotEmpty);
+
+    expect(player.playedTracks.map((track) => track.id), [2]);
+    expect(queue.state.manualQueue.map((track) => track.id), [3]);
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
+  test('duplicate completed events do not consume two queued items', () async {
+    final now = DateTime(2026);
+    final completed = _track(id: 1, title: 'Completed', now: now);
+    final first = _track(id: 2, title: 'First', now: now);
+    final second = _track(id: 3, title: 'Second', now: now);
+    final player = _FakePlayerService();
+    final queue = _queue(
+      player: player,
+      tracks: _FakeTrackRepository([completed, first, second]),
+      now: now,
+    );
+
+    await queue.addToQueue(first);
+    await queue.addToQueue(second);
+    final completedState = PlayerState(
+      currentTrack: completed,
+      isPlaying: false,
+      position: completed.duration!,
+      duration: completed.duration,
+      status: PlayerPlaybackStatus.completed,
+    );
+
+    player.emit(completedState);
+    await _waitUntil(() => player.playedTracks.length == 1);
+    player.emit(completedState);
+    await Future<void>.delayed(const Duration(milliseconds: 30));
+
+    expect(player.playedTracks.map((track) => track.id), [2]);
+    expect(queue.state.manualQueue.map((track) => track.id), [3]);
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
+  test('duplicate completed events during transition do not double play',
+      () async {
+    final now = DateTime(2026);
+    final completed = _track(id: 1, title: 'Completed', now: now);
+    final first = _track(id: 2, title: 'First', now: now);
+    final second = _track(id: 3, title: 'Second', now: now);
+    final playStarted = Completer<void>();
+    final player = _FakePlayerService()..playTrackBlocker = playStarted;
+    final queue = _queue(
+      player: player,
+      tracks: _FakeTrackRepository([completed, first, second]),
+      now: now,
+    );
+
+    await queue.addToQueue(first);
+    await queue.addToQueue(second);
+    final completedState = PlayerState(
+      currentTrack: completed,
+      isPlaying: false,
+      position: completed.duration!,
+      duration: completed.duration,
+      status: PlayerPlaybackStatus.completed,
+    );
+
+    player.emit(completedState);
+    await _waitUntil(() => player.playTrackCalls.length == 1);
+    player.emit(completedState);
+    await Future<void>.delayed(const Duration(milliseconds: 30));
+
+    expect(player.playTrackCalls.map((track) => track.id), [2]);
+    expect(queue.state.manualQueue.map((track) => track.id), [3]);
+
+    playStarted.complete();
+    await _waitUntil(() => player.playedTracks.length == 1);
+
+    expect(player.playedTracks.map((track) => track.id), [2]);
+    expect(queue.state.isChoosingNext, isFalse);
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
+  test('completion guard resets after the same track starts again', () async {
+    final now = DateTime(2026);
+    final repeated = _track(id: 1, title: 'Repeated', now: now);
+    final firstQueued = _track(id: 2, title: 'First queued', now: now);
+    final secondQueued = _track(id: 3, title: 'Second queued', now: now);
+    final player = _FakePlayerService();
+    final queue = _queue(
+      player: player,
+      tracks: _FakeTrackRepository([repeated, firstQueued, secondQueued]),
+      now: now,
+    );
+
+    await queue.addToQueue(firstQueued);
+    player.emit(_completedState(repeated));
+    await _waitUntil(() => player.playedTracks.length == 1);
+
+    await queue.addToQueue(secondQueued);
+    player.emit(
+      PlayerState(
+        currentTrack: repeated,
+        isPlaying: true,
+        position: const Duration(seconds: 1),
+        duration: repeated.duration,
+        status: PlayerPlaybackStatus.playing,
+      ),
+    );
+    player.emit(_completedState(repeated));
+    await _waitUntil(() => player.playedTracks.length == 2);
+
+    expect(player.playedTracks.map((track) => track.id), [2, 3]);
+    expect(queue.state.manualQueue, isEmpty);
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
+  test('manual queue order is preserved over multiple completions', () async {
+    final now = DateTime(2026);
+    final initial = _track(id: 1, title: 'Initial', now: now);
+    final first = _track(id: 2, title: 'First', now: now);
+    final second = _track(id: 3, title: 'Second', now: now);
+    final third = _track(id: 4, title: 'Third', now: now);
+    final player = _FakePlayerService();
+    final queue = _queue(
+      player: player,
+      tracks: _FakeTrackRepository([initial, first, second, third]),
+      now: now,
+    );
+
+    await queue.addToQueue(first);
+    await queue.addToQueue(second);
+    await queue.addToQueue(third);
+
+    player.emit(_completedState(initial));
+    await _waitUntil(() => player.playedTracks.length == 1);
+    player.emit(_completedState(first));
+    await _waitUntil(() => player.playedTracks.length == 2);
+    player.emit(_completedState(second));
+    await _waitUntil(() => player.playedTracks.length == 3);
+
+    expect(player.playedTracks.map((track) => track.id), [2, 3, 4]);
+    expect(queue.state.manualQueue, isEmpty);
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
+  test('clearQueue empties manual queue', () async {
+    final now = DateTime(2026);
+    final first = _track(id: 1, title: 'First', now: now);
+    final second = _track(id: 2, title: 'Second', now: now);
+    final player = _FakePlayerService();
+    final queue = _queue(
+      player: player,
+      tracks: _FakeTrackRepository([first, second]),
+      now: now,
+    );
+
+    await queue.addToQueue(first);
+    await queue.addToQueue(second);
+    queue.clearQueue();
+
+    expect(queue.state.manualQueue, isEmpty);
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
+  test('removeQueuedTrack removes only that item', () async {
+    final now = DateTime(2026);
+    final first = _track(id: 1, title: 'First', now: now);
+    final second = _track(id: 2, title: 'Second', now: now);
+    final third = _track(id: 3, title: 'Third', now: now);
+    final player = _FakePlayerService();
+    final queue = _queue(
+      player: player,
+      tracks: _FakeTrackRepository([first, second, third]),
+      now: now,
+    );
+
+    await queue.addToQueue(first);
+    await queue.addToQueue(second);
+    await queue.addToQueue(third);
+    queue.removeQueuedTrack(1);
+
+    expect(queue.state.manualQueue.map((track) => track.id), [1, 3]);
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
   test('weighted selection can choose a non-top candidate', () async {
     final now = DateTime(2026);
     final top = _track(id: 1, title: 'Top', artist: 'A', now: now);
@@ -735,6 +1111,7 @@ void main() {
       now: now,
     );
 
+    queue.enableWave();
     player.emit(
       PlayerState(
         currentTrack: current,
@@ -753,6 +1130,92 @@ void main() {
     expect(userState.states[1]?.skipCount, 1);
     expect(userState.states[1]?.lastSkippedAt, now);
     expect(player.playedTracks.single.id, 2);
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
+  test('next does nothing when queue is empty and wave is disabled', () async {
+    final now = DateTime(2026);
+    final current = _track(id: 1, title: 'Current', now: now);
+    final next = _track(id: 2, title: 'Next', now: now);
+    final events = _FakePlaybackEventRepository();
+    final player = _FakePlayerService();
+    final queue = _queue(
+      player: player,
+      tracks: _FakeTrackRepository([current, next]),
+      events: events,
+      now: now,
+    );
+
+    player.emit(
+      PlayerState(
+        currentTrack: current,
+        isPlaying: true,
+        position: const Duration(seconds: 42),
+        duration: current.duration,
+        status: PlayerPlaybackStatus.playing,
+      ),
+    );
+
+    await queue.next();
+
+    expect(player.playedTracks, isEmpty);
+    expect(events.events, isEmpty);
+    expect(queue.state.lastRecommendationResult, isNull);
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
+  test('next plays queued item when wave is disabled', () async {
+    final now = DateTime(2026);
+    final queued = _track(id: 1, title: 'Queued', now: now);
+    final player = _FakePlayerService();
+    final queue = _queue(
+      player: player,
+      tracks: _FakeTrackRepository([queued]),
+      now: now,
+    );
+
+    await queue.addToQueue(queued);
+    await queue.next();
+
+    expect(player.playedTracks.single.id, 1);
+    expect(queue.state.manualQueue, isEmpty);
+    expect(queue.state.isWaveEnabled, isFalse);
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
+  test('next uses Smart Wave when queue is empty and wave is enabled',
+      () async {
+    final now = DateTime(2026);
+    final current = _track(id: 1, title: 'Current', artist: 'A', now: now);
+    final smart = _track(id: 2, title: 'Smart', artist: 'B', now: now);
+    final player = _FakePlayerService();
+    final queue = _queue(
+      player: player,
+      tracks: _FakeTrackRepository([current, smart]),
+      now: now,
+    );
+
+    queue.enableWave();
+    player.emit(
+      PlayerState(
+        currentTrack: current,
+        isPlaying: true,
+        position: const Duration(seconds: 42),
+        duration: current.duration,
+        status: PlayerPlaybackStatus.playing,
+      ),
+    );
+
+    await queue.next();
+
+    expect(player.playedTracks.single.id, 2);
+    expect(queue.state.lastRecommendationResult?.track.id, 2);
 
     await queue.dispose();
     await player.dispose();
@@ -1141,6 +1604,116 @@ void main() {
     await player.dispose();
   });
 
+  test('completion does not auto-next when queue is empty and wave is disabled',
+      () async {
+    final now = DateTime(2026);
+    final completed = _track(id: 1, title: 'Done', artist: 'A', now: now);
+    final next = _track(id: 2, title: 'Next', artist: 'B', now: now);
+    final player = _FakePlayerService();
+    final queue = _queue(
+      player: player,
+      tracks: _FakeTrackRepository([completed, next]),
+      now: now,
+    );
+
+    player.emit(
+      PlayerState(
+        currentTrack: completed,
+        isPlaying: false,
+        position: completed.duration!,
+        duration: completed.duration,
+        status: PlayerPlaybackStatus.completed,
+      ),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 30));
+
+    expect(player.playedTracks, isEmpty);
+    expect(queue.state.lastRecommendationResult, isNull);
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
+  test('completion plays queued item when wave is disabled', () async {
+    final now = DateTime(2026);
+    final completed = _track(id: 1, title: 'Done', artist: 'A', now: now);
+    final queued = _track(id: 2, title: 'Queued', artist: 'B', now: now);
+    final player = _FakePlayerService();
+    final queue = _queue(
+      player: player,
+      tracks: _FakeTrackRepository([completed, queued]),
+      now: now,
+    );
+
+    await queue.addToQueue(queued);
+    player.emit(_completedState(completed));
+
+    await _waitUntil(() => player.playedTracks.isNotEmpty);
+
+    expect(player.playedTracks.single.id, 2);
+    expect(queue.state.manualQueue, isEmpty);
+    expect(queue.state.isWaveEnabled, isFalse);
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
+  test('transition guard is cleared after playback failure', () async {
+    final now = DateTime(2026);
+    final failing = _track(id: 1, title: 'Failing', now: now);
+    final recovery = _track(id: 2, title: 'Recovery', now: now);
+    final player = _FakePlayerService()
+      ..playTrackError = StateError('load failed');
+    final queue = _queue(
+      player: player,
+      tracks: _FakeTrackRepository([failing, recovery]),
+      now: now,
+    );
+
+    await queue.addToQueue(failing);
+    await queue.next();
+
+    expect(player.playedTracks, isEmpty);
+    expect(queue.state.isChoosingNext, isFalse);
+    expect(queue.state.lastError, contains('load failed'));
+
+    player.playTrackError = null;
+    await queue.addToQueue(recovery);
+    await queue.next();
+
+    expect(player.playedTracks.single.id, 2);
+    expect(queue.state.isChoosingNext, isFalse);
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
+  test('manually queued disliked track can still play', () async {
+    final now = DateTime(2026);
+    final disliked = _track(id: 1, title: 'Disliked', artist: 'A', now: now);
+    final alternative =
+        _track(id: 2, title: 'Alternative', artist: 'B', now: now);
+    final userState = _FakeTrackUserStateRepository({
+      1: TrackUserState(trackId: 1, isHidden: true, updatedAt: now),
+    });
+    final player = _FakePlayerService();
+    final queue = _queue(
+      player: player,
+      tracks: _FakeTrackRepository([disliked, alternative]),
+      userState: userState,
+      now: now,
+    );
+
+    await queue.addToQueue(disliked);
+    await queue.next();
+
+    expect(player.playedTracks.single.id, 1);
+    expect(queue.state.manualQueue, isEmpty);
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
   test('empty library is handled gracefully', () async {
     final now = DateTime(2026);
     final player = _FakePlayerService();
@@ -1289,6 +1862,16 @@ PlaybackEvent _started({
   );
 }
 
+PlayerState _completedState(Track track) {
+  return PlayerState(
+    currentTrack: track,
+    isPlaying: false,
+    position: track.duration ?? Duration.zero,
+    duration: track.duration,
+    status: PlayerPlaybackStatus.completed,
+  );
+}
+
 RecommendationResult _recommendationResult({
   required int id,
   required String title,
@@ -1322,6 +1905,9 @@ final class _FakePlayerService implements PlayerService {
       StreamController<PlayerState>.broadcast();
 
   final List<Track> playedTracks = [];
+  final List<Track> playTrackCalls = [];
+  Completer<void>? playTrackBlocker;
+  Object? playTrackError;
   PlayerState _state = const PlayerState.idle();
 
   @override
@@ -1347,6 +1933,17 @@ final class _FakePlayerService implements PlayerService {
 
   @override
   Future<void> playTrack(Track track) async {
+    playTrackCalls.add(track);
+    final error = playTrackError;
+    if (error != null) {
+      throw error;
+    }
+
+    final blocker = playTrackBlocker;
+    if (blocker != null) {
+      await blocker.future;
+    }
+
     playedTracks.add(track);
     emit(
       PlayerState(

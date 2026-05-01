@@ -6,7 +6,7 @@ final class QueueState {
   QueueState({
     this.currentTrack,
     this.currentTrackUserState,
-    this.upcomingTrack,
+    Iterable<Track> manualQueue = const [],
     this.selectedWaveMode = WaveMode.balanced,
     this.lastRecommendationResult,
     Iterable<RecommendationResult> recommendationCandidates = const [],
@@ -15,11 +15,12 @@ final class QueueState {
     this.repeatGuardMessage,
     this.selectionPoolMessage,
     this.lastError,
-  }) : recommendationCandidates = List.unmodifiable(recommendationCandidates);
+  })  : manualQueue = List.unmodifiable(manualQueue),
+        recommendationCandidates = List.unmodifiable(recommendationCandidates);
 
   final Track? currentTrack;
   final TrackUserState? currentTrackUserState;
-  final Track? upcomingTrack;
+  final List<Track> manualQueue;
   final WaveMode selectedWaveMode;
   final RecommendationResult? lastRecommendationResult;
   final List<RecommendationResult> recommendationCandidates;
@@ -50,7 +51,7 @@ final class QueueState {
   QueueState copyWith({
     Object? currentTrack = _unset,
     Object? currentTrackUserState = _unset,
-    Object? upcomingTrack = _unset,
+    Iterable<Track>? manualQueue,
     WaveMode? selectedWaveMode,
     Object? lastRecommendationResult = _unset,
     Iterable<RecommendationResult>? recommendationCandidates,
@@ -67,9 +68,7 @@ final class QueueState {
       currentTrackUserState: identical(currentTrackUserState, _unset)
           ? this.currentTrackUserState
           : currentTrackUserState as TrackUserState?,
-      upcomingTrack: identical(upcomingTrack, _unset)
-          ? this.upcomingTrack
-          : upcomingTrack as Track?,
+      manualQueue: manualQueue ?? this.manualQueue,
       selectedWaveMode: selectedWaveMode ?? this.selectedWaveMode,
       lastRecommendationResult: identical(lastRecommendationResult, _unset)
           ? this.lastRecommendationResult
@@ -95,7 +94,7 @@ final class QueueState {
         other is QueueState &&
             other.currentTrack == currentTrack &&
             other.currentTrackUserState == currentTrackUserState &&
-            other.upcomingTrack == upcomingTrack &&
+            _listEquals(other.manualQueue, manualQueue) &&
             other.selectedWaveMode == selectedWaveMode &&
             other.lastRecommendationResult == lastRecommendationResult &&
             _listEquals(
@@ -114,7 +113,7 @@ final class QueueState {
     return Object.hash(
       currentTrack,
       currentTrackUserState,
-      upcomingTrack,
+      Object.hashAll(manualQueue),
       selectedWaveMode,
       lastRecommendationResult,
       Object.hashAll(recommendationCandidates),
