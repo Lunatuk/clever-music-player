@@ -155,8 +155,10 @@ final class PlaybackQueueService {
   late final StreamSubscription<PlayerState> _playerSubscription;
   QueueState _state = QueueState();
   Object? _handledCompletionTrackKey;
+  Object? _lastStartedTrackKey;
   Object? _currentTrackStateKey;
   int _currentTrackStateGeneration = 0;
+  bool _isAdvancingToNext = false;
   bool _isDisposed = false;
 
   QueueState get state => _state;
@@ -172,7 +174,6 @@ final class PlaybackQueueService {
       _state.copyWith(
         currentTrack: track,
         currentTrackUserState: null,
-        upcomingTrack: null,
         lastRecommendationResult: null,
         recommendationCandidates: const [],
         repeatGuardMessage: null,
@@ -190,13 +191,61 @@ final class PlaybackQueueService {
     return _playSmartNext();
   }
 
-  Future<void> next() async {
-    if (_isDisposed || _state.isChoosingNext) {
+  Future<void> addToQueue(Track track) async {
+    if (_isDisposed) {
       return;
     }
 
-    await _recordSkipIfNeeded(_playerService.state);
-    await _playSmartNext();
+    final playableTrack = await _resolvePlayableTrack(track);
+    if (playableTrack == null) {
+      _emit(
+        _state.copyWith(
+          lastError: 'Missing tracks cannot be added to the queue.',
+        ),
+      );
+      return;
+    }
+
+    // Queue v1 is intentionally session-local. It is not persisted across app
+    // restarts until playlist or durable queue semantics are introduced.
+    _emit(
+      _state.copyWith(
+        manualQueue: [..._state.manualQueue, playableTrack],
+        lastError: null,
+      ),
+    );
+  }
+
+  void removeQueuedTrack(int index) {
+    if (_isDisposed || index < 0 || index >= _state.manualQueue.length) {
+      return;
+    }
+
+    final queue = _state.manualQueue.toList(growable: true)..removeAt(index);
+    _emit(_state.copyWith(manualQueue: queue, lastError: null));
+  }
+
+  void clearQueue() {
+    if (_isDisposed || _state.manualQueue.isEmpty) {
+      return;
+    }
+
+    _emit(_state.copyWith(manualQueue: const [], lastError: null));
+  }
+
+  Future<void> playQueuedTrackNow(int index) async {
+    if (_isDisposed || index < 0 || index >= _state.manualQueue.length) {
+      return;
+    }
+
+    await _runNextTransition(() async {
+      await _recordSkipIfNeeded(_playerService.state);
+      await _playQueuedTrackAt(index);
+    });
+  }
+
+  Future<void> next() async {
+    await _advanceToNext(recordSkip: true);
   }
 
   void setWaveMode(WaveMode mode) {
@@ -225,7 +274,11 @@ final class PlaybackQueueService {
       return;
     }
 
-    _emit(_state.copyWith(isWaveEnabled: false, upcomingTrack: null));
+    _emit(
+      _state.copyWith(
+        isWaveEnabled: false,
+      ),
+    );
   }
 
   Future<void> likeCurrentTrack() async {
@@ -296,25 +349,113 @@ final class PlaybackQueueService {
     await _stateController.close();
   }
 
-  Future<void> _playSmartNext() async {
-    if (_state.isChoosingNext || _isDisposed) {
+  Future<void> _advanceToNext({required bool recordSkip}) async {
+    await _runNextTransition(() async {
+      final hasTransitionSource =
+          _state.manualQueue.isNotEmpty || _state.isWaveEnabled;
+      if (!hasTransitionSource) {
+        return;
+      }
+
+      if (recordSkip) {
+        await _recordSkipIfNeeded(_playerService.state);
+      }
+
+      if (_state.manualQueue.isNotEmpty) {
+        await _playQueuedTrackAt(0);
+        return;
+      }
+
+      await _chooseAndPlaySmartNext(enableWave: false);
+    });
+  }
+
+  Future<void> _runNextTransition(Future<void> Function() transition) async {
+    if (_isDisposed || _isAdvancingToNext || _state.isChoosingNext) {
       return;
     }
 
+    _isAdvancingToNext = true;
+    _emit(_state.copyWith(isChoosingNext: true, lastError: null));
+    try {
+      await transition();
+    } on Object catch (error) {
+      _emit(
+        _state.copyWith(
+          lastError:
+              'Could not advance to the next track: ${_describeError(error)}',
+        ),
+      );
+    } finally {
+      _isAdvancingToNext = false;
+      if (!_isDisposed) {
+        _emit(_state.copyWith(isChoosingNext: false));
+      }
+    }
+  }
+
+  Future<Track?> _resolvePlayableTrack(Track track) async {
+    if (track.isMissing) {
+      return null;
+    }
+
+    final trackId = track.id;
+    if (trackId == null) {
+      return track;
+    }
+
+    final latestTrack = await _tracks.findById(trackId);
+    if (latestTrack == null || latestTrack.isMissing) {
+      return null;
+    }
+    return latestTrack;
+  }
+
+  Future<bool> _playQueuedTrackAt(int index) async {
+    if (index < 0 || index >= _state.manualQueue.length) {
+      return false;
+    }
+
+    final queue = _state.manualQueue.toList(growable: true);
+    final track = queue.removeAt(index);
     _emit(
       _state.copyWith(
-        isWaveEnabled: true,
-        isChoosingNext: true,
+        currentTrack: track,
+        currentTrackUserState: null,
+        manualQueue: queue,
+        lastRecommendationResult: null,
+        repeatGuardMessage: null,
+        selectionPoolMessage: null,
         lastError: null,
       ),
     );
+    unawaited(_loadCurrentTrackUserState(track));
+
+    await _playerService.playTrack(track);
+    _syncPlayerError();
+    return true;
+  }
+
+  Future<void> _playSmartNext() async {
+    await _runNextTransition(() async {
+      await _chooseAndPlaySmartNext(enableWave: true);
+    });
+  }
+
+  Future<void> _chooseAndPlaySmartNext({required bool enableWave}) async {
+    if (_isDisposed) {
+      return;
+    }
+
+    if (enableWave && !_state.isWaveEnabled) {
+      _emit(_state.copyWith(isWaveEnabled: true, lastError: null));
+    }
 
     try {
       final availableTracks = await _listAvailableTracks();
       if (availableTracks.isEmpty) {
         _emit(
           _state.copyWith(
-            upcomingTrack: null,
             lastRecommendationResult: null,
             recommendationCandidates: const [],
             repeatGuardMessage: null,
@@ -343,7 +484,6 @@ final class PlaybackQueueService {
       if (recommendations.isEmpty) {
         _emit(
           _state.copyWith(
-            upcomingTrack: null,
             lastRecommendationResult: null,
             recommendationCandidates: const [],
             repeatGuardMessage: null,
@@ -363,13 +503,11 @@ final class PlaybackQueueService {
           buildWeightedSelectionPoolResult(guarded.candidates);
       final selectionPool = selectionPoolResult.candidates;
       final selected = _selectWeightedRecommendation(selectionPool);
-      final upcoming = _firstAlternativeTrack(selectionPool, selected.track);
 
       _emit(
         _state.copyWith(
           currentTrack: selected.track,
           currentTrackUserState: null,
-          upcomingTrack: upcoming,
           lastRecommendationResult: selected,
           recommendationCandidates: selectionPool,
           repeatGuardMessage: guarded.message,
@@ -388,10 +526,6 @@ final class PlaybackQueueService {
               'Could not choose the next track: ${_describeError(error)}',
         ),
       );
-    } finally {
-      if (!_isDisposed) {
-        _emit(_state.copyWith(isChoosingNext: false));
-      }
     }
   }
 
@@ -425,9 +559,10 @@ final class PlaybackQueueService {
     required List<PlaybackEvent> recentEvents,
     required List<Track> tracks,
   }) {
-    final currentTrack = _playerService.currentTrack ?? _state.currentTrack;
+    final effectiveCurrentTrack =
+        _playerService.currentTrack ?? _state.currentTrack;
     final signals = _RepeatGuardSignals.from(
-      currentTrack: currentTrack,
+      currentTrack: effectiveCurrentTrack,
       recentEvents: recentEvents,
       tracks: tracks,
     );
@@ -493,18 +628,6 @@ final class PlaybackQueueService {
       candidates: recommendations,
       filteredCount: 0,
     );
-  }
-
-  Track? _firstAlternativeTrack(
-    List<RecommendationResult> recommendations,
-    Track selectedTrack,
-  ) {
-    for (final recommendation in recommendations) {
-      if (!_isSameTrack(recommendation.track, selectedTrack)) {
-        return recommendation.track;
-      }
-    }
-    return null;
   }
 
   Future<List<Track>> _listAvailableTracks() async {
@@ -604,22 +727,27 @@ final class PlaybackQueueService {
     }
 
     final track = playerState.currentTrack;
+    final trackKey = track == null ? null : _trackKey(track);
     if (playerState.status != PlayerPlaybackStatus.completed) {
+      _lastStartedTrackKey = trackKey;
       _handledCompletionTrackKey = null;
       return;
     }
 
-    if (!_state.isWaveEnabled || _state.isChoosingNext || track == null) {
+    if (track == null || trackKey == null) {
       return;
     }
 
-    final completionKey = _trackKey(track);
-    if (_handledCompletionTrackKey == completionKey) {
+    if (_lastStartedTrackKey != null && _lastStartedTrackKey != trackKey) {
       return;
     }
 
-    _handledCompletionTrackKey = completionKey;
-    unawaited(_playSmartNext());
+    if (_handledCompletionTrackKey == trackKey) {
+      return;
+    }
+
+    _handledCompletionTrackKey = trackKey;
+    unawaited(_advanceToNext(recordSkip: false));
   }
 
   void _syncPlayerError() {

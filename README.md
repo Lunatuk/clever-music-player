@@ -12,8 +12,10 @@ Local-first Flutter smart music player architecture.
 - Local recursive library scanning
 - Fallback metadata extraction from file information
 - Placeholder UI for folder scanning and track listing
+- Playback queue is session-local in v1 and is not persisted across restarts
+- Smart Wave chooses the next track at transition time; recommendation debug explains the selected track
 
-Audio playback and sync are intentionally not implemented yet.
+Server sync is intentionally not implemented yet.
 
 ## Development
 

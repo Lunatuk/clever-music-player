@@ -255,6 +255,9 @@ final class _HomeScreenState extends State<HomeScreen> {
             onDislikeTrack: (track) {
               unawaited(dependencies.playbackQueue.toggleDislike(track));
             },
+            onAddToQueue: (track) {
+              unawaited(dependencies.playbackQueue.addToQueue(track));
+            },
             onEditTrack: (track) {
               unawaited(_editTrackMetadata(dependencies, track));
             },
@@ -843,6 +846,7 @@ final class _TrackListSliver extends StatelessWidget {
     required this.onPlayTrack,
     required this.onLikeTrack,
     required this.onDislikeTrack,
+    required this.onAddToQueue,
     required this.onEditTrack,
   });
 
@@ -852,6 +856,7 @@ final class _TrackListSliver extends StatelessWidget {
   final ValueChanged<Track> onPlayTrack;
   final ValueChanged<Track> onLikeTrack;
   final ValueChanged<Track> onDislikeTrack;
+  final ValueChanged<Track> onAddToQueue;
   final ValueChanged<Track> onEditTrack;
 
   @override
@@ -873,6 +878,7 @@ final class _TrackListSliver extends StatelessWidget {
               onTap: track.isMissing ? null : () => onPlayTrack(track),
               onLike: () => onLikeTrack(track),
               onDislike: () => onDislikeTrack(track),
+              onAddToQueue: track.isMissing ? null : () => onAddToQueue(track),
               onEdit: () => onEditTrack(track),
             );
           },
@@ -1097,6 +1103,17 @@ final class _PlayerControlsState extends State<_PlayerControls> {
                         unawaited(widget.queueService.dislikeCurrentTrack());
                       },
                     ),
+                    _QueuePanel(
+                      queueState: queueState,
+                      onRemoveQueuedTrack:
+                          widget.queueService.removeQueuedTrack,
+                      onClearQueue: widget.queueService.clearQueue,
+                      onPlayQueuedTrackNow: (index) {
+                        unawaited(
+                          widget.queueService.playQueuedTrackNow(index),
+                        );
+                      },
+                    ),
                     if (state.hasError || queueState.lastError != null) ...[
                       const SizedBox(height: 8),
                       Text(
@@ -1269,6 +1286,129 @@ final class _FeedbackButton extends StatelessWidget {
       onPressed: onPressed,
       icon: Icon(icon),
       label: Text(label),
+    );
+  }
+}
+
+final class _QueuePanel extends StatelessWidget {
+  const _QueuePanel({
+    required this.queueState,
+    required this.onRemoveQueuedTrack,
+    required this.onClearQueue,
+    required this.onPlayQueuedTrackNow,
+  });
+
+  final QueueState queueState;
+  final ValueChanged<int> onRemoveQueuedTrack;
+  final VoidCallback onClearQueue;
+  final ValueChanged<int> onPlayQueuedTrackNow;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasManualQueue = queueState.manualQueue.isNotEmpty;
+    if (!hasManualQueue) {
+      return const SizedBox.shrink();
+    }
+
+    final textTheme = Theme.of(context).textTheme;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Divider(height: 24),
+        Row(
+          children: [
+            Expanded(
+              child: Text('Queue', style: textTheme.titleSmall),
+            ),
+            TextButton.icon(
+              onPressed: onClearQueue,
+              icon: const Icon(Icons.clear_all_outlined),
+              label: const Text('Clear queue'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        for (var index = 0; index < queueState.manualQueue.length; index++) ...[
+          _QueueTrackRow(
+            track: queueState.manualQueue[index],
+            leading: '${index + 1}',
+            onPlayNow: () => onPlayQueuedTrackNow(index),
+            onRemove: () => onRemoveQueuedTrack(index),
+          ),
+          if (index < queueState.manualQueue.length - 1)
+            const Divider(height: 12),
+        ],
+      ],
+    );
+  }
+}
+
+final class _QueueTrackRow extends StatelessWidget {
+  const _QueueTrackRow({
+    required this.track,
+    required this.leading,
+    this.onPlayNow,
+    this.onRemove,
+  });
+
+  final Track track;
+  final String leading;
+  final VoidCallback? onPlayNow;
+  final VoidCallback? onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+
+    return Row(
+      children: [
+        SizedBox(
+          width: 24,
+          child: Text(
+            leading,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: textTheme.labelMedium,
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                track.displayTitle,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: textTheme.bodyMedium,
+              ),
+              Text(
+                _PlayerControlsState._artistLabel(track),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: textTheme.bodySmall,
+              ),
+            ],
+          ),
+        ),
+        if (onPlayNow != null) ...[
+          const SizedBox(width: 4),
+          IconButton(
+            tooltip: 'Play now',
+            onPressed: onPlayNow,
+            icon: const Icon(Icons.play_arrow_outlined),
+          ),
+        ],
+        if (onRemove != null) ...[
+          const SizedBox(width: 4),
+          IconButton(
+            tooltip: 'Remove from queue',
+            onPressed: onRemove,
+            icon: const Icon(Icons.close_outlined),
+          ),
+        ],
+      ],
     );
   }
 }
@@ -1493,6 +1633,7 @@ final class _TrackListTile extends StatelessWidget {
     required this.onTap,
     required this.onLike,
     required this.onDislike,
+    required this.onAddToQueue,
     required this.onEdit,
   });
 
@@ -1502,6 +1643,7 @@ final class _TrackListTile extends StatelessWidget {
   final VoidCallback? onTap;
   final VoidCallback onLike;
   final VoidCallback onDislike;
+  final VoidCallback? onAddToQueue;
   final VoidCallback onEdit;
 
   @override
@@ -1535,39 +1677,48 @@ final class _TrackListTile extends StatelessWidget {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _TrackFeedbackIconButton(
-            isActive: (userState?.isFavorite ?? false) &&
-                !(userState?.isHidden ?? false),
-            onPressed: track.id == null ? null : onLike,
-            activeIcon: Icons.thumb_up,
-            inactiveIcon: Icons.thumb_up_outlined,
-            activeTooltip: 'Unlike',
-            inactiveTooltip: 'Like',
-          ),
-          const SizedBox(width: 4),
-          _TrackFeedbackIconButton(
-            isActive: userState?.isHidden ?? false,
-            onPressed: track.id == null ? null : onDislike,
-            activeIcon: Icons.thumb_down,
-            inactiveIcon: Icons.thumb_down_outlined,
-            activeTooltip: 'Undislike',
-            inactiveTooltip: 'Dislike',
-          ),
-          const SizedBox(width: 4),
-          IconButton.outlined(
-            tooltip: 'Edit metadata',
-            onPressed: track.id == null ? null : onEdit,
-            icon: const Icon(Icons.edit_outlined),
-          ),
-          const SizedBox(width: 4),
-          Icon(
-            isCurrent ? Icons.play_circle_outline : Icons.play_arrow_outlined,
-            color: isMissing ? colorScheme.outline : null,
-          ),
-        ],
+      trailing: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _TrackFeedbackIconButton(
+              isActive: (userState?.isFavorite ?? false) &&
+                  !(userState?.isHidden ?? false),
+              onPressed: track.id == null ? null : onLike,
+              activeIcon: Icons.thumb_up,
+              inactiveIcon: Icons.thumb_up_outlined,
+              activeTooltip: 'Unlike',
+              inactiveTooltip: 'Like',
+            ),
+            const SizedBox(width: 4),
+            _TrackFeedbackIconButton(
+              isActive: userState?.isHidden ?? false,
+              onPressed: track.id == null ? null : onDislike,
+              activeIcon: Icons.thumb_down,
+              inactiveIcon: Icons.thumb_down_outlined,
+              activeTooltip: 'Undislike',
+              inactiveTooltip: 'Dislike',
+            ),
+            const SizedBox(width: 4),
+            IconButton.outlined(
+              tooltip: 'Add to queue',
+              onPressed: onAddToQueue,
+              icon: const Icon(Icons.queue_music_outlined),
+            ),
+            const SizedBox(width: 4),
+            IconButton.outlined(
+              tooltip: 'Edit metadata',
+              onPressed: track.id == null ? null : onEdit,
+              icon: const Icon(Icons.edit_outlined),
+            ),
+            const SizedBox(width: 4),
+            Icon(
+              isCurrent ? Icons.play_circle_outline : Icons.play_arrow_outlined,
+              color: isMissing ? colorScheme.outline : null,
+            ),
+          ],
+        ),
       ),
     );
   }
