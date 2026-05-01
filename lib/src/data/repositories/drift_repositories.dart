@@ -258,8 +258,7 @@ final class DriftPlaybackEventRepository implements PlaybackEventRepository {
   }
 }
 
-final class DriftTrackUserStateRepository
-    implements TrackUserStateRepository {
+final class DriftTrackUserStateRepository implements TrackUserStateRepository {
   const DriftTrackUserStateRepository(this._database);
 
   final AppDatabase _database;
@@ -306,6 +305,25 @@ final class DriftTrackUserStateRepository
     return query
         .watchSingleOrNull()
         .map((row) => row == null ? null : trackUserStateFromRow(row));
+  }
+
+  @override
+  Stream<Map<int, TrackUserState>> watchTrackStatesByTrackIds(
+    Iterable<int> trackIds,
+  ) {
+    final ids = trackIds.toSet().toList();
+    if (ids.isEmpty) {
+      return Stream.value(const {});
+    }
+
+    final query = _database.select(_database.trackUserStates)
+      ..where((table) => table.trackId.isIn(ids));
+
+    return query.watch().map((rows) {
+      return {
+        for (final row in rows) row.trackId: trackUserStateFromRow(row),
+      };
+    });
   }
 
   @override

@@ -1,7 +1,12 @@
 PODS:
+  - audio_session (0.0.1):
+    - FlutterMacOS
   - file_picker (0.0.1):
     - FlutterMacOS
   - FlutterMacOS (1.0.0)
+  - just_audio (0.0.1):
+    - Flutter
+    - FlutterMacOS
   - sqlite3 (3.52.0):
     - sqlite3/common (= 3.52.0)
   - sqlite3/common (3.52.0)
@@ -29,8 +34,10 @@ PODS:
     - sqlite3/session
 
 DEPENDENCIES:
+  - audio_session (from `Flutter/ephemeral/.symlinks/plugins/audio_session/macos`)
   - file_picker (from `Flutter/ephemeral/.symlinks/plugins/file_picker/macos`)
   - FlutterMacOS (from `Flutter/ephemeral`)
+  - just_audio (from `Flutter/ephemeral/.symlinks/plugins/just_audio/darwin`)
   - sqlite3_flutter_libs (from `Flutter/ephemeral/.symlinks/plugins/sqlite3_flutter_libs/darwin`)
 
 SPEC REPOS:
@@ -38,16 +45,22 @@ SPEC REPOS:
     - sqlite3
 
 EXTERNAL SOURCES:
+  audio_session:
+    :path: Flutter/ephemeral/.symlinks/plugins/audio_session/macos
   file_picker:
     :path: Flutter/ephemeral/.symlinks/plugins/file_picker/macos
   FlutterMacOS:
     :path: Flutter/ephemeral
+  just_audio:
+    :path: Flutter/ephemeral/.symlinks/plugins/just_audio/darwin
   sqlite3_flutter_libs:
     :path: Flutter/ephemeral/.symlinks/plugins/sqlite3_flutter_libs/darwin
 
 SPEC CHECKSUMS:
+  audio_session: eaca2512cf2b39212d724f35d11f46180ad3a33e
   file_picker: 7584aae6fa07a041af2b36a2655122d42f578c1a
   FlutterMacOS: d0db08ddef1a9af05a5ec4b724367152bb0500b1
+  just_audio: 4e391f57b79cad2b0674030a00453ca5ce817eed
   sqlite3: a51c07cf16e023d6c48abd5e5791a61a47354921
   sqlite3_flutter_libs: b3e120efe9a82017e5552a620f696589ed4f62ab
 

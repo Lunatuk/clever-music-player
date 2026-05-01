@@ -20,6 +20,17 @@ bool isSupportedAudioFilePath(String filePath) {
   return supportedAudioExtensions.contains(p.extension(filePath).toLowerCase());
 }
 
+typedef DirectoryEntityLister = Stream<FileSystemEntity> Function(
+  Directory directory,
+);
+
+Stream<FileSystemEntity> _defaultDirectoryEntityLister(Directory directory) {
+  return directory.list(
+    recursive: true,
+    followLinks: false,
+  );
+}
+
 final class LibraryScanError {
   const LibraryScanError({
     required this.path,
@@ -85,11 +96,13 @@ final class LibraryScannerService {
     required this.libraryRepository,
     required this.trackRepository,
     required this.metadataReader,
+    this.listEntities = _defaultDirectoryEntityLister,
   });
 
   final LibraryRepository libraryRepository;
   final TrackRepository trackRepository;
   final MetadataReaderService metadataReader;
+  final DirectoryEntityLister listEntities;
 
   Future<LibraryScanResult> scanFolder(String folderPath) async {
     final normalizedRootPath = p.normalize(Directory(folderPath).absolute.path);
@@ -131,12 +144,10 @@ final class LibraryScannerService {
     var scannedFiles = 0;
     var addedTracks = 0;
     var updatedTracks = 0;
+    var completedDirectoryTraversal = false;
 
     try {
-      await for (final entity in rootDirectory.list(
-        recursive: true,
-        followLinks: false,
-      )) {
+      await for (final entity in listEntities(rootDirectory)) {
         if (_shouldIgnoreEntity(entity, rootPath: normalizedRootPath)) {
           continue;
         }
@@ -173,6 +184,7 @@ final class LibraryScannerService {
           );
         }
       }
+      completedDirectoryTraversal = true;
     } on Object catch (error) {
       errors.add(
         LibraryScanError(
@@ -183,19 +195,21 @@ final class LibraryScannerService {
     }
 
     var missingTracks = 0;
-    for (final track in knownTracks) {
-      final id = track.id;
-      if (id == null || seenKnownTrackIds.contains(id) || track.isMissing) {
-        continue;
-      }
+    if (completedDirectoryTraversal) {
+      for (final track in knownTracks) {
+        final id = track.id;
+        if (id == null || seenKnownTrackIds.contains(id) || track.isMissing) {
+          continue;
+        }
 
-      await trackRepository.upsertTrack(
-        track.copyWith(
-          isMissing: true,
-          updatedAt: now,
-        ),
-      );
-      missingTracks++;
+        await trackRepository.upsertTrack(
+          track.copyWith(
+            isMissing: true,
+            updatedAt: now,
+          ),
+        );
+        missingTracks++;
+      }
     }
 
     await libraryRepository.upsertFolder(
@@ -275,7 +289,8 @@ final class LibraryScannerService {
     );
   }
 
-  bool _shouldIgnoreEntity(FileSystemEntity entity, {required String rootPath}) {
+  bool _shouldIgnoreEntity(FileSystemEntity entity,
+      {required String rootPath}) {
     final relativePath = p.relative(entity.path, from: rootPath);
     if (relativePath == '.') {
       return false;
