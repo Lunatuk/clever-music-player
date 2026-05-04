@@ -32,6 +32,9 @@ void main() {
         album: 'Original album',
         albumArtist: 'Original album artist',
         genre: 'Original genre',
+        artworkPath: '/app/artwork/original.png',
+        artworkHash: 'artwork-hash',
+        artworkMimeType: 'image/png',
         codec: 'mp3',
         duration: const Duration(minutes: 3),
         trackNumber: 1,
@@ -90,6 +93,9 @@ void main() {
     expect(updatedTrack.album, 'Manual album');
     expect(updatedTrack.albumArtist, 'Manual album artist');
     expect(updatedTrack.genre, isNull);
+    expect(updatedTrack.artworkPath, '/app/artwork/original.png');
+    expect(updatedTrack.artworkHash, 'artwork-hash');
+    expect(updatedTrack.artworkMimeType, 'image/png');
     expect(updatedTrack.year, 2026);
     expect(updatedTrack.trackNumber, 4);
     expect(updatedTrack.discNumber, 2);

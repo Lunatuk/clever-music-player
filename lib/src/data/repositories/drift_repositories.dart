@@ -9,6 +9,7 @@ final class DriftRepositories implements AppRepositories {
   DriftRepositories(AppDatabase database)
       : libraryFolders = DriftLibraryRepository(database),
         tracks = DriftTrackRepository(database),
+        playlists = DriftPlaylistRepository(database),
         playbackEvents = DriftPlaybackEventRepository(database),
         trackUserState = DriftTrackUserStateRepository(database),
         settings = DriftSettingsRepository(database);
@@ -18,6 +19,9 @@ final class DriftRepositories implements AppRepositories {
 
   @override
   final TrackRepository tracks;
+
+  @override
+  final PlaylistRepository playlists;
 
   @override
   final PlaybackEventRepository playbackEvents;
@@ -249,6 +253,9 @@ final class DriftTrackRepository implements TrackRepository {
       await (_database.delete(_database.trackUserStates)
             ..where((table) => table.trackId.isIn(trackIds)))
           .go();
+      await (_database.delete(_database.playlistTracks)
+            ..where((table) => table.trackId.isIn(trackIds)))
+          .go();
       await (_database.delete(_database.tracks)
             ..where((table) => table.id.isIn(trackIds)))
           .go();
@@ -262,6 +269,9 @@ final class DriftTrackRepository implements TrackRepository {
             ..where((table) => table.trackId.equals(id)))
           .go();
       await (_database.delete(_database.trackUserStates)
+            ..where((table) => table.trackId.equals(id)))
+          .go();
+      await (_database.delete(_database.playlistTracks)
             ..where((table) => table.trackId.equals(id)))
           .go();
       await (_database.delete(_database.tracks)
@@ -327,6 +337,212 @@ final class DriftTrackRepository implements TrackRepository {
     return rows
         .map((row) => trackFromRow(row.readTable(_database.tracks)))
         .toList();
+  }
+}
+
+final class DriftPlaylistRepository implements PlaylistRepository {
+  DriftPlaylistRepository(
+    this._database, {
+    DateTime Function()? clock,
+  }) : _clock = clock ?? DateTime.now;
+
+  final AppDatabase _database;
+  final DateTime Function() _clock;
+
+  @override
+  Stream<List<PlaylistWithCount>> watchPlaylists() {
+    final countExpression = _database.playlistTracks.trackId.count();
+    final query = _database.select(_database.playlists).join([
+      leftOuterJoin(
+        _database.playlistTracks,
+        _database.playlistTracks.playlistId.equalsExp(_database.playlists.id),
+      ),
+    ])
+      ..addColumns([countExpression])
+      ..groupBy([_database.playlists.id])
+      ..orderBy([
+        OrderingTerm(
+          expression: _database.playlists.updatedAt,
+          mode: OrderingMode.desc,
+        ),
+        OrderingTerm(expression: _database.playlists.name),
+      ]);
+
+    return query.watch().map((rows) {
+      return rows.map((row) {
+        return PlaylistWithCount(
+          playlist: playlistFromRow(row.readTable(_database.playlists)),
+          trackCount: row.read(countExpression) ?? 0,
+        );
+      }).toList(growable: false);
+    });
+  }
+
+  @override
+  Future<int> createPlaylist(String name, {String? description}) {
+    final trimmedName = _trimRequiredName(name);
+    final now = _clock();
+    return _database.into(_database.playlists).insert(
+          PlaylistsCompanion(
+            name: Value(trimmedName),
+            description: Value(_trimOptionalDescription(description)),
+            createdAt: Value(now),
+            updatedAt: Value(now),
+          ),
+        );
+  }
+
+  @override
+  Future<void> renamePlaylist(int id, String name) async {
+    final updatedRows = await (_database.update(_database.playlists)
+          ..where((table) => table.id.equals(id)))
+        .write(
+      PlaylistsCompanion(
+        name: Value(_trimRequiredName(name)),
+        updatedAt: Value(_clock()),
+      ),
+    );
+
+    if (updatedRows == 0) {
+      throw StateError('Playlist $id was not found.');
+    }
+  }
+
+  @override
+  Future<void> deletePlaylist(int id) async {
+    await _database.transaction(() async {
+      await (_database.delete(_database.playlistTracks)
+            ..where((table) => table.playlistId.equals(id)))
+          .go();
+      await (_database.delete(_database.playlists)
+            ..where((table) => table.id.equals(id)))
+          .go();
+    });
+  }
+
+  @override
+  Stream<List<PlaylistEntry>> watchPlaylistTracks(int playlistId) {
+    final playlistTracks = _database.playlistTracks;
+    final tracks = _database.tracks;
+    final folders = _database.libraryFolders;
+    final query = _database.select(playlistTracks).join([
+      innerJoin(
+        tracks,
+        tracks.id.equalsExp(playlistTracks.trackId),
+      ),
+      leftOuterJoin(
+        folders,
+        folders.id.equalsExp(tracks.libraryFolderId),
+      ),
+    ])
+      ..where(playlistTracks.playlistId.equals(playlistId))
+      ..orderBy([
+        OrderingTerm(expression: playlistTracks.position),
+        OrderingTerm(expression: playlistTracks.addedAt),
+        OrderingTerm(expression: playlistTracks.trackId),
+      ]);
+
+    return query.watch().map((rows) {
+      return rows.map((row) {
+        final playlistTrack = row.readTable(playlistTracks);
+        final track = trackFromRow(row.readTable(tracks));
+        final folder = row.readTableOrNull(folders);
+        return PlaylistEntry(
+          playlistId: playlistTrack.playlistId,
+          trackId: playlistTrack.trackId,
+          position: playlistTrack.position,
+          addedAt: playlistTrack.addedAt,
+          track: track,
+          unavailableReason: _unavailableReason(track, folder),
+        );
+      }).toList(growable: false);
+    });
+  }
+
+  @override
+  Future<void> addTrackToPlaylist(int playlistId, int trackId) async {
+    await _database.transaction(() async {
+      final existing = await (_database.select(_database.playlistTracks)
+            ..where(
+              (table) =>
+                  table.playlistId.equals(playlistId) &
+                  table.trackId.equals(trackId),
+            ))
+          .getSingleOrNull();
+      if (existing != null) {
+        return;
+      }
+
+      final lastEntry = await (_database.select(_database.playlistTracks)
+            ..where((table) => table.playlistId.equals(playlistId))
+            ..orderBy([
+              (table) => OrderingTerm(
+                    expression: table.position,
+                    mode: OrderingMode.desc,
+                  ),
+            ])
+            ..limit(1))
+          .getSingleOrNull();
+      final now = _clock();
+      await _database.into(_database.playlistTracks).insert(
+            PlaylistTracksCompanion(
+              playlistId: Value(playlistId),
+              trackId: Value(trackId),
+              position: Value((lastEntry?.position ?? -1) + 1),
+              addedAt: Value(now),
+            ),
+          );
+      await _touchPlaylist(playlistId, now);
+    });
+  }
+
+  @override
+  Future<void> removeTrackFromPlaylist(int playlistId, int trackId) async {
+    final removedRows = await (_database.delete(_database.playlistTracks)
+          ..where(
+            (table) =>
+                table.playlistId.equals(playlistId) &
+                table.trackId.equals(trackId),
+          ))
+        .go();
+    if (removedRows > 0) {
+      await _touchPlaylist(playlistId, _clock());
+    }
+  }
+
+  Future<void> _touchPlaylist(int playlistId, DateTime updatedAt) async {
+    await (_database.update(_database.playlists)
+          ..where((table) => table.id.equals(playlistId)))
+        .write(PlaylistsCompanion(updatedAt: Value(updatedAt)));
+  }
+
+  static String _trimRequiredName(String name) {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) {
+      throw ArgumentError.value(name, 'name', 'Playlist name cannot be empty.');
+    }
+    return trimmed;
+  }
+
+  static String? _trimOptionalDescription(String? description) {
+    final trimmed = description?.trim();
+    if (trimmed == null || trimmed.isEmpty) {
+      return null;
+    }
+    return trimmed;
+  }
+
+  static String? _unavailableReason(
+    Track track,
+    LibraryFolderRow? folder,
+  ) {
+    if (track.isMissing) {
+      return 'Missing';
+    }
+    if (folder?.isEnabled == false) {
+      return 'Folder disabled';
+    }
+    return null;
   }
 }
 

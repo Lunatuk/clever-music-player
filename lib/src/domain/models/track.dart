@@ -12,6 +12,9 @@ final class Track {
     this.album,
     this.albumArtist,
     this.genre,
+    this.artworkPath,
+    this.artworkHash,
+    this.artworkMimeType,
     this.codec,
     this.duration,
     this.trackNumber,
@@ -37,6 +40,9 @@ final class Track {
   final String? album;
   final String? albumArtist;
   final String? genre;
+  final String? artworkPath;
+  final String? artworkHash;
+  final String? artworkMimeType;
   final String? codec;
   final Duration? duration;
   final int? trackNumber;
@@ -71,6 +77,9 @@ final class Track {
     String? album,
     String? albumArtist,
     String? genre,
+    String? artworkPath,
+    String? artworkHash,
+    String? artworkMimeType,
     String? codec,
     Duration? duration,
     int? trackNumber,
@@ -96,6 +105,9 @@ final class Track {
       album: album ?? this.album,
       albumArtist: albumArtist ?? this.albumArtist,
       genre: genre ?? this.genre,
+      artworkPath: artworkPath ?? this.artworkPath,
+      artworkHash: artworkHash ?? this.artworkHash,
+      artworkMimeType: artworkMimeType ?? this.artworkMimeType,
       codec: codec ?? this.codec,
       duration: duration ?? this.duration,
       trackNumber: trackNumber ?? this.trackNumber,
@@ -126,6 +138,9 @@ final class Track {
             other.album == album &&
             other.albumArtist == albumArtist &&
             other.genre == genre &&
+            other.artworkPath == artworkPath &&
+            other.artworkHash == artworkHash &&
+            other.artworkMimeType == artworkMimeType &&
             other.codec == codec &&
             other.duration == duration &&
             other.trackNumber == trackNumber &&
@@ -154,6 +169,9 @@ final class Track {
       album,
       albumArtist,
       genre,
+      artworkPath,
+      artworkHash,
+      artworkMimeType,
       codec,
       duration,
       trackNumber,

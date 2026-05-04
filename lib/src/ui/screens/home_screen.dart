@@ -4,19 +4,24 @@ import 'package:flutter/material.dart';
 
 import '../../app/dependency_scope.dart';
 import '../../domain/models/models.dart';
+import '../../domain/repositories/repositories.dart';
 import '../../library/library_management_service.dart';
 import '../../library/library_scanner_service.dart';
 import '../../library/library_track_list.dart';
 import '../../player/player_progress.dart';
 import '../../player/player_service.dart';
 import '../../player/player_state.dart';
+import '../../queue/playlist_queue_actions.dart';
 import '../../queue/playback_queue_service.dart';
 import '../../queue/queue_state.dart';
 import '../track_metadata_subtitle.dart';
 import '../track_metadata_edit_dialog.dart';
+import '../track_artwork.dart';
 
 const double _cardRadius = 24;
 const double _controlRadius = 18;
+
+enum _MyMusicTab { tracks, playlists }
 
 final class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -33,6 +38,8 @@ final class _HomeScreenState extends State<HomeScreen> {
   String _searchQuery = '';
   LibraryTrackSortOption _sortOption = LibraryTrackSortOption.title;
   bool _showMissingTracks = false;
+  _MyMusicTab _selectedMyMusicTab = _MyMusicTab.tracks;
+  int? _selectedPlaylistId;
   bool _isScanning = false;
 
   @override
@@ -166,6 +173,7 @@ final class _HomeScreenState extends State<HomeScreen> {
           selectedPageIndex: _selectedPageIndex,
           playerState: playerState,
           queueService: dependencies.playbackQueue,
+          playlistRepository: dependencies.repositories.playlists,
           activeTracks: activeTracks,
           visibleTracks: visibleTracks,
           totalIndexedTracks: totalIndexedTracks,
@@ -177,7 +185,22 @@ final class _HomeScreenState extends State<HomeScreen> {
           searchQuery: _searchQuery,
           sortOption: _sortOption,
           showMissingTracks: _showMissingTracks,
+          selectedTab: _selectedMyMusicTab,
+          selectedPlaylistId: _selectedPlaylistId,
           onPageSelected: _selectPage,
+          onTabChanged: (tab) {
+            setState(() {
+              _selectedMyMusicTab = tab;
+              if (tab == _MyMusicTab.tracks) {
+                _selectedPlaylistId = null;
+              }
+            });
+          },
+          onSelectedPlaylistChanged: (playlistId) {
+            setState(() {
+              _selectedPlaylistId = playlistId;
+            });
+          },
           onSearchChanged: (value) {
             setState(() {
               _searchQuery = value;
@@ -210,6 +233,9 @@ final class _HomeScreenState extends State<HomeScreen> {
           },
           onAddToQueue: (track) {
             unawaited(dependencies.playbackQueue.addToQueue(track));
+          },
+          onAddToPlaylist: (track) {
+            unawaited(_addTrackToPlaylist(dependencies, track));
           },
           onEditTrack: (track) {
             unawaited(_editTrackMetadata(dependencies, track));
@@ -378,6 +404,70 @@ final class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> _addTrackToPlaylist(
+    AppDependencies dependencies,
+    Track track,
+  ) async {
+    final trackId = track.id;
+    if (trackId == null) {
+      return;
+    }
+
+    final selection = await showDialog<_AddTrackToPlaylistSelection>(
+      context: context,
+      builder: (context) => _AddTrackToPlaylistDialog(
+        track: track,
+        playlistRepository: dependencies.repositories.playlists,
+      ),
+    );
+    if (selection == null) {
+      return;
+    }
+    if (!mounted) {
+      return;
+    }
+
+    try {
+      var playlistId = selection.playlistId;
+      if (selection.createNew) {
+        final data = await showDialog<_PlaylistFormData>(
+          context: context,
+          builder: (context) => const _PlaylistFormDialog.create(),
+        );
+        if (data == null) {
+          return;
+        }
+        playlistId = await dependencies.repositories.playlists.createPlaylist(
+          data.name,
+          description: data.description,
+        );
+      }
+
+      if (playlistId == null) {
+        return;
+      }
+
+      await dependencies.repositories.playlists.addTrackToPlaylist(
+        playlistId,
+        trackId,
+      );
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Added "${track.displayTitle}" to playlist.')),
+      );
+    } on Object catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _lastError = error;
+      });
+      _showErrorSnack(context, 'Could not add track to playlist: $error');
+    }
+  }
+
   Future<void> _runScan(
     Future<LibraryScanResult> Function() scan,
   ) async {
@@ -487,6 +577,7 @@ final class _MyMusicPage extends StatelessWidget {
     required this.selectedPageIndex,
     required this.playerState,
     required this.queueService,
+    required this.playlistRepository,
     required this.activeTracks,
     required this.visibleTracks,
     required this.totalIndexedTracks,
@@ -498,7 +589,11 @@ final class _MyMusicPage extends StatelessWidget {
     required this.searchQuery,
     required this.sortOption,
     required this.showMissingTracks,
+    required this.selectedTab,
+    required this.selectedPlaylistId,
     required this.onPageSelected,
+    required this.onTabChanged,
+    required this.onSelectedPlaylistChanged,
     required this.onSearchChanged,
     required this.onClearSearch,
     required this.onSortChanged,
@@ -507,12 +602,14 @@ final class _MyMusicPage extends StatelessWidget {
     required this.onLikeTrack,
     required this.onDislikeTrack,
     required this.onAddToQueue,
+    required this.onAddToPlaylist,
     required this.onEditTrack,
   });
 
   final int selectedPageIndex;
   final PlayerState playerState;
   final PlaybackQueueService queueService;
+  final PlaylistRepository playlistRepository;
   final List<Track> activeTracks;
   final List<Track> visibleTracks;
   final int totalIndexedTracks;
@@ -524,7 +621,11 @@ final class _MyMusicPage extends StatelessWidget {
   final String searchQuery;
   final LibraryTrackSortOption sortOption;
   final bool showMissingTracks;
+  final _MyMusicTab selectedTab;
+  final int? selectedPlaylistId;
   final ValueChanged<int> onPageSelected;
+  final ValueChanged<_MyMusicTab> onTabChanged;
+  final ValueChanged<int?> onSelectedPlaylistChanged;
   final ValueChanged<String> onSearchChanged;
   final VoidCallback onClearSearch;
   final ValueChanged<LibraryTrackSortOption> onSortChanged;
@@ -533,11 +634,13 @@ final class _MyMusicPage extends StatelessWidget {
   final ValueChanged<Track> onLikeTrack;
   final ValueChanged<Track> onDislikeTrack;
   final ValueChanged<Track> onAddToQueue;
+  final ValueChanged<Track> onAddToPlaylist;
   final ValueChanged<Track> onEditTrack;
 
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
+    final isTrackTab = selectedTab == _MyMusicTab.tracks;
 
     return CustomScrollView(
       slivers: [
@@ -553,27 +656,16 @@ final class _MyMusicPage extends StatelessWidget {
                   onPageSelected: onPageSelected,
                 ),
                 const SizedBox(height: 22),
-                Text('Track library', style: textTheme.headlineSmall),
-                const SizedBox(height: 12),
-                const _LibraryTabsPlaceholder(),
-                const SizedBox(height: 12),
-                _TrackListControls(
-                  searchController: searchController,
-                  searchQuery: searchQuery,
-                  sortOption: sortOption,
-                  showMissingTracks: showMissingTracks,
-                  onSearchChanged: onSearchChanged,
-                  onClearSearch: onClearSearch,
-                  onSortChanged: onSortChanged,
-                  onShowMissingChanged: onShowMissingChanged,
+                Text(
+                  isTrackTab ? 'Track library' : 'Плейлисты',
+                  style: textTheme.headlineSmall,
                 ),
-                const SizedBox(height: 8),
-                _LibraryStats(
-                  visibleTracks: visibleTracks.length,
-                  totalIndexedTracks: totalIndexedTracks,
-                  missingTracks: missingCount,
-                  folderCount: folderCount,
+                const SizedBox(height: 12),
+                _LibraryTabs(
+                  selectedTab: selectedTab,
+                  onTabChanged: onTabChanged,
                 ),
+                const SizedBox(height: 12),
                 StreamBuilder<QueueState>(
                   stream: queueService.stateStream,
                   initialData: queueService.state,
@@ -595,28 +687,47 @@ final class _MyMusicPage extends StatelessWidget {
                     );
                   },
                 ),
-                if (trackLoadError != null) ...[
-                  const SizedBox(height: 24),
-                  _InlineMessage(
-                    message: 'Could not load tracks: $trackLoadError',
-                    isError: true,
+                if (isTrackTab) ...[
+                  _TrackListControls(
+                    searchController: searchController,
+                    searchQuery: searchQuery,
+                    sortOption: sortOption,
+                    showMissingTracks: showMissingTracks,
+                    onSearchChanged: onSearchChanged,
+                    onClearSearch: onClearSearch,
+                    onSortChanged: onSortChanged,
+                    onShowMissingChanged: onShowMissingChanged,
                   ),
-                ] else if (activeTracks.isEmpty) ...[
-                  const SizedBox(height: 24),
-                  const _InlineMessage(
-                    message: 'No active tracks indexed yet.',
+                  const SizedBox(height: 8),
+                  _LibraryStats(
+                    visibleTracks: visibleTracks.length,
+                    totalIndexedTracks: totalIndexedTracks,
+                    missingTracks: missingCount,
+                    folderCount: folderCount,
                   ),
-                ] else if (visibleTracks.isEmpty) ...[
-                  const SizedBox(height: 24),
-                  const _InlineMessage(
-                    message: 'No tracks match these filters.',
-                  ),
+                  if (trackLoadError != null) ...[
+                    const SizedBox(height: 24),
+                    _InlineMessage(
+                      message: 'Could not load tracks: $trackLoadError',
+                      isError: true,
+                    ),
+                  ] else if (activeTracks.isEmpty) ...[
+                    const SizedBox(height: 24),
+                    const _InlineMessage(
+                      message: 'No active tracks indexed yet.',
+                    ),
+                  ] else if (visibleTracks.isEmpty) ...[
+                    const SizedBox(height: 24),
+                    const _InlineMessage(
+                      message: 'No tracks match these filters.',
+                    ),
+                  ],
                 ],
               ],
             ),
           ),
         ),
-        if (trackLoadError == null && visibleTracks.isNotEmpty)
+        if (isTrackTab && trackLoadError == null && visibleTracks.isNotEmpty)
           _TrackListSliver(
             tracks: visibleTracks,
             userStates: userStates,
@@ -625,7 +736,23 @@ final class _MyMusicPage extends StatelessWidget {
             onLikeTrack: onLikeTrack,
             onDislikeTrack: onDislikeTrack,
             onAddToQueue: onAddToQueue,
+            onAddToPlaylist: onAddToPlaylist,
             onEditTrack: onEditTrack,
+          )
+        else if (!isTrackTab)
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(28, 8, 28, 0),
+            sliver: SliverToBoxAdapter(
+              child: _PlaylistsContent(
+                playlistRepository: playlistRepository,
+                queueService: queueService,
+                selectedPlaylistId: selectedPlaylistId,
+                activeTracks: activeTracks,
+                currentTrack: playerState.currentTrack,
+                onSelectedPlaylistChanged: onSelectedPlaylistChanged,
+                onAddToQueue: onAddToQueue,
+              ),
+            ),
           ),
         const SliverToBoxAdapter(child: SizedBox(height: 56)),
       ],
@@ -872,8 +999,14 @@ final class _HomeQuickActions extends StatelessWidget {
   }
 }
 
-final class _LibraryTabsPlaceholder extends StatelessWidget {
-  const _LibraryTabsPlaceholder();
+final class _LibraryTabs extends StatelessWidget {
+  const _LibraryTabs({
+    required this.selectedTab,
+    required this.onTabChanged,
+  });
+
+  final _MyMusicTab selectedTab;
+  final ValueChanged<_MyMusicTab> onTabChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -883,18 +1016,36 @@ final class _LibraryTabsPlaceholder extends StatelessWidget {
       spacing: 8,
       runSpacing: 8,
       children: [
-        Chip(
+        ChoiceChip(
           avatar: const Icon(Icons.music_note_outlined, size: 16),
           label: const Text('Все треки'),
+          selected: selectedTab == _MyMusicTab.tracks,
+          showCheckmark: false,
+          onSelected: (selected) {
+            if (selected) {
+              onTabChanged(_MyMusicTab.tracks);
+            }
+          },
           side: BorderSide(
-            color: colorScheme.primary.withValues(alpha: 0.65),
+            color: selectedTab == _MyMusicTab.tracks
+                ? colorScheme.primary.withValues(alpha: 0.65)
+                : colorScheme.outlineVariant.withValues(alpha: 0.45),
           ),
         ),
-        Chip(
+        ChoiceChip(
           avatar: const Icon(Icons.queue_music_outlined, size: 16),
           label: const Text('Плейлисты'),
+          selected: selectedTab == _MyMusicTab.playlists,
+          showCheckmark: false,
+          onSelected: (selected) {
+            if (selected) {
+              onTabChanged(_MyMusicTab.playlists);
+            }
+          },
           backgroundColor: colorScheme.surfaceContainer,
-          labelStyle: TextStyle(color: colorScheme.onSurfaceVariant),
+          labelStyle: selectedTab == _MyMusicTab.playlists
+              ? null
+              : TextStyle(color: colorScheme.onSurfaceVariant),
         ),
       ],
     );
@@ -951,9 +1102,9 @@ final class _DevInfoPanel extends StatelessWidget {
             Text('App/dev info', style: textTheme.titleMedium),
             const SizedBox(height: 8),
             Text(
-              'Liquid Wave UI v1. Playlists, custom backgrounds, GIFs, '
-              'previous-track history, and server sync are intentionally '
-              'not implemented in this iteration.',
+              'Liquid Wave UI v1. Custom backgrounds, GIFs, previous-track '
+              'history, playlist import/export, and server sync are '
+              'intentionally not implemented in this iteration.',
               style: textTheme.bodySmall?.copyWith(
                 color: colorScheme.onSurfaceVariant,
               ),
@@ -1215,6 +1366,1114 @@ final class _LibraryStats extends StatelessWidget {
   }
 }
 
+final class _PlaylistsContent extends StatelessWidget {
+  const _PlaylistsContent({
+    required this.playlistRepository,
+    required this.queueService,
+    required this.selectedPlaylistId,
+    required this.activeTracks,
+    required this.currentTrack,
+    required this.onSelectedPlaylistChanged,
+    required this.onAddToQueue,
+  });
+
+  final PlaylistRepository playlistRepository;
+  final PlaybackQueueService queueService;
+  final int? selectedPlaylistId;
+  final List<Track> activeTracks;
+  final Track? currentTrack;
+  final ValueChanged<int?> onSelectedPlaylistChanged;
+  final ValueChanged<Track> onAddToQueue;
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<List<PlaylistWithCount>>(
+      stream: playlistRepository.watchPlaylists(),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return _InlineMessage(
+            message: 'Could not load playlists: ${snapshot.error}',
+            isError: true,
+          );
+        }
+        if (!snapshot.hasData) {
+          return const Center(
+            child: Padding(
+              padding: EdgeInsets.all(24),
+              child: CircularProgressIndicator(),
+            ),
+          );
+        }
+
+        final playlists = snapshot.data!;
+        final playlistId = selectedPlaylistId;
+        if (playlistId == null) {
+          return _PlaylistListView(
+            playlists: playlists,
+            playlistRepository: playlistRepository,
+            onOpenPlaylist: onSelectedPlaylistChanged,
+          );
+        }
+
+        final selected = _findPlaylist(playlists, playlistId);
+        if (selected == null) {
+          return _PlaylistNotFoundCard(
+            onBack: () => onSelectedPlaylistChanged(null),
+          );
+        }
+
+        return StreamBuilder<List<PlaylistEntry>>(
+          stream: playlistRepository.watchPlaylistTracks(playlistId),
+          initialData: const [],
+          builder: (context, entrySnapshot) {
+            if (entrySnapshot.hasError) {
+              return _InlineMessage(
+                message: 'Could not load playlist tracks: '
+                    '${entrySnapshot.error}',
+                isError: true,
+              );
+            }
+
+            return _PlaylistDetailsView(
+              playlist: selected.playlist,
+              entries: entrySnapshot.data ?? const [],
+              playlistRepository: playlistRepository,
+              queueService: queueService,
+              activeTracks: activeTracks,
+              currentTrack: currentTrack,
+              onBack: () => onSelectedPlaylistChanged(null),
+              onAddToQueue: onAddToQueue,
+            );
+          },
+        );
+      },
+    );
+  }
+
+  static PlaylistWithCount? _findPlaylist(
+    List<PlaylistWithCount> playlists,
+    int playlistId,
+  ) {
+    for (final playlist in playlists) {
+      if (playlist.id == playlistId) {
+        return playlist;
+      }
+    }
+    return null;
+  }
+}
+
+final class _PlaylistListView extends StatelessWidget {
+  const _PlaylistListView({
+    required this.playlists,
+    required this.playlistRepository,
+    required this.onOpenPlaylist,
+  });
+
+  final List<PlaylistWithCount> playlists;
+  final PlaylistRepository playlistRepository;
+  final ValueChanged<int?> onOpenPlaylist;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Align(
+          alignment: Alignment.centerLeft,
+          child: FilledButton.icon(
+            onPressed: () {
+              unawaited(_createPlaylist(context, playlistRepository));
+            },
+            icon: const Icon(Icons.playlist_add_outlined),
+            label: const Text('Создать плейлист'),
+          ),
+        ),
+        const SizedBox(height: 14),
+        if (playlists.isEmpty)
+          const _InlineMessage(message: 'No playlists yet.')
+        else
+          for (final playlist in playlists) ...[
+            _PlaylistListRow(
+              playlist: playlist,
+              playlistRepository: playlistRepository,
+              onOpen: () => onOpenPlaylist(playlist.id),
+            ),
+            const SizedBox(height: 8),
+          ],
+      ],
+    );
+  }
+}
+
+final class _PlaylistListRow extends StatelessWidget {
+  const _PlaylistListRow({
+    required this.playlist,
+    required this.playlistRepository,
+    required this.onOpen,
+  });
+
+  final PlaylistWithCount playlist;
+  final PlaylistRepository playlistRepository;
+  final VoidCallback onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    final description = playlist.description?.trim();
+    final dateLabel = _shortDateTimeLabel(playlist.updatedAt);
+
+    return Material(
+      color: colorScheme.surfaceContainerLow,
+      borderRadius: BorderRadius.circular(20),
+      child: InkWell(
+        onTap: onOpen,
+        borderRadius: BorderRadius.circular(20),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
+          child: Row(
+            children: [
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  color: colorScheme.primary.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: SizedBox.square(
+                  dimension: 44,
+                  child: Icon(
+                    Icons.queue_music_outlined,
+                    color: colorScheme.primary,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      playlist.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      [
+                        _trackCountLabel(playlist.trackCount),
+                        'Updated $dateLabel',
+                        if (description != null && description.isNotEmpty)
+                          description,
+                      ].join(' · '),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              IconButton(
+                tooltip: 'Open playlist',
+                onPressed: onOpen,
+                icon: const Icon(Icons.open_in_new_outlined),
+              ),
+              PopupMenuButton<_PlaylistListAction>(
+                tooltip: 'Playlist actions',
+                onSelected: (action) {
+                  switch (action) {
+                    case _PlaylistListAction.rename:
+                      unawaited(_renamePlaylist(context, playlistRepository));
+                    case _PlaylistListAction.delete:
+                      unawaited(_deletePlaylist(context, playlistRepository));
+                  }
+                },
+                itemBuilder: (context) => const [
+                  PopupMenuItem(
+                    value: _PlaylistListAction.rename,
+                    child: ListTile(
+                      leading: Icon(Icons.edit_outlined),
+                      title: Text('Rename'),
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: _PlaylistListAction.delete,
+                    child: ListTile(
+                      leading: Icon(Icons.delete_outline),
+                      title: Text('Delete'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _renamePlaylist(
+    BuildContext context,
+    PlaylistRepository repository,
+  ) async {
+    final playlistId = playlist.id;
+    if (playlistId == null) {
+      return;
+    }
+
+    final data = await showDialog<_PlaylistFormData>(
+      context: context,
+      builder: (context) => _PlaylistFormDialog.rename(
+        initialName: playlist.name,
+      ),
+    );
+    if (data == null) {
+      return;
+    }
+
+    try {
+      await repository.renamePlaylist(playlistId, data.name);
+    } on Object catch (error) {
+      if (context.mounted) {
+        _showErrorSnack(context, 'Could not rename playlist: $error');
+      }
+    }
+  }
+
+  Future<void> _deletePlaylist(
+    BuildContext context,
+    PlaylistRepository repository,
+  ) async {
+    final playlistId = playlist.id;
+    if (playlistId == null) {
+      return;
+    }
+
+    final shouldDelete = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Delete playlist?'),
+          content: const Text(
+            'This removes only the local playlist. Tracks and audio files stay '
+            'in your library and on disk.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Delete'),
+            ),
+          ],
+        );
+      },
+    );
+    if (shouldDelete != true) {
+      return;
+    }
+
+    try {
+      await repository.deletePlaylist(playlistId);
+    } on Object catch (error) {
+      if (context.mounted) {
+        _showErrorSnack(context, 'Could not delete playlist: $error');
+      }
+    }
+  }
+}
+
+final class _PlaylistDetailsView extends StatelessWidget {
+  const _PlaylistDetailsView({
+    required this.playlist,
+    required this.entries,
+    required this.playlistRepository,
+    required this.queueService,
+    required this.activeTracks,
+    required this.currentTrack,
+    required this.onBack,
+    required this.onAddToQueue,
+  });
+
+  final Playlist playlist;
+  final List<PlaylistEntry> entries;
+  final PlaylistRepository playlistRepository;
+  final PlaybackQueueService queueService;
+  final List<Track> activeTracks;
+  final Track? currentTrack;
+  final VoidCallback onBack;
+  final ValueChanged<Track> onAddToQueue;
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    final playableCount = entries.where((entry) => entry.isPlayable).length;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            IconButton(
+              tooltip: 'Back to playlists',
+              onPressed: onBack,
+              icon: const Icon(Icons.arrow_back_outlined),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    playlist.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  Text(
+                    '${_trackCountLabel(entries.length)} · '
+                    '$playableCount playable',
+                    style: textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            OutlinedButton.icon(
+              onPressed: playlist.id == null
+                  ? null
+                  : () {
+                      unawaited(_showAddTracksDialog(context));
+                    },
+              icon: const Icon(Icons.playlist_add_outlined),
+              label: const Text('Add tracks'),
+            ),
+            const SizedBox(width: 8),
+            FilledButton.icon(
+              onPressed: playableCount == 0
+                  ? null
+                  : () {
+                      unawaited(_addPlaylistToQueue(context));
+                    },
+              icon: const Icon(Icons.queue_music_outlined),
+              label: const Text('Добавить в очередь'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        if (entries.isEmpty)
+          const _InlineMessage(message: 'This playlist is empty.')
+        else
+          for (final entry in entries) ...[
+            _PlaylistEntryTile(
+              entry: entry,
+              isCurrent: _isSameTrack(entry.track, currentTrack),
+              onPlay: entry.isPlayable
+                  ? () {
+                      unawaited(_playPlaylistFromEntry(entry));
+                    }
+                  : null,
+              onAddToQueue:
+                  entry.isPlayable ? () => onAddToQueue(entry.track) : null,
+              onRemove: () {
+                unawaited(
+                  playlistRepository.removeTrackFromPlaylist(
+                    entry.playlistId,
+                    entry.trackId,
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 8),
+          ],
+      ],
+    );
+  }
+
+  Future<void> _playPlaylistFromEntry(PlaylistEntry entry) async {
+    final playlistId = playlist.id;
+    if (playlistId == null) {
+      return;
+    }
+
+    await queueService.playPlaylist(
+      playlistId: playlistId,
+      playlistName: playlist.name,
+      entries: entries,
+      startTrackId: entry.trackId,
+    );
+  }
+
+  Future<void> _showAddTracksDialog(BuildContext context) async {
+    final playlistId = playlist.id;
+    if (playlistId == null) {
+      return;
+    }
+
+    await showDialog<void>(
+      context: context,
+      builder: (context) => _AddTracksToPlaylistDialog(
+        playlistId: playlistId,
+        playlistRepository: playlistRepository,
+        tracks: activeTracks,
+        existingTrackIds: {
+          for (final entry in entries) entry.trackId,
+        },
+      ),
+    );
+  }
+
+  Future<void> _addPlaylistToQueue(BuildContext context) async {
+    final queuedCount = await addPlaylistEntriesToQueue(
+      entries: entries,
+      addToQueue: queueService.addToQueue,
+    );
+    if (!context.mounted) {
+      return;
+    }
+
+    final message = queuedCount == 0
+        ? 'No playable tracks in this playlist.'
+        : 'Added $queuedCount tracks to queue.';
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
+  }
+}
+
+final class _PlaylistEntryTile extends StatelessWidget {
+  const _PlaylistEntryTile({
+    required this.entry,
+    required this.isCurrent,
+    required this.onPlay,
+    required this.onAddToQueue,
+    required this.onRemove,
+  });
+
+  final PlaylistEntry entry;
+  final bool isCurrent;
+  final VoidCallback? onPlay;
+  final VoidCallback? onAddToQueue;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    final unavailableReason = entry.unavailableReason;
+    final isUnavailable = unavailableReason != null;
+    final subtitle = isUnavailable
+        ? '$unavailableReason - ${buildTrackMetadataSubtitle(entry.track)}'
+        : buildTrackMetadataSubtitle(entry.track);
+    final rowColor = isCurrent
+        ? Color.alphaBlend(
+            colorScheme.primary.withValues(alpha: 0.16),
+            colorScheme.surfaceContainer,
+          )
+        : colorScheme.surfaceContainerLow;
+    final leadingColor = isUnavailable
+        ? colorScheme.error
+        : isCurrent
+            ? colorScheme.tertiary
+            : colorScheme.onSurfaceVariant;
+
+    return Material(
+      color: rowColor,
+      borderRadius: BorderRadius.circular(20),
+      child: InkWell(
+        onTap: onPlay,
+        borderRadius: BorderRadius.circular(20),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 10, 8, 10),
+          child: Row(
+            children: [
+              Stack(
+                alignment: Alignment.center,
+                children: [
+                  TrackArtwork(
+                    track: entry.track,
+                    size: 44,
+                    borderRadius: 14,
+                  ),
+                  if (isUnavailable || isCurrent)
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(14),
+                      child: ColoredBox(
+                        color: Colors.black.withValues(alpha: 0.42),
+                        child: SizedBox.square(
+                          dimension: 44,
+                          child: Icon(
+                            isUnavailable
+                                ? Icons.report_problem_outlined
+                                : Icons.graphic_eq_outlined,
+                            size: 22,
+                            color: leadingColor,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      entry.track.displayTitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: textTheme.titleSmall?.copyWith(
+                        color: isUnavailable ? colorScheme.error : null,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: textTheme.bodySmall?.copyWith(
+                        color: isUnavailable
+                            ? colorScheme.error
+                            : colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      tooltip: 'Add to queue',
+                      onPressed: onAddToQueue,
+                      icon: const Icon(Icons.queue_music_outlined),
+                    ),
+                    const SizedBox(width: 2),
+                    IconButton(
+                      tooltip: 'Remove from playlist',
+                      onPressed: onRemove,
+                      icon: const Icon(Icons.remove_circle_outline),
+                    ),
+                    const SizedBox(width: 2),
+                    IconButton(
+                      tooltip: isCurrent ? 'Playing' : 'Play',
+                      onPressed: onPlay,
+                      icon: Icon(
+                        isCurrent
+                            ? Icons.graphic_eq_outlined
+                            : Icons.play_arrow_outlined,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+final class _PlaylistNotFoundCard extends StatelessWidget {
+  const _PlaylistNotFoundCard({required this.onBack});
+
+  final VoidCallback onBack;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Playlist not found.'),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: onBack,
+              icon: const Icon(Icons.arrow_back_outlined),
+              label: const Text('Back to playlists'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+enum _PlaylistListAction { rename, delete }
+
+Future<void> _createPlaylist(
+  BuildContext context,
+  PlaylistRepository repository,
+) async {
+  final data = await showDialog<_PlaylistFormData>(
+    context: context,
+    builder: (context) => const _PlaylistFormDialog.create(),
+  );
+  if (data == null) {
+    return;
+  }
+
+  try {
+    await repository.createPlaylist(
+      data.name,
+      description: data.description,
+    );
+  } on Object catch (error) {
+    if (context.mounted) {
+      _showErrorSnack(context, 'Could not create playlist: $error');
+    }
+  }
+}
+
+final class _AddTrackToPlaylistSelection {
+  const _AddTrackToPlaylistSelection.playlist(this.playlistId)
+      : createNew = false;
+
+  const _AddTrackToPlaylistSelection.createNew()
+      : playlistId = null,
+        createNew = true;
+
+  final int? playlistId;
+  final bool createNew;
+}
+
+final class _AddTrackToPlaylistDialog extends StatelessWidget {
+  const _AddTrackToPlaylistDialog({
+    required this.track,
+    required this.playlistRepository,
+  });
+
+  final Track track;
+  final PlaylistRepository playlistRepository;
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Add to playlist'),
+      content: SizedBox(
+        width: 420,
+        child: StreamBuilder<List<PlaylistWithCount>>(
+          stream: playlistRepository.watchPlaylists(),
+          builder: (context, snapshot) {
+            if (snapshot.hasError) {
+              return Text('Could not load playlists: ${snapshot.error}');
+            }
+            if (!snapshot.hasData) {
+              return const SizedBox(
+                height: 96,
+                child: Center(child: CircularProgressIndicator()),
+              );
+            }
+
+            final playlists = snapshot.data!;
+            if (playlists.isEmpty) {
+              return Text(
+                'No playlists yet. Create one for "${track.displayTitle}".',
+              );
+            }
+
+            return ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 360),
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: playlists.length,
+                itemBuilder: (context, index) {
+                  final playlist = playlists[index];
+                  return ListTile(
+                    leading: const Icon(Icons.queue_music_outlined),
+                    title: Text(
+                      playlist.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    subtitle: Text(_trackCountLabel(playlist.trackCount)),
+                    onTap: playlist.id == null
+                        ? null
+                        : () {
+                            Navigator.of(context).pop(
+                              _AddTrackToPlaylistSelection.playlist(
+                                playlist.id!,
+                              ),
+                            );
+                          },
+                  );
+                },
+              ),
+            );
+          },
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton.icon(
+          onPressed: () {
+            Navigator.of(context).pop(
+              const _AddTrackToPlaylistSelection.createNew(),
+            );
+          },
+          icon: const Icon(Icons.playlist_add_outlined),
+          label: const Text('Create new'),
+        ),
+      ],
+    );
+  }
+}
+
+final class _AddTracksToPlaylistDialog extends StatefulWidget {
+  const _AddTracksToPlaylistDialog({
+    required this.playlistId,
+    required this.playlistRepository,
+    required this.tracks,
+    required this.existingTrackIds,
+  });
+
+  final int playlistId;
+  final PlaylistRepository playlistRepository;
+  final List<Track> tracks;
+  final Set<int> existingTrackIds;
+
+  @override
+  State<_AddTracksToPlaylistDialog> createState() =>
+      _AddTracksToPlaylistDialogState();
+}
+
+final class _AddTracksToPlaylistDialogState
+    extends State<_AddTracksToPlaylistDialog> {
+  late final TextEditingController _searchController;
+  late final Set<int> _addedTrackIds;
+  final Set<int> _savingTrackIds = {};
+  String _searchQuery = '';
+  Object? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _searchController = TextEditingController();
+    _addedTrackIds = {...widget.existingTrackIds};
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final filteredTracks = _filteredTracks();
+
+    return AlertDialog(
+      title: const Text('Add tracks'),
+      content: SizedBox(
+        width: 520,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _searchController,
+              decoration: InputDecoration(
+                labelText: 'Search tracks',
+                prefixIcon: const Icon(Icons.search_outlined),
+                suffixIcon: _searchQuery.isEmpty
+                    ? null
+                    : IconButton(
+                        tooltip: 'Clear search',
+                        onPressed: () {
+                          _searchController.clear();
+                          setState(() {
+                            _searchQuery = '';
+                          });
+                        },
+                        icon: const Icon(Icons.close_outlined),
+                      ),
+              ),
+              onChanged: (value) {
+                setState(() {
+                  _searchQuery = value;
+                });
+              },
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: 10),
+              _InlineMessage(
+                message: 'Could not add track: $_error',
+                isError: true,
+              ),
+            ],
+            const SizedBox(height: 12),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 360),
+              child: filteredTracks.isEmpty
+                  ? const _InlineMessage(message: 'No tracks match.')
+                  : ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: filteredTracks.length,
+                      itemBuilder: (context, index) {
+                        final track = filteredTracks[index];
+                        final trackId = track.id!;
+                        final isAdded = _addedTrackIds.contains(trackId);
+                        final isSaving = _savingTrackIds.contains(trackId);
+                        return ListTile(
+                          leading: Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              TrackArtwork(
+                                track: track,
+                                size: 40,
+                                borderRadius: 12,
+                              ),
+                              if (isAdded)
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: ColoredBox(
+                                    color: Colors.black.withValues(alpha: 0.42),
+                                    child: const SizedBox.square(
+                                      dimension: 40,
+                                      child: Icon(Icons.check_circle_outline),
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                          title: Text(
+                            track.displayTitle,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          subtitle: Text(
+                            buildTrackMetadataSubtitle(track),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          trailing: TextButton(
+                            onPressed: isAdded || isSaving
+                                ? null
+                                : () {
+                                    unawaited(_addTrack(trackId));
+                                  },
+                            child: Text(isAdded ? 'Added' : 'Add'),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Close'),
+        ),
+      ],
+    );
+  }
+
+  List<Track> _filteredTracks() {
+    final query = _searchQuery.trim().toLowerCase();
+    final tracks = widget.tracks
+        .where((track) => track.id != null && !track.isMissing)
+        .where((track) {
+      if (query.isEmpty) {
+        return true;
+      }
+      return track.displayTitle.toLowerCase().contains(query) ||
+          (track.artist ?? '').toLowerCase().contains(query);
+    }).toList(growable: false);
+    return tracks;
+  }
+
+  Future<void> _addTrack(int trackId) async {
+    setState(() {
+      _savingTrackIds.add(trackId);
+      _error = null;
+    });
+    try {
+      await widget.playlistRepository.addTrackToPlaylist(
+        widget.playlistId,
+        trackId,
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _addedTrackIds.add(trackId);
+      });
+    } on Object catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _error = error;
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _savingTrackIds.remove(trackId);
+        });
+      }
+    }
+  }
+}
+
+final class _PlaylistFormData {
+  const _PlaylistFormData({
+    required this.name,
+    this.description,
+  });
+
+  final String name;
+  final String? description;
+}
+
+final class _PlaylistFormDialog extends StatefulWidget {
+  const _PlaylistFormDialog.create()
+      : title = 'Создать плейлист',
+        submitLabel = 'Create',
+        initialName = '',
+        initialDescription = '',
+        allowDescription = true;
+
+  const _PlaylistFormDialog.rename({
+    required this.initialName,
+  })  : title = 'Rename playlist',
+        submitLabel = 'Rename',
+        initialDescription = '',
+        allowDescription = false;
+
+  final String title;
+  final String submitLabel;
+  final String initialName;
+  final String initialDescription;
+  final bool allowDescription;
+
+  @override
+  State<_PlaylistFormDialog> createState() => _PlaylistFormDialogState();
+}
+
+final class _PlaylistFormDialogState extends State<_PlaylistFormDialog> {
+  late final TextEditingController _nameController;
+  late final TextEditingController _descriptionController;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameController = TextEditingController(text: widget.initialName);
+    _descriptionController = TextEditingController(
+      text: widget.initialDescription,
+    );
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _descriptionController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.title),
+      content: SizedBox(
+        width: 420,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _nameController,
+              autofocus: true,
+              decoration: InputDecoration(
+                labelText: 'Name',
+                errorText: _error,
+              ),
+              onSubmitted: (_) => _submit(),
+            ),
+            if (widget.allowDescription) ...[
+              const SizedBox(height: 12),
+              TextField(
+                controller: _descriptionController,
+                maxLines: 3,
+                decoration: const InputDecoration(
+                  labelText: 'Description (optional)',
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _submit,
+          child: Text(widget.submitLabel),
+        ),
+      ],
+    );
+  }
+
+  void _submit() {
+    final name = _nameController.text.trim();
+    if (name.isEmpty) {
+      setState(() {
+        _error = 'Name is required';
+      });
+      return;
+    }
+
+    final description = _descriptionController.text.trim();
+    Navigator.of(context).pop(
+      _PlaylistFormData(
+        name: name,
+        description: description.isEmpty ? null : description,
+      ),
+    );
+  }
+}
+
+String _trackCountLabel(int count) {
+  return count == 1 ? '1 track' : '$count tracks';
+}
+
+String _shortDateTimeLabel(DateTime value) {
+  return value.toLocal().toString().split('.').first;
+}
+
+void _showErrorSnack(BuildContext context, String message) {
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(content: Text(message)),
+  );
+}
+
 final class _LibraryFoldersPanel extends StatelessWidget {
   const _LibraryFoldersPanel({
     required this.folders,
@@ -1414,6 +2673,7 @@ final class _TrackListSliver extends StatelessWidget {
     required this.onLikeTrack,
     required this.onDislikeTrack,
     required this.onAddToQueue,
+    required this.onAddToPlaylist,
     required this.onEditTrack,
   });
 
@@ -1424,6 +2684,7 @@ final class _TrackListSliver extends StatelessWidget {
   final ValueChanged<Track> onLikeTrack;
   final ValueChanged<Track> onDislikeTrack;
   final ValueChanged<Track> onAddToQueue;
+  final ValueChanged<Track> onAddToPlaylist;
   final ValueChanged<Track> onEditTrack;
 
   @override
@@ -1445,6 +2706,8 @@ final class _TrackListSliver extends StatelessWidget {
                 onDislike: () => onDislikeTrack(track),
                 onAddToQueue:
                     track.isMissing ? null : () => onAddToQueue(track),
+                onAddToPlaylist:
+                    track.id == null ? null : () => onAddToPlaylist(track),
                 onEdit: () => onEditTrack(track),
               ),
             );
@@ -1484,8 +2747,6 @@ final class _WaveHomePanel extends StatelessWidget {
       initialData: queueService.state,
       builder: (context, snapshot) {
         final queueState = snapshot.data ?? QueueState();
-        final currentTrack =
-            playerState.currentTrack ?? queueState.currentTrack;
         final isBusy = queueState.isChoosingNext ||
             playerState.status == PlayerPlaybackStatus.loading;
 
@@ -1497,11 +2758,17 @@ final class _WaveHomePanel extends StatelessWidget {
               onLaunch: isBusy
                   ? null
                   : () {
-                      if (playerState.isPlaying && currentTrack != null) {
+                      final waveTrack =
+                          playerState.currentTrack ?? queueState.currentTrack;
+                      if (!queueState.isWaveCurrentSource) {
+                        unawaited(queueService.playSmartNext());
+                        return;
+                      }
+                      if (playerState.isPlaying) {
                         unawaited(playerService.pause());
                         return;
                       }
-                      if (currentTrack != null && queueState.isWaveEnabled) {
+                      if (waveTrack != null) {
                         unawaited(playerService.play());
                         return;
                       }
@@ -1548,11 +2815,13 @@ final class _WaveHeroSection extends StatelessWidget {
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
-    final track = playerState.currentTrack ?? queueState.currentTrack;
+    final track = queueState.isWaveCurrentSource
+        ? playerState.currentTrack ?? queueState.currentTrack
+        : null;
     final hasTrack = track != null;
     final isBusy = queueState.isChoosingNext ||
         playerState.status == PlayerPlaybackStatus.loading;
-    final launchIcon = playerState.isPlaying
+    final launchIcon = queueState.isWaveCurrentSource && playerState.isPlaying
         ? Icons.pause_circle_filled_rounded
         : Icons.play_circle_fill_rounded;
     final heroTextStyle = textTheme.displayMedium?.copyWith(
@@ -1626,7 +2895,7 @@ final class _WaveHeroSection extends StatelessWidget {
                     alignment: Alignment.centerLeft,
                     child: _WaveModePill(
                       mode: queueState.selectedWaveMode,
-                      isWaveEnabled: queueState.isWaveEnabled,
+                      isWaveCurrentSource: queueState.isWaveCurrentSource,
                       isChoosingNext: queueState.isChoosingNext,
                     ),
                   ),
@@ -1688,12 +2957,12 @@ final class _WaveHeroSection extends StatelessWidget {
 final class _WaveModePill extends StatelessWidget {
   const _WaveModePill({
     required this.mode,
-    required this.isWaveEnabled,
+    required this.isWaveCurrentSource,
     required this.isChoosingNext,
   });
 
   final WaveMode mode;
-  final bool isWaveEnabled;
+  final bool isWaveCurrentSource;
   final bool isChoosingNext;
 
   @override
@@ -1701,7 +2970,7 @@ final class _WaveModePill extends StatelessWidget {
     final colorScheme = Theme.of(context).colorScheme;
     final label = isChoosingNext
         ? 'Choosing'
-        : isWaveEnabled
+        : isWaveCurrentSource
             ? 'Wave on'
             : 'Wave ready';
 
@@ -1719,9 +2988,13 @@ final class _WaveModePill extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
-              isWaveEnabled ? Icons.graphic_eq_outlined : Icons.waves_outlined,
+              isWaveCurrentSource
+                  ? Icons.graphic_eq_outlined
+                  : Icons.waves_outlined,
               size: 16,
-              color: isWaveEnabled ? colorScheme.tertiary : colorScheme.primary,
+              color: isWaveCurrentSource
+                  ? colorScheme.tertiary
+                  : colorScheme.primary,
             ),
             const SizedBox(width: 8),
             Text('$label - ${_WaveModeSelector.waveModeLabel(mode)}'),
@@ -2044,10 +3317,8 @@ final class _BottomPlayerBarState extends State<_BottomPlayerBar> {
     final canSeek = track != null &&
         progress.canSeek &&
         playerState.status != PlayerPlaybackStatus.loading;
-    final canGoNext = !queueState.isChoosingNext &&
-        (track != null ||
-            queueState.manualQueue.isNotEmpty ||
-            queueState.isWaveEnabled);
+    final canGoNext = !queueState.isChoosingNext && queueState.canAdvance;
+    final canGoPrevious = !queueState.isChoosingNext && track != null;
     final isBusy = playerState.status == PlayerPlaybackStatus.loading ||
         queueState.isChoosingNext;
 
@@ -2068,6 +3339,10 @@ final class _BottomPlayerBarState extends State<_BottomPlayerBar> {
               final summary = _NowPlayingSummary(
                 track: track,
                 queueCount: queueState.manualQueue.length,
+                playlistContext:
+                    queueState.activeSource == PlaybackSource.playlist
+                        ? queueState.playbackContext
+                        : null,
               );
               final progressRow = _BottomProgressRow(
                 progress: progress,
@@ -2095,7 +3370,10 @@ final class _BottomPlayerBarState extends State<_BottomPlayerBar> {
               );
               final controls = _BottomPlaybackButtons(
                 isPlaying: playerState.isPlaying,
+                canGoPrevious: canGoPrevious,
                 canGoNext: canGoNext,
+                repeatMode: queueState.repeatMode,
+                canUseRepeat: queueState.canUseRepeat,
                 onPlayPause: track == null
                     ? null
                     : () {
@@ -2105,16 +3383,21 @@ final class _BottomPlayerBarState extends State<_BottomPlayerBar> {
                               : widget.playerService.play(),
                         );
                       },
+                onPrevious: canGoPrevious
+                    ? () {
+                        unawaited(widget.queueService.previous());
+                      }
+                    : null,
                 onNext: canGoNext
                     ? () {
                         unawaited(widget.queueService.next());
                       }
                     : null,
-                onStop: track == null
-                    ? null
-                    : () {
-                        unawaited(widget.playerService.stop());
-                      },
+                onRepeat: queueState.canUseRepeat
+                    ? () {
+                        widget.queueService.cycleRepeatMode();
+                      }
+                    : null,
               );
               final rightActions = _BottomPlayerActions(
                 hasTrack: track != null,
@@ -2198,10 +3481,12 @@ final class _NowPlayingSummary extends StatelessWidget {
   const _NowPlayingSummary({
     required this.track,
     required this.queueCount,
+    required this.playlistContext,
   });
 
   final Track? track;
   final int queueCount;
+  final PlaybackContext? playlistContext;
 
   @override
   Widget build(BuildContext context) {
@@ -2212,27 +3497,15 @@ final class _NowPlayingSummary extends StatelessWidget {
       children: [
         DecoratedBox(
           decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                colorScheme.surfaceContainerHighest,
-                colorScheme.primary.withValues(alpha: 0.24),
-              ],
-            ),
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
               color: colorScheme.outlineVariant.withValues(alpha: 0.45),
             ),
           ),
-          child: SizedBox.square(
-            dimension: 54,
-            child: Icon(
-              track == null ? Icons.album_outlined : Icons.graphic_eq_outlined,
-              color: track == null
-                  ? colorScheme.onSurfaceVariant
-                  : colorScheme.tertiary,
-            ),
+          child: TrackArtwork(
+            track: track,
+            size: 54,
+            borderRadius: 12,
           ),
         ),
         const SizedBox(width: 12),
@@ -2248,7 +3521,7 @@ final class _NowPlayingSummary extends StatelessWidget {
                 style: textTheme.titleSmall,
               ),
               Text(
-                _artistLabel(track),
+                _summarySubtitle(track, playlistContext),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: textTheme.bodySmall,
@@ -2325,26 +3598,46 @@ final class _BottomProgressRow extends StatelessWidget {
 final class _BottomPlaybackButtons extends StatelessWidget {
   const _BottomPlaybackButtons({
     required this.isPlaying,
+    required this.canGoPrevious,
     required this.canGoNext,
+    required this.repeatMode,
+    required this.canUseRepeat,
     required this.onPlayPause,
+    required this.onPrevious,
     required this.onNext,
-    required this.onStop,
+    required this.onRepeat,
   });
 
   final bool isPlaying;
+  final bool canGoPrevious;
   final bool canGoNext;
+  final PlaybackRepeatMode repeatMode;
+  final bool canUseRepeat;
   final VoidCallback? onPlayPause;
+  final VoidCallback? onPrevious;
   final VoidCallback? onNext;
-  final VoidCallback? onStop;
+  final VoidCallback? onRepeat;
 
   @override
   Widget build(BuildContext context) {
+    final repeatButton = repeatMode == PlaybackRepeatMode.none
+        ? IconButton.outlined(
+            tooltip: _repeatTooltip(repeatMode),
+            onPressed: canUseRepeat ? onRepeat : null,
+            icon: Icon(_repeatIcon(repeatMode)),
+          )
+        : IconButton.filledTonal(
+            tooltip: _repeatTooltip(repeatMode),
+            onPressed: canUseRepeat ? onRepeat : null,
+            icon: Icon(_repeatIcon(repeatMode)),
+          );
+
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         IconButton.outlined(
           tooltip: 'Previous',
-          onPressed: null,
+          onPressed: canGoPrevious ? onPrevious : null,
           icon: const Icon(Icons.skip_previous_outlined),
         ),
         const SizedBox(width: 4),
@@ -2365,11 +3658,7 @@ final class _BottomPlaybackButtons extends StatelessWidget {
           icon: const Icon(Icons.skip_next_outlined),
         ),
         const SizedBox(width: 4),
-        IconButton.outlined(
-          tooltip: 'Stop',
-          onPressed: onStop,
-          icon: const Icon(Icons.stop_outlined),
-        ),
+        repeatButton,
       ],
     );
   }
@@ -2423,6 +3712,32 @@ final class _BottomPlayerActions extends StatelessWidget {
       ],
     );
   }
+}
+
+String _summarySubtitle(Track? track, PlaybackContext? playlistContext) {
+  if (playlistContext != null && playlistContext.isPlaylist) {
+    final name = playlistContext.playlistName?.trim();
+    if (name != null && name.isNotEmpty) {
+      return 'Playing from: $name';
+    }
+  }
+  return _artistLabel(track);
+}
+
+String _repeatTooltip(PlaybackRepeatMode mode) {
+  return switch (mode) {
+    PlaybackRepeatMode.none => 'No repeat',
+    PlaybackRepeatMode.playlist => 'Repeat playlist',
+    PlaybackRepeatMode.track => 'Repeat track',
+  };
+}
+
+IconData _repeatIcon(PlaybackRepeatMode mode) {
+  return switch (mode) {
+    PlaybackRepeatMode.none => Icons.repeat,
+    PlaybackRepeatMode.playlist => Icons.repeat,
+    PlaybackRepeatMode.track => Icons.repeat_one,
+  };
 }
 
 String _artistLabel(Track? track) {
@@ -2841,6 +4156,7 @@ final class _TrackListTile extends StatelessWidget {
     required this.onLike,
     required this.onDislike,
     required this.onAddToQueue,
+    required this.onAddToPlaylist,
     required this.onEdit,
   });
 
@@ -2851,6 +4167,7 @@ final class _TrackListTile extends StatelessWidget {
   final VoidCallback onLike;
   final VoidCallback onDislike;
   final VoidCallback? onAddToQueue;
+  final VoidCallback? onAddToPlaylist;
   final VoidCallback onEdit;
 
   @override
@@ -2903,6 +4220,12 @@ final class _TrackListTile extends StatelessWidget {
           ),
           const SizedBox(width: 2),
           IconButton(
+            tooltip: 'Add to playlist',
+            onPressed: onAddToPlaylist,
+            icon: const Icon(Icons.playlist_add_outlined),
+          ),
+          const SizedBox(width: 2),
+          IconButton(
             tooltip: 'Edit metadata',
             onPressed: track.id == null ? null : onEdit,
             icon: const Icon(Icons.edit_outlined),
@@ -2929,22 +4252,32 @@ final class _TrackListTile extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(14, 10, 8, 10),
           child: Row(
             children: [
-              DecoratedBox(
-                decoration: BoxDecoration(
-                  color: leadingColor.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: SizedBox.square(
-                  dimension: 44,
-                  child: Icon(
-                    isMissing
-                        ? Icons.report_problem_outlined
-                        : isCurrent
-                            ? Icons.graphic_eq_outlined
-                            : Icons.music_note_outlined,
-                    color: leadingColor,
+              Stack(
+                alignment: Alignment.center,
+                children: [
+                  TrackArtwork(
+                    track: track,
+                    size: 44,
+                    borderRadius: 14,
                   ),
-                ),
+                  if (isMissing || isCurrent)
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(14),
+                      child: ColoredBox(
+                        color: Colors.black.withValues(alpha: 0.42),
+                        child: SizedBox.square(
+                          dimension: 44,
+                          child: Icon(
+                            isMissing
+                                ? Icons.report_problem_outlined
+                                : Icons.graphic_eq_outlined,
+                            size: 22,
+                            color: leadingColor,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
               ),
               const SizedBox(width: 14),
               Expanded(
