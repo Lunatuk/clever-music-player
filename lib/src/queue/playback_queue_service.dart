@@ -12,6 +12,7 @@ const Object _unsetFeedbackValue = Object();
 const int recommendationSelectionPoolLimit = 10;
 const double negativeScoreSelectionTolerance = 10.0;
 const double _maxSelectionWeightBoost = 12;
+const Duration previousRestartThreshold = Duration(seconds: 5);
 
 List<RecommendationResult> buildWeightedSelectionPool(
   List<RecommendationResult> recommendations, {
@@ -174,6 +175,9 @@ final class PlaybackQueueService {
       _state.copyWith(
         currentTrack: track,
         currentTrackUserState: null,
+        playbackContext: PlaybackContext.none(),
+        activeSource: PlaybackSource.singleTrack,
+        repeatMode: PlaybackRepeatMode.none,
         lastRecommendationResult: null,
         recommendationCandidates: const [],
         repeatGuardMessage: null,
@@ -189,6 +193,34 @@ final class PlaybackQueueService {
 
   Future<void> playSmartNext() {
     return _playSmartNext();
+  }
+
+  Future<void> playPlaylist({
+    required int playlistId,
+    required String playlistName,
+    required Iterable<PlaylistEntry> entries,
+    required int startTrackId,
+  }) async {
+    if (_isDisposed) {
+      return;
+    }
+
+    await _runNextTransition(() async {
+      final context = await _buildPlaylistContext(
+        playlistId: playlistId,
+        playlistName: playlistName,
+        entries: entries,
+        startTrackId: startTrackId,
+      );
+      if (context == null) {
+        return;
+      }
+
+      await _playPlaylistTrackAt(
+        context.currentIndex,
+        context: context,
+      );
+    });
   }
 
   Future<void> addToQueue(Track track) async {
@@ -246,6 +278,62 @@ final class PlaybackQueueService {
 
   Future<void> next() async {
     await _advanceToNext(recordSkip: true);
+  }
+
+  Future<void> previous() async {
+    await _runNextTransition(() async {
+      final playerState = _playerService.state;
+      final currentTrack = playerState.currentTrack ?? _state.currentTrack;
+      if (currentTrack == null) {
+        return;
+      }
+
+      if (playerState.position > previousRestartThreshold) {
+        await _playerService.seek(Duration.zero);
+        return;
+      }
+
+      final context = _state.playbackContext;
+      if (!context.isPlaylist) {
+        return;
+      }
+
+      final currentIndex = context.currentIndex;
+      if (currentIndex > 0) {
+        await _playPlaylistTrackAt(currentIndex - 1);
+        return;
+      }
+
+      if (_state.repeatMode == PlaybackRepeatMode.playlist) {
+        await _playPlaylistTrackAt(context.tracks.length - 1);
+        return;
+      }
+
+      await _playerService.seek(Duration.zero);
+    });
+  }
+
+  void setRepeatMode(PlaybackRepeatMode mode) {
+    if (_isDisposed || _state.repeatMode == mode) {
+      return;
+    }
+    if (!_state.hasPlaylistContext && mode != PlaybackRepeatMode.none) {
+      return;
+    }
+    _emit(_state.copyWith(repeatMode: mode, lastError: null));
+  }
+
+  void cycleRepeatMode() {
+    if (_isDisposed || !_state.hasPlaylistContext) {
+      return;
+    }
+    setRepeatMode(
+      switch (_state.repeatMode) {
+        PlaybackRepeatMode.none => PlaybackRepeatMode.playlist,
+        PlaybackRepeatMode.playlist => PlaybackRepeatMode.track,
+        PlaybackRepeatMode.track => PlaybackRepeatMode.none,
+      },
+    );
   }
 
   void setWaveMode(WaveMode mode) {
@@ -351,9 +439,7 @@ final class PlaybackQueueService {
 
   Future<void> _advanceToNext({required bool recordSkip}) async {
     await _runNextTransition(() async {
-      final hasTransitionSource =
-          _state.manualQueue.isNotEmpty || _state.isWaveEnabled;
-      if (!hasTransitionSource) {
+      if (!_state.canAdvance) {
         return;
       }
 
@@ -363,6 +449,11 @@ final class PlaybackQueueService {
 
       if (_state.manualQueue.isNotEmpty) {
         await _playQueuedTrackAt(0);
+        return;
+      }
+
+      if (_state.hasPlaylistContext) {
+        await _advancePlaylist(manualSkip: recordSkip);
         return;
       }
 
@@ -423,6 +514,7 @@ final class PlaybackQueueService {
         currentTrack: track,
         currentTrackUserState: null,
         manualQueue: queue,
+        activeSource: PlaybackSource.manualQueue,
         lastRecommendationResult: null,
         repeatGuardMessage: null,
         selectionPoolMessage: null,
@@ -438,6 +530,14 @@ final class PlaybackQueueService {
 
   Future<void> _playSmartNext() async {
     await _runNextTransition(() async {
+      if (_state.hasPlaylistContext) {
+        _emit(
+          _state.copyWith(
+            playbackContext: PlaybackContext.none(),
+            repeatMode: PlaybackRepeatMode.none,
+          ),
+        );
+      }
       await _chooseAndPlaySmartNext(enableWave: true);
     });
   }
@@ -508,6 +608,9 @@ final class PlaybackQueueService {
         _state.copyWith(
           currentTrack: selected.track,
           currentTrackUserState: null,
+          playbackContext: PlaybackContext.none(),
+          activeSource: PlaybackSource.wave,
+          repeatMode: PlaybackRepeatMode.none,
           lastRecommendationResult: selected,
           recommendationCandidates: selectionPool,
           repeatGuardMessage: guarded.message,
@@ -527,6 +630,142 @@ final class PlaybackQueueService {
         ),
       );
     }
+  }
+
+  Future<PlaybackContext?> _buildPlaylistContext({
+    required int playlistId,
+    required String playlistName,
+    required Iterable<PlaylistEntry> entries,
+    required int startTrackId,
+  }) async {
+    final orderedEntries = entries.toList(growable: false)
+      ..sort((left, right) {
+        final positionOrder = left.position.compareTo(right.position);
+        if (positionOrder != 0) {
+          return positionOrder;
+        }
+        final addedOrder = left.addedAt.compareTo(right.addedAt);
+        if (addedOrder != 0) {
+          return addedOrder;
+        }
+        return left.trackId.compareTo(right.trackId);
+      });
+    final playableTracks = <Track>[];
+    var startIndex = -1;
+
+    for (final entry in orderedEntries) {
+      if (!entry.isPlayable) {
+        continue;
+      }
+      final playableTrack = await _resolvePlayableTrack(entry.track);
+      if (playableTrack == null) {
+        continue;
+      }
+      if (entry.trackId == startTrackId) {
+        startIndex = playableTracks.length;
+      }
+      playableTracks.add(playableTrack);
+    }
+
+    if (playableTracks.isEmpty) {
+      _emit(
+        _state.copyWith(
+          lastError: 'No playable tracks are available in this playlist.',
+        ),
+      );
+      return null;
+    }
+    if (startIndex < 0) {
+      _emit(
+        _state.copyWith(
+          lastError: 'This playlist track is not available for playback.',
+        ),
+      );
+      return null;
+    }
+
+    return PlaybackContext(
+      source: PlaybackSource.playlist,
+      playlistId: playlistId,
+      playlistName: playlistName,
+      tracks: playableTracks,
+      currentIndex: startIndex,
+    );
+  }
+
+  Future<void> _advancePlaylist({required bool manualSkip}) async {
+    final context = _state.playbackContext;
+    if (!context.isPlaylist) {
+      if (_state.isWaveEnabled) {
+        await _chooseAndPlaySmartNext(enableWave: false);
+      }
+      return;
+    }
+
+    final isCurrentPlaylistTrack =
+        _state.activeSource == PlaybackSource.playlist;
+    if (!manualSkip &&
+        isCurrentPlaylistTrack &&
+        _state.repeatMode == PlaybackRepeatMode.track) {
+      await _playPlaylistTrackAt(context.currentIndex);
+      return;
+    }
+
+    final nextIndex = context.currentIndex + 1;
+    if (nextIndex < context.tracks.length) {
+      await _playPlaylistTrackAt(nextIndex);
+      return;
+    }
+
+    if (_state.repeatMode == PlaybackRepeatMode.playlist) {
+      await _playPlaylistTrackAt(0);
+      return;
+    }
+
+    _emit(
+      _state.copyWith(
+        playbackContext: PlaybackContext.none(),
+        activeSource: PlaybackSource.none,
+        repeatMode: PlaybackRepeatMode.none,
+        lastRecommendationResult: null,
+        repeatGuardMessage: null,
+        selectionPoolMessage: null,
+        lastError: null,
+      ),
+    );
+    await _chooseAndPlaySmartNext(enableWave: true);
+  }
+
+  Future<bool> _playPlaylistTrackAt(
+    int index, {
+    PlaybackContext? context,
+  }) async {
+    final playlistContext = context ?? _state.playbackContext;
+    if (!playlistContext.isPlaylist ||
+        index < 0 ||
+        index >= playlistContext.tracks.length) {
+      return false;
+    }
+
+    final track = playlistContext.tracks[index];
+    final nextContext = playlistContext.copyWith(currentIndex: index);
+    _emit(
+      _state.copyWith(
+        currentTrack: track,
+        currentTrackUserState: null,
+        playbackContext: nextContext,
+        activeSource: PlaybackSource.playlist,
+        lastRecommendationResult: null,
+        repeatGuardMessage: null,
+        selectionPoolMessage: null,
+        lastError: null,
+      ),
+    );
+    unawaited(_loadCurrentTrackUserState(track));
+
+    await _playerService.playTrack(track);
+    _syncPlayerError();
+    return true;
   }
 
   RecommendationResult _selectWeightedRecommendation(

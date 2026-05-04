@@ -6,6 +6,7 @@ import 'src/app/clever_music_player_app.dart';
 import 'src/app/dependency_scope.dart';
 import 'src/data/drift/app_database.dart';
 import 'src/data/repositories/drift_repositories.dart';
+import 'src/library/artwork_cache_service.dart';
 import 'src/library/directory_picker_service.dart';
 import 'src/library/library_scanner_service.dart';
 import 'src/library/metadata_reader_service.dart';
@@ -27,6 +28,7 @@ void main() {
     libraryRepository: repositories.libraryFolders,
     trackRepository: repositories.tracks,
     metadataReader: const AudioMetadataReaderService(),
+    artworkCache: AppSupportArtworkCacheService(),
   );
   final playerService = JustAudioPlayerService(
     playbackEvents: repositories.playbackEvents,

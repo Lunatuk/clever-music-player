@@ -11,7 +11,9 @@ import 'package:clever_music_player/src/library/metadata_reader_service.dart';
 import 'package:clever_music_player/src/player/player_service.dart';
 import 'package:clever_music_player/src/player/player_state.dart';
 import 'package:clever_music_player/src/queue/playback_queue_service.dart';
+import 'package:clever_music_player/src/queue/queue_state.dart';
 import 'package:clever_music_player/src/recommendation/recommendation_service.dart';
+import 'package:clever_music_player/src/ui/track_artwork.dart';
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -31,6 +33,7 @@ void main() {
     expect(find.text('Еще раз'), findsOneWidget);
     expect(find.text('Моя музыка'), findsOneWidget);
     expect(find.text('No track playing'), findsOneWidget);
+    expect(find.byType(TrackArtwork), findsOneWidget);
     expect(find.text('Liquid Wave'), findsNothing);
     expect(find.text('Local-first music flow'), findsNothing);
     expect(
@@ -38,9 +41,10 @@ void main() {
       findsNothing,
     );
     expect(find.byIcon(Icons.play_circle_fill_rounded), findsOneWidget);
+    expect(find.byTooltip('Stop'), findsNothing);
   });
 
-  testWidgets('central launch icon switches to pause while playing',
+  testWidgets('central launch icon stays start for non-Wave playback',
       (tester) async {
     await _setLargeSurface(tester);
     final fixture = await _HomeScreenFixture.create(seedLibrary: true);
@@ -49,6 +53,134 @@ void main() {
     await fixture.player.playTrack(_testTrack());
     await fixture.pump(tester);
 
+    expect(find.byIcon(Icons.play_circle_fill_rounded), findsOneWidget);
+    expect(find.byIcon(Icons.pause_circle_filled_rounded), findsNothing);
+    expect(find.textContaining('Wave on'), findsNothing);
+    expect(find.text('Test Track - Test Artist'), findsNothing);
+  });
+
+  testWidgets('hero Wave action interrupts playlist context and starts Wave',
+      (tester) async {
+    await _setLargeSurface(tester);
+    final fixture = await _HomeScreenFixture.create(
+      seedTracks: [
+        _testTrack(id: 1, title: 'Playlist Track'),
+        _testTrack(id: 2, title: 'Wave Track', artist: 'Wave Artist'),
+      ],
+    );
+    _addFixtureTearDown(tester, fixture);
+    final playlistId =
+        await fixture.dependencies.repositories.playlists.createPlaylist(
+      'Road Mix',
+    );
+    await fixture.dependencies.repositories.playlists.addTrackToPlaylist(
+      playlistId,
+      1,
+    );
+    final entries = await fixture.dependencies.repositories.playlists
+        .watchPlaylistTracks(playlistId)
+        .first;
+
+    await fixture.queue.playPlaylist(
+      playlistId: playlistId,
+      playlistName: 'Road Mix',
+      entries: entries,
+      startTrackId: 1,
+    );
+    await fixture.pump(tester);
+
+    expect(fixture.queue.state.isWaveCurrentSource, isFalse);
+    expect(find.textContaining('Wave on'), findsNothing);
+    expect(find.text('Playlist Track - Test Artist'), findsNothing);
+
+    await tester.tap(find.text('Пустить жидкого'));
+    await tester.pumpAndSettle();
+    await _waitUntil(() => fixture.queue.state.isWaveCurrentSource);
+    await tester.pumpAndSettle();
+
+    expect(fixture.queue.state.isWaveCurrentSource, isTrue);
+    expect(fixture.queue.state.playbackContext.source, PlaybackSource.none);
+    expect(fixture.queue.state.lastRecommendationResult, isNotNull);
+    expect(find.textContaining('Wave on'), findsOneWidget);
+    expect(find.byIcon(Icons.pause_circle_filled_rounded), findsOneWidget);
+  });
+
+  testWidgets('hero Wave action interrupts standalone playback and starts Wave',
+      (tester) async {
+    await _setLargeSurface(tester);
+    final fixture = await _HomeScreenFixture.create(
+      seedTracks: [
+        _testTrack(id: 1, title: 'Standalone Track'),
+        _testTrack(id: 2, title: 'Wave Track', artist: 'Wave Artist'),
+      ],
+    );
+    _addFixtureTearDown(tester, fixture);
+
+    await fixture.queue.playTrackManually(_testTrack(
+      id: 1,
+      title: 'Standalone Track',
+    ));
+    await fixture.pump(tester);
+
+    expect(fixture.queue.state.activeSource, PlaybackSource.singleTrack);
+    expect(fixture.queue.state.isWaveCurrentSource, isFalse);
+
+    await tester.tap(find.text('Пустить жидкого'));
+    await tester.pumpAndSettle();
+    await _waitUntil(() => fixture.queue.state.isWaveCurrentSource);
+    await tester.pumpAndSettle();
+
+    expect(fixture.queue.state.isWaveCurrentSource, isTrue);
+    expect(fixture.queue.state.lastRecommendationResult, isNotNull);
+    expect(fixture.player.isPlaying, isTrue);
+  });
+
+  testWidgets('hero Wave action pauses while Wave is playing', (tester) async {
+    await _setLargeSurface(tester);
+    final fixture = await _HomeScreenFixture.create(
+      seedTracks: [
+        _testTrack(id: 1, title: 'Wave Track'),
+        _testTrack(id: 2, title: 'Second Wave Track'),
+      ],
+    );
+    _addFixtureTearDown(tester, fixture);
+
+    await fixture.queue.playSmartNext();
+    await fixture.pump(tester);
+
+    expect(fixture.queue.state.isWaveCurrentSource, isTrue);
+    expect(fixture.player.isPlaying, isTrue);
+
+    await tester.tap(find.text('Пустить жидкого'));
+    await tester.pumpAndSettle();
+
+    expect(fixture.queue.state.isWaveCurrentSource, isTrue);
+    expect(fixture.player.isPlaying, isFalse);
+    expect(find.byIcon(Icons.play_circle_fill_rounded), findsOneWidget);
+  });
+
+  testWidgets('hero Wave action resumes while Wave is paused', (tester) async {
+    await _setLargeSurface(tester);
+    final fixture = await _HomeScreenFixture.create(
+      seedTracks: [
+        _testTrack(id: 1, title: 'Wave Track'),
+        _testTrack(id: 2, title: 'Second Wave Track'),
+      ],
+    );
+    _addFixtureTearDown(tester, fixture);
+
+    await fixture.queue.playSmartNext();
+    await fixture.player.pause();
+    await fixture.pump(tester);
+
+    expect(fixture.queue.state.isWaveCurrentSource, isTrue);
+    expect(fixture.player.isPlaying, isFalse);
+
+    await tester.tap(find.text('Пустить жидкого'));
+    await tester.pumpAndSettle();
+
+    expect(fixture.queue.state.isWaveCurrentSource, isTrue);
+    expect(fixture.player.isPlaying, isTrue);
     expect(find.byIcon(Icons.pause_circle_filled_rounded), findsOneWidget);
   });
 
@@ -66,6 +198,99 @@ void main() {
     expect(find.text('Все треки'), findsOneWidget);
     expect(find.text('Test Track'), findsOneWidget);
     expect(find.text('No track playing'), findsOneWidget);
+    expect(find.byType(TrackArtwork), findsNWidgets(2));
+  });
+
+  testWidgets('My Music playlists tab can create a playlist', (tester) async {
+    await _setLargeSurface(tester);
+    final fixture = await _HomeScreenFixture.create(seedLibrary: true);
+    _addFixtureTearDown(tester, fixture);
+
+    await fixture.pump(tester);
+    await tester.tap(find.text('Моя музыка'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(ChoiceChip, 'Плейлисты'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Создать плейлист'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, 'Road Mix');
+    await tester.tap(find.text('Create'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Road Mix'), findsOneWidget);
+    expect(find.textContaining('0 tracks'), findsOneWidget);
+  });
+
+  testWidgets('track row can add a track to an existing playlist',
+      (tester) async {
+    await _setLargeSurface(tester);
+    final fixture = await _HomeScreenFixture.create(seedLibrary: true);
+    _addFixtureTearDown(tester, fixture);
+    await fixture.dependencies.repositories.playlists.createPlaylist(
+      'Road Mix',
+    );
+
+    await fixture.pump(tester);
+    await tester.tap(find.text('Моя музыка'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Add to playlist'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Road Mix'));
+    await tester.pumpAndSettle();
+
+    final playlists = await fixture.dependencies.repositories.playlists
+        .watchPlaylists()
+        .first;
+
+    expect(playlists.single.name, 'Road Mix');
+    expect(playlists.single.trackCount, 1);
+  });
+
+  testWidgets('playlist detail can add tracks from the active library',
+      (tester) async {
+    await _setLargeSurface(tester);
+    final fixture = await _HomeScreenFixture.create(
+      seedTracks: [
+        _testTrack(id: 1, title: 'Test Track'),
+        _testTrack(id: 2, title: 'Second Track', artist: 'Second Artist'),
+      ],
+    );
+    _addFixtureTearDown(tester, fixture);
+    final playlistId =
+        await fixture.dependencies.repositories.playlists.createPlaylist(
+      'Road Mix',
+    );
+    await fixture.dependencies.repositories.playlists.addTrackToPlaylist(
+      playlistId,
+      1,
+    );
+
+    await fixture.pump(tester);
+    await tester.tap(find.text('Моя музыка'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(ChoiceChip, 'Плейлисты'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Road Mix'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Add tracks'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Test Track'), findsWidgets);
+    expect(find.text('Second Track'), findsOneWidget);
+    expect(find.widgetWithText(TextButton, 'Added'), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(TextButton, 'Add'));
+    await tester.pumpAndSettle();
+
+    final entries = await fixture.dependencies.repositories.playlists
+        .watchPlaylistTracks(playlistId)
+        .first;
+
+    expect(entries.map((entry) => entry.trackId), [1, 2]);
+    expect(find.widgetWithText(TextButton, 'Added'), findsNWidgets(2));
   });
 
   testWidgets('settings gear opens library folders and recommendation debug',
@@ -109,6 +334,19 @@ Future<void> _setLargeSurface(WidgetTester tester) async {
   addTearDown(tester.view.resetPhysicalSize);
 }
 
+Future<void> _waitUntil(
+  bool Function() predicate, {
+  Duration timeout = const Duration(seconds: 1),
+}) async {
+  final deadline = DateTime.now().add(timeout);
+  while (!predicate()) {
+    if (DateTime.now().isAfter(deadline)) {
+      throw TimeoutException('Condition was not met before timeout.');
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+  }
+}
+
 void _addFixtureTearDown(
   WidgetTester tester,
   _HomeScreenFixture fixture,
@@ -134,11 +372,14 @@ final class _HomeScreenFixture {
 
   static Future<_HomeScreenFixture> create({
     bool seedLibrary = false,
+    List<Track>? seedTracks,
   }) async {
+    final initialTracks =
+        seedTracks ?? (seedLibrary ? [_testTrack()] : const <Track>[]);
     final database = AppDatabase(NativeDatabase.memory());
     final repositories = _FakeAppRepositories(
-      seedLibrary ? [_testTrack()] : const [],
-      seedLibrary ? [_testFolder()] : const [],
+      initialTracks,
+      initialTracks.isEmpty ? const [] : [_testFolder()],
     );
     final recommendationService = RecommendationService(
       tracks: repositories.tracks,
@@ -193,6 +434,7 @@ final class _FakeAppRepositories implements AppRepositories {
   _FakeAppRepositories(List<Track> initialTracks, List<LibraryFolder> folders)
       : libraryFolders = _FakeLibraryRepository(folders),
         tracks = _FakeTrackRepository(initialTracks),
+        playlists = _FakePlaylistRepository(initialTracks),
         playbackEvents = _FakePlaybackEventRepository(),
         trackUserState = _FakeTrackUserStateRepository(),
         settings = _FakeSettingsRepository();
@@ -205,6 +447,9 @@ final class _FakeAppRepositories implements AppRepositories {
 
   @override
   final PlaybackEventRepository playbackEvents;
+
+  @override
+  final PlaylistRepository playlists;
 
   @override
   final TrackUserStateRepository trackUserState;
@@ -394,6 +639,120 @@ final class _FakeTrackRepository implements TrackRepository {
   }
 }
 
+final class _FakePlaylistRepository implements PlaylistRepository {
+  _FakePlaylistRepository(List<Track> tracks) : _tracks = tracks;
+
+  final List<Track> _tracks;
+  final List<Playlist> _playlists = [];
+  final List<PlaylistEntry> _entries = [];
+  final StreamController<List<PlaylistWithCount>> _controller =
+      StreamController<List<PlaylistWithCount>>.broadcast();
+
+  @override
+  Stream<List<PlaylistWithCount>> watchPlaylists() async* {
+    yield _snapshot();
+    yield* _controller.stream;
+  }
+
+  @override
+  Future<int> createPlaylist(String name, {String? description}) async {
+    final trimmedName = name.trim();
+    if (trimmedName.isEmpty) {
+      throw ArgumentError.value(name, 'name', 'Playlist name cannot be empty.');
+    }
+    final now = DateTime(2026, 5);
+    final id = _playlists.length + 1;
+    _playlists.add(
+      Playlist(
+        id: id,
+        name: trimmedName,
+        description: description,
+        createdAt: now,
+        updatedAt: now,
+      ),
+    );
+    _emit();
+    return id;
+  }
+
+  @override
+  Future<void> renamePlaylist(int id, String name) async {
+    final index = _playlists.indexWhere((playlist) => playlist.id == id);
+    if (index < 0) {
+      return;
+    }
+    _playlists[index] = _playlists[index].copyWith(
+      name: name.trim(),
+      updatedAt: DateTime(2026, 5, 1, 0, 1),
+    );
+    _emit();
+  }
+
+  @override
+  Future<void> deletePlaylist(int id) async {
+    _playlists.removeWhere((playlist) => playlist.id == id);
+    _entries.removeWhere((entry) => entry.playlistId == id);
+    _emit();
+  }
+
+  @override
+  Stream<List<PlaylistEntry>> watchPlaylistTracks(int playlistId) {
+    return Stream.value(
+      _entries
+          .where((entry) => entry.playlistId == playlistId)
+          .toList(growable: false),
+    );
+  }
+
+  @override
+  Future<void> addTrackToPlaylist(int playlistId, int trackId) async {
+    final alreadyAdded = _entries.any(
+      (entry) => entry.playlistId == playlistId && entry.trackId == trackId,
+    );
+    if (alreadyAdded) {
+      return;
+    }
+    final track = _tracks.firstWhere((track) => track.id == trackId);
+    _entries.add(
+      PlaylistEntry(
+        playlistId: playlistId,
+        trackId: trackId,
+        position:
+            _entries.where((entry) => entry.playlistId == playlistId).length,
+        addedAt: DateTime(2026, 5),
+        track: track,
+        unavailableReason: track.isMissing ? 'Missing' : null,
+      ),
+    );
+    _emit();
+  }
+
+  @override
+  Future<void> removeTrackFromPlaylist(int playlistId, int trackId) async {
+    _entries.removeWhere(
+      (entry) => entry.playlistId == playlistId && entry.trackId == trackId,
+    );
+    _emit();
+  }
+
+  List<PlaylistWithCount> _snapshot() {
+    return [
+      for (final playlist in _playlists)
+        PlaylistWithCount(
+          playlist: playlist,
+          trackCount:
+              _entries.where((entry) => entry.playlistId == playlist.id).length,
+        ),
+    ];
+  }
+
+  void _emit() {
+    if (!_controller.isClosed) {
+      _controller.add(_snapshot());
+    }
+  }
+}
+
 final class _FakeTrackUserStateRepository implements TrackUserStateRepository {
   final Map<int, TrackUserState> _states = {};
 
@@ -499,17 +858,24 @@ LibraryFolder _testFolder() {
   );
 }
 
-Track _testTrack() {
+Track _testTrack({
+  int id = 1,
+  String title = 'Test Track',
+  String artist = 'Test Artist',
+  bool isMissing = false,
+}) {
   final now = DateTime(2026, 5);
+  final fileName = title.toLowerCase().replaceAll(' ', '-');
   return Track(
-    id: 1,
+    id: id,
     libraryFolderId: 1,
-    filePath: '/music/test-track.mp3',
-    title: 'Test Track',
-    artist: 'Test Artist',
+    filePath: '/music/$fileName.mp3',
+    title: title,
+    artist: artist,
     album: 'Test Album',
     codec: 'mp3',
     duration: const Duration(minutes: 3, seconds: 15),
+    isMissing: isMissing,
     addedAt: now,
     updatedAt: now,
   );

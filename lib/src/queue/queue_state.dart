@@ -2,11 +2,96 @@ import '../domain/models/models.dart';
 
 const Object _unset = Object();
 
+enum PlaybackSource {
+  none,
+  singleTrack,
+  wave,
+  manualQueue,
+  playlist,
+}
+
+enum PlaybackRepeatMode {
+  none,
+  playlist,
+  track,
+}
+
+final class PlaybackContext {
+  PlaybackContext({
+    this.source = PlaybackSource.none,
+    this.playlistId,
+    this.playlistName,
+    Iterable<Track> tracks = const [],
+    this.currentIndex = -1,
+  }) : tracks = List.unmodifiable(tracks);
+
+  final PlaybackSource source;
+  final int? playlistId;
+  final String? playlistName;
+  final List<Track> tracks;
+  final int currentIndex;
+
+  bool get isPlaylist =>
+      source == PlaybackSource.playlist &&
+      playlistId != null &&
+      tracks.isNotEmpty &&
+      currentIndex >= 0 &&
+      currentIndex < tracks.length;
+
+  Track? get currentTrack => isPlaylist ? tracks[currentIndex] : null;
+
+  PlaybackContext copyWith({
+    PlaybackSource? source,
+    Object? playlistId = _unset,
+    Object? playlistName = _unset,
+    Iterable<Track>? tracks,
+    int? currentIndex,
+  }) {
+    return PlaybackContext(
+      source: source ?? this.source,
+      playlistId:
+          identical(playlistId, _unset) ? this.playlistId : playlistId as int?,
+      playlistName: identical(playlistName, _unset)
+          ? this.playlistName
+          : playlistName as String?,
+      tracks: tracks ?? this.tracks,
+      currentIndex: currentIndex ?? this.currentIndex,
+    );
+  }
+
+  static PlaybackContext none() => PlaybackContext();
+
+  @override
+  bool operator ==(Object other) {
+    return identical(this, other) ||
+        other is PlaybackContext &&
+            other.source == source &&
+            other.playlistId == playlistId &&
+            other.playlistName == playlistName &&
+            _listEquals(other.tracks, tracks) &&
+            other.currentIndex == currentIndex;
+  }
+
+  @override
+  int get hashCode {
+    return Object.hash(
+      source,
+      playlistId,
+      playlistName,
+      Object.hashAll(tracks),
+      currentIndex,
+    );
+  }
+}
+
 final class QueueState {
   QueueState({
     this.currentTrack,
     this.currentTrackUserState,
     Iterable<Track> manualQueue = const [],
+    PlaybackContext? playbackContext,
+    this.activeSource = PlaybackSource.none,
+    this.repeatMode = PlaybackRepeatMode.none,
     this.selectedWaveMode = WaveMode.balanced,
     this.lastRecommendationResult,
     Iterable<RecommendationResult> recommendationCandidates = const [],
@@ -16,11 +101,15 @@ final class QueueState {
     this.selectionPoolMessage,
     this.lastError,
   })  : manualQueue = List.unmodifiable(manualQueue),
+        playbackContext = playbackContext ?? PlaybackContext.none(),
         recommendationCandidates = List.unmodifiable(recommendationCandidates);
 
   final Track? currentTrack;
   final TrackUserState? currentTrackUserState;
   final List<Track> manualQueue;
+  final PlaybackContext playbackContext;
+  final PlaybackSource activeSource;
+  final PlaybackRepeatMode repeatMode;
   final WaveMode selectedWaveMode;
   final RecommendationResult? lastRecommendationResult;
   final List<RecommendationResult> recommendationCandidates;
@@ -31,6 +120,23 @@ final class QueueState {
   final String? lastError;
 
   bool get smartModeEnabled => isWaveEnabled;
+
+  bool get isWaveCurrentSource => activeSource == PlaybackSource.wave;
+
+  bool get hasPlaylistContext => playbackContext.isPlaylist;
+
+  bool get canAdvance =>
+      manualQueue.isNotEmpty || hasPlaylistContext || isWaveEnabled;
+
+  bool get canUseRepeat => hasPlaylistContext;
+
+  bool get canGoToPreviousPlaylistTrack {
+    if (!hasPlaylistContext) {
+      return false;
+    }
+    return playbackContext.currentIndex > 0 ||
+        repeatMode == PlaybackRepeatMode.playlist;
+  }
 
   bool get isCurrentTrackLiked {
     final state = currentTrackUserState;
@@ -52,6 +158,9 @@ final class QueueState {
     Object? currentTrack = _unset,
     Object? currentTrackUserState = _unset,
     Iterable<Track>? manualQueue,
+    Object? playbackContext = _unset,
+    PlaybackSource? activeSource,
+    PlaybackRepeatMode? repeatMode,
     WaveMode? selectedWaveMode,
     Object? lastRecommendationResult = _unset,
     Iterable<RecommendationResult>? recommendationCandidates,
@@ -69,6 +178,11 @@ final class QueueState {
           ? this.currentTrackUserState
           : currentTrackUserState as TrackUserState?,
       manualQueue: manualQueue ?? this.manualQueue,
+      playbackContext: identical(playbackContext, _unset)
+          ? this.playbackContext
+          : playbackContext as PlaybackContext,
+      activeSource: activeSource ?? this.activeSource,
+      repeatMode: repeatMode ?? this.repeatMode,
       selectedWaveMode: selectedWaveMode ?? this.selectedWaveMode,
       lastRecommendationResult: identical(lastRecommendationResult, _unset)
           ? this.lastRecommendationResult
@@ -95,6 +209,9 @@ final class QueueState {
             other.currentTrack == currentTrack &&
             other.currentTrackUserState == currentTrackUserState &&
             _listEquals(other.manualQueue, manualQueue) &&
+            other.playbackContext == playbackContext &&
+            other.activeSource == activeSource &&
+            other.repeatMode == repeatMode &&
             other.selectedWaveMode == selectedWaveMode &&
             other.lastRecommendationResult == lastRecommendationResult &&
             _listEquals(
@@ -114,6 +231,9 @@ final class QueueState {
       currentTrack,
       currentTrackUserState,
       Object.hashAll(manualQueue),
+      playbackContext,
+      activeSource,
+      repeatMode,
       selectedWaveMode,
       lastRecommendationResult,
       Object.hashAll(recommendationCandidates),

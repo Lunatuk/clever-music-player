@@ -25,6 +25,7 @@ final class AudioMetadata {
     this.trackNumber,
     this.discNumber,
     this.year,
+    this.artwork,
   });
 
   final String filePath;
@@ -42,6 +43,7 @@ final class AudioMetadata {
   final int? trackNumber;
   final int? discNumber;
   final int? year;
+  final EmbeddedArtwork? artwork;
 }
 
 abstract interface class MetadataReaderService {
@@ -154,11 +156,13 @@ AudioMetadata _mergeFileMetadata({
     trackNumber: merged.trackNumber,
     discNumber: merged.discNumber,
     year: merged.year,
+    artwork: tagMetadata?.artwork,
   );
 }
 
 Future<EmbeddedAudioMetadata?> _readEmbeddedAudioTags(String filePath) async {
-  final tag = audio_reader.readMetadata(File(filePath), getImage: false);
+  final tag = _readMetadataWithOptionalArtwork(File(filePath));
+  final picture = _frontCoverOrFirstPicture(tag.pictures);
 
   return EmbeddedAudioMetadata(
     title: tag.title,
@@ -169,5 +173,48 @@ Future<EmbeddedAudioMetadata?> _readEmbeddedAudioTags(String filePath) async {
     trackNumber: tag.trackNumber,
     discNumber: tag.discNumber,
     year: tag.year?.year,
+    artwork: picture == null
+        ? null
+        : EmbeddedArtwork(
+            bytes: picture.bytes,
+            mimeType: _normalizeMimeType(picture.mimetype),
+          ),
   );
+}
+
+audio_reader.AudioMetadata _readMetadataWithOptionalArtwork(File file) {
+  try {
+    return audio_reader.readMetadata(file, getImage: true);
+  } on Object {
+    return audio_reader.readMetadata(file, getImage: false);
+  }
+}
+
+audio_reader.Picture? _frontCoverOrFirstPicture(
+  List<audio_reader.Picture> pictures,
+) {
+  if (pictures.isEmpty) {
+    return null;
+  }
+
+  for (final picture in pictures) {
+    if (picture.pictureType == audio_reader.PictureType.coverFront &&
+        picture.bytes.isNotEmpty) {
+      return picture;
+    }
+  }
+  for (final picture in pictures) {
+    if (picture.bytes.isNotEmpty) {
+      return picture;
+    }
+  }
+  return null;
+}
+
+String? _normalizeMimeType(String? mimeType) {
+  final normalized = mimeType?.trim().toLowerCase();
+  if (normalized == null || normalized.isEmpty) {
+    return null;
+  }
+  return normalized;
 }

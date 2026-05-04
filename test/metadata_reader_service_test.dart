@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:clever_music_player/src/domain/models/models.dart';
 import 'package:clever_music_player/src/library/metadata_enrichment.dart';
@@ -82,5 +83,35 @@ void main() {
     expect(metadata.discNumber, 1);
     expect(metadata.year, 2024);
     expect(metadata.metadataSource, MetadataSource.embeddedTags);
+  });
+
+  test('embedded metadata reader returns artwork bytes when available',
+      () async {
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'clever_music_metadata_artwork_test_',
+    );
+    addTearDown(() => tempDirectory.delete(recursive: true));
+
+    final file = File(p.join(tempDirectory.path, 'Artist - Cover.mp3'));
+    await file.writeAsBytes([1, 2, 3, 4]);
+    final artworkBytes = Uint8List.fromList([0xff, 0xd8, 0xff, 0xd9]);
+    final reader = AudioMetadataReaderService(
+      embeddedMetadataReader: (_) async {
+        return EmbeddedAudioMetadata(
+          title: 'Tagged Cover',
+          artist: 'Tagged Artist',
+          artwork: EmbeddedArtwork(
+            bytes: artworkBytes,
+            mimeType: 'image/jpeg',
+          ),
+        );
+      },
+    );
+
+    final metadata = await reader.read(file);
+
+    expect(metadata.title, 'Tagged Cover');
+    expect(metadata.artwork?.bytes, artworkBytes);
+    expect(metadata.artwork?.mimeType, 'image/jpeg');
   });
 }
