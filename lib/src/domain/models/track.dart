@@ -15,6 +15,9 @@ final class Track {
     this.artworkPath,
     this.artworkHash,
     this.artworkMimeType,
+    this.customArtworkPath,
+    this.customArtworkHash,
+    this.customArtworkMimeType,
     this.codec,
     this.duration,
     this.trackNumber,
@@ -43,6 +46,9 @@ final class Track {
   final String? artworkPath;
   final String? artworkHash;
   final String? artworkMimeType;
+  final String? customArtworkPath;
+  final String? customArtworkHash;
+  final String? customArtworkMimeType;
   final String? codec;
   final Duration? duration;
   final int? trackNumber;
@@ -66,6 +72,11 @@ final class Track {
     return filePath.split(RegExp(r'[/\\]')).last;
   }
 
+  bool get hasCustomArtwork {
+    final path = customArtworkPath?.trim();
+    return path != null && path.isNotEmpty;
+  }
+
   Track copyWith({
     int? id,
     int? libraryFolderId,
@@ -80,6 +91,9 @@ final class Track {
     String? artworkPath,
     String? artworkHash,
     String? artworkMimeType,
+    Object? customArtworkPath = _unset,
+    Object? customArtworkHash = _unset,
+    Object? customArtworkMimeType = _unset,
     String? codec,
     Duration? duration,
     int? trackNumber,
@@ -108,6 +122,15 @@ final class Track {
       artworkPath: artworkPath ?? this.artworkPath,
       artworkHash: artworkHash ?? this.artworkHash,
       artworkMimeType: artworkMimeType ?? this.artworkMimeType,
+      customArtworkPath: identical(customArtworkPath, _unset)
+          ? this.customArtworkPath
+          : customArtworkPath as String?,
+      customArtworkHash: identical(customArtworkHash, _unset)
+          ? this.customArtworkHash
+          : customArtworkHash as String?,
+      customArtworkMimeType: identical(customArtworkMimeType, _unset)
+          ? this.customArtworkMimeType
+          : customArtworkMimeType as String?,
       codec: codec ?? this.codec,
       duration: duration ?? this.duration,
       trackNumber: trackNumber ?? this.trackNumber,
@@ -141,6 +164,9 @@ final class Track {
             other.artworkPath == artworkPath &&
             other.artworkHash == artworkHash &&
             other.artworkMimeType == artworkMimeType &&
+            other.customArtworkPath == customArtworkPath &&
+            other.customArtworkHash == customArtworkHash &&
+            other.customArtworkMimeType == customArtworkMimeType &&
             other.codec == codec &&
             other.duration == duration &&
             other.trackNumber == trackNumber &&
@@ -172,6 +198,9 @@ final class Track {
       artworkPath,
       artworkHash,
       artworkMimeType,
+      customArtworkPath,
+      customArtworkHash,
+      customArtworkMimeType,
       codec,
       duration,
       trackNumber,
@@ -188,3 +217,5 @@ final class Track {
     ]);
   }
 }
+
+const Object _unset = Object();

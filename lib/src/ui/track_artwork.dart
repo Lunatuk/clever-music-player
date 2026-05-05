@@ -23,7 +23,46 @@ final class TrackArtwork extends StatelessWidget {
       size: size,
       borderRadius: borderRadius,
     );
-    final artworkPath = track?.artworkPath?.trim();
+    Widget artwork = fallback;
+    final candidates = trackArtworkPathCandidates(track);
+    for (final artworkPath in candidates.reversed) {
+      artwork = _ArtworkFile(
+        artworkPath: artworkPath,
+        size: size,
+        borderRadius: borderRadius,
+        fallback: artwork,
+      );
+    }
+
+    return artwork;
+  }
+}
+
+List<String> trackArtworkPathCandidates(Track? track) {
+  return [
+    track?.customArtworkPath,
+    track?.artworkPath,
+  ].whereType<String>().map((path) => path.trim()).where((path) {
+    return path.isNotEmpty;
+  }).toList(growable: false);
+}
+
+final class _ArtworkFile extends StatelessWidget {
+  const _ArtworkFile({
+    required this.artworkPath,
+    required this.size,
+    required this.borderRadius,
+    required this.fallback,
+  });
+
+  final String? artworkPath;
+  final double size;
+  final double borderRadius;
+  final Widget fallback;
+
+  @override
+  Widget build(BuildContext context) {
+    final artworkPath = this.artworkPath?.trim();
     if (artworkPath == null || artworkPath.isEmpty) {
       return fallback;
     }

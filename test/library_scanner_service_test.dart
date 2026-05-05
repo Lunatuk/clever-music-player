@@ -427,6 +427,65 @@ void main() {
     expect(artworkDirectory.listSync().whereType<File>(), hasLength(2));
   });
 
+  test('rescan preserves custom artwork while refreshing embedded artwork',
+      () async {
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'clever_music_preserve_custom_artwork_test_',
+    );
+    addTearDown(() => tempDirectory.delete(recursive: true));
+
+    final file = File(p.join(tempDirectory.path, 'custom.mp3'));
+    await file.writeAsBytes([1, 2, 3]);
+    final artworkDirectory = Directory(p.join(tempDirectory.path, 'artwork'));
+    final database = AppDatabase(NativeDatabase.memory());
+    addTearDown(database.close);
+    final repositories = DriftRepositories(database);
+    final reader = _SequenceMetadataReader([
+      _audioMetadata(
+        file,
+        title: 'Covered',
+        metadataSource: MetadataSource.embeddedTags,
+        metadataConfidence: 0.95,
+        artwork: _pngArtwork([1, 1, 1, 1]),
+      ),
+      _audioMetadata(
+        file,
+        title: 'Covered',
+        metadataSource: MetadataSource.embeddedTags,
+        metadataConfidence: 0.95,
+        artwork: _pngArtwork([2, 2, 2, 2]),
+      ),
+    ]);
+    final scanner = LibraryScannerService(
+      libraryRepository: repositories.libraryFolders,
+      trackRepository: repositories.tracks,
+      metadataReader: reader,
+      artworkCache: AppSupportArtworkCacheService(
+        artworkDirectory: artworkDirectory,
+      ),
+    );
+
+    await scanner.scanFolder(tempDirectory.path);
+    final firstTrack = (await repositories.tracks.listTracks(limit: 10)).single;
+    await repositories.tracks.updateCustomArtwork(
+      trackId: firstTrack.id!,
+      path: '/app/custom_artwork/custom.png',
+      hash: 'custom-hash',
+      mimeType: 'image/png',
+      updatedAt: DateTime(2026, 5),
+    );
+
+    await scanner.scanFolder(tempDirectory.path);
+
+    final updatedTrack =
+        (await repositories.tracks.listTracks(limit: 10)).single;
+    expect(updatedTrack.customArtworkPath, '/app/custom_artwork/custom.png');
+    expect(updatedTrack.customArtworkHash, 'custom-hash');
+    expect(updatedTrack.customArtworkMimeType, 'image/png');
+    expect(updatedTrack.artworkHash, isNot(firstTrack.artworkHash));
+    expect(updatedTrack.artworkPath, isNot(firstTrack.artworkPath));
+  });
+
   test('scanner continues when artwork storage fails', () async {
     final tempDirectory = await Directory.systemTemp.createTemp(
       'clever_music_artwork_failure_test_',
@@ -725,5 +784,10 @@ final class _FailingArtworkCacheService implements ArtworkCacheService {
   @override
   Future<CachedArtwork?> saveEmbeddedArtwork(EmbeddedArtwork? artwork) {
     throw StateError('artwork storage failed');
+  }
+
+  @override
+  Future<CachedArtwork> saveCustomArtworkFile(File imageFile) {
+    throw StateError('custom artwork storage failed');
   }
 }

@@ -35,6 +35,9 @@ void main() {
         artworkPath: '/app/artwork/original.png',
         artworkHash: 'artwork-hash',
         artworkMimeType: 'image/png',
+        customArtworkPath: '/app/custom_artwork/custom.png',
+        customArtworkHash: 'custom-artwork-hash',
+        customArtworkMimeType: 'image/png',
         codec: 'mp3',
         duration: const Duration(minutes: 3),
         trackNumber: 1,
@@ -96,6 +99,9 @@ void main() {
     expect(updatedTrack.artworkPath, '/app/artwork/original.png');
     expect(updatedTrack.artworkHash, 'artwork-hash');
     expect(updatedTrack.artworkMimeType, 'image/png');
+    expect(updatedTrack.customArtworkPath, '/app/custom_artwork/custom.png');
+    expect(updatedTrack.customArtworkHash, 'custom-artwork-hash');
+    expect(updatedTrack.customArtworkMimeType, 'image/png');
     expect(updatedTrack.year, 2026);
     expect(updatedTrack.trackNumber, 4);
     expect(updatedTrack.discNumber, 2);

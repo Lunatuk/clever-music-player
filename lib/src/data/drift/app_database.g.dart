@@ -526,6 +526,24 @@ class $TracksTable extends Tracks with TableInfo<$TracksTable, TrackRow> {
   late final GeneratedColumn<String> artworkMimeType = GeneratedColumn<String>(
       'artwork_mime_type', aliasedName, true,
       type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _customArtworkPathMeta =
+      const VerificationMeta('customArtworkPath');
+  @override
+  late final GeneratedColumn<String> customArtworkPath =
+      GeneratedColumn<String>('custom_artwork_path', aliasedName, true,
+          type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _customArtworkHashMeta =
+      const VerificationMeta('customArtworkHash');
+  @override
+  late final GeneratedColumn<String> customArtworkHash =
+      GeneratedColumn<String>('custom_artwork_hash', aliasedName, true,
+          type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _customArtworkMimeTypeMeta =
+      const VerificationMeta('customArtworkMimeType');
+  @override
+  late final GeneratedColumn<String> customArtworkMimeType =
+      GeneratedColumn<String>('custom_artwork_mime_type', aliasedName, true,
+          type: DriftSqlType.string, requiredDuringInsert: false);
   static const VerificationMeta _codecMeta = const VerificationMeta('codec');
   @override
   late final GeneratedColumn<String> codec = GeneratedColumn<String>(
@@ -621,6 +639,9 @@ class $TracksTable extends Tracks with TableInfo<$TracksTable, TrackRow> {
         artworkPath,
         artworkHash,
         artworkMimeType,
+        customArtworkPath,
+        customArtworkHash,
+        customArtworkMimeType,
         codec,
         durationMs,
         trackNumber,
@@ -709,6 +730,24 @@ class $TracksTable extends Tracks with TableInfo<$TracksTable, TrackRow> {
           _artworkMimeTypeMeta,
           artworkMimeType.isAcceptableOrUnknown(
               data['artwork_mime_type']!, _artworkMimeTypeMeta));
+    }
+    if (data.containsKey('custom_artwork_path')) {
+      context.handle(
+          _customArtworkPathMeta,
+          customArtworkPath.isAcceptableOrUnknown(
+              data['custom_artwork_path']!, _customArtworkPathMeta));
+    }
+    if (data.containsKey('custom_artwork_hash')) {
+      context.handle(
+          _customArtworkHashMeta,
+          customArtworkHash.isAcceptableOrUnknown(
+              data['custom_artwork_hash']!, _customArtworkHashMeta));
+    }
+    if (data.containsKey('custom_artwork_mime_type')) {
+      context.handle(
+          _customArtworkMimeTypeMeta,
+          customArtworkMimeType.isAcceptableOrUnknown(
+              data['custom_artwork_mime_type']!, _customArtworkMimeTypeMeta));
     }
     if (data.containsKey('codec')) {
       context.handle(
@@ -817,6 +856,13 @@ class $TracksTable extends Tracks with TableInfo<$TracksTable, TrackRow> {
           .read(DriftSqlType.string, data['${effectivePrefix}artwork_hash']),
       artworkMimeType: attachedDatabase.typeMapping.read(
           DriftSqlType.string, data['${effectivePrefix}artwork_mime_type']),
+      customArtworkPath: attachedDatabase.typeMapping.read(
+          DriftSqlType.string, data['${effectivePrefix}custom_artwork_path']),
+      customArtworkHash: attachedDatabase.typeMapping.read(
+          DriftSqlType.string, data['${effectivePrefix}custom_artwork_hash']),
+      customArtworkMimeType: attachedDatabase.typeMapping.read(
+          DriftSqlType.string,
+          data['${effectivePrefix}custom_artwork_mime_type']),
       codec: attachedDatabase.typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}codec']),
       durationMs: attachedDatabase.typeMapping
@@ -866,6 +912,9 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
   final String? artworkPath;
   final String? artworkHash;
   final String? artworkMimeType;
+  final String? customArtworkPath;
+  final String? customArtworkHash;
+  final String? customArtworkMimeType;
   final String? codec;
   final int? durationMs;
   final int? trackNumber;
@@ -893,6 +942,9 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
       this.artworkPath,
       this.artworkHash,
       this.artworkMimeType,
+      this.customArtworkPath,
+      this.customArtworkHash,
+      this.customArtworkMimeType,
       this.codec,
       this.durationMs,
       this.trackNumber,
@@ -943,6 +995,15 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
     }
     if (!nullToAbsent || artworkMimeType != null) {
       map['artwork_mime_type'] = Variable<String>(artworkMimeType);
+    }
+    if (!nullToAbsent || customArtworkPath != null) {
+      map['custom_artwork_path'] = Variable<String>(customArtworkPath);
+    }
+    if (!nullToAbsent || customArtworkHash != null) {
+      map['custom_artwork_hash'] = Variable<String>(customArtworkHash);
+    }
+    if (!nullToAbsent || customArtworkMimeType != null) {
+      map['custom_artwork_mime_type'] = Variable<String>(customArtworkMimeType);
     }
     if (!nullToAbsent || codec != null) {
       map['codec'] = Variable<String>(codec);
@@ -1013,6 +1074,15 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
       artworkMimeType: artworkMimeType == null && nullToAbsent
           ? const Value.absent()
           : Value(artworkMimeType),
+      customArtworkPath: customArtworkPath == null && nullToAbsent
+          ? const Value.absent()
+          : Value(customArtworkPath),
+      customArtworkHash: customArtworkHash == null && nullToAbsent
+          ? const Value.absent()
+          : Value(customArtworkHash),
+      customArtworkMimeType: customArtworkMimeType == null && nullToAbsent
+          ? const Value.absent()
+          : Value(customArtworkMimeType),
       codec:
           codec == null && nullToAbsent ? const Value.absent() : Value(codec),
       durationMs: durationMs == null && nullToAbsent
@@ -1063,6 +1133,12 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
       artworkPath: serializer.fromJson<String?>(json['artworkPath']),
       artworkHash: serializer.fromJson<String?>(json['artworkHash']),
       artworkMimeType: serializer.fromJson<String?>(json['artworkMimeType']),
+      customArtworkPath:
+          serializer.fromJson<String?>(json['customArtworkPath']),
+      customArtworkHash:
+          serializer.fromJson<String?>(json['customArtworkHash']),
+      customArtworkMimeType:
+          serializer.fromJson<String?>(json['customArtworkMimeType']),
       codec: serializer.fromJson<String?>(json['codec']),
       durationMs: serializer.fromJson<int?>(json['durationMs']),
       trackNumber: serializer.fromJson<int?>(json['trackNumber']),
@@ -1096,6 +1172,10 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
       'artworkPath': serializer.toJson<String?>(artworkPath),
       'artworkHash': serializer.toJson<String?>(artworkHash),
       'artworkMimeType': serializer.toJson<String?>(artworkMimeType),
+      'customArtworkPath': serializer.toJson<String?>(customArtworkPath),
+      'customArtworkHash': serializer.toJson<String?>(customArtworkHash),
+      'customArtworkMimeType':
+          serializer.toJson<String?>(customArtworkMimeType),
       'codec': serializer.toJson<String?>(codec),
       'durationMs': serializer.toJson<int?>(durationMs),
       'trackNumber': serializer.toJson<int?>(trackNumber),
@@ -1126,6 +1206,9 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
           Value<String?> artworkPath = const Value.absent(),
           Value<String?> artworkHash = const Value.absent(),
           Value<String?> artworkMimeType = const Value.absent(),
+          Value<String?> customArtworkPath = const Value.absent(),
+          Value<String?> customArtworkHash = const Value.absent(),
+          Value<String?> customArtworkMimeType = const Value.absent(),
           Value<String?> codec = const Value.absent(),
           Value<int?> durationMs = const Value.absent(),
           Value<int?> trackNumber = const Value.absent(),
@@ -1157,6 +1240,15 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
         artworkMimeType: artworkMimeType.present
             ? artworkMimeType.value
             : this.artworkMimeType,
+        customArtworkPath: customArtworkPath.present
+            ? customArtworkPath.value
+            : this.customArtworkPath,
+        customArtworkHash: customArtworkHash.present
+            ? customArtworkHash.value
+            : this.customArtworkHash,
+        customArtworkMimeType: customArtworkMimeType.present
+            ? customArtworkMimeType.value
+            : this.customArtworkMimeType,
         codec: codec.present ? codec.value : this.codec,
         durationMs: durationMs.present ? durationMs.value : this.durationMs,
         trackNumber: trackNumber.present ? trackNumber.value : this.trackNumber,
@@ -1198,6 +1290,15 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
       artworkMimeType: data.artworkMimeType.present
           ? data.artworkMimeType.value
           : this.artworkMimeType,
+      customArtworkPath: data.customArtworkPath.present
+          ? data.customArtworkPath.value
+          : this.customArtworkPath,
+      customArtworkHash: data.customArtworkHash.present
+          ? data.customArtworkHash.value
+          : this.customArtworkHash,
+      customArtworkMimeType: data.customArtworkMimeType.present
+          ? data.customArtworkMimeType.value
+          : this.customArtworkMimeType,
       codec: data.codec.present ? data.codec.value : this.codec,
       durationMs:
           data.durationMs.present ? data.durationMs.value : this.durationMs,
@@ -1241,6 +1342,9 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
           ..write('artworkPath: $artworkPath, ')
           ..write('artworkHash: $artworkHash, ')
           ..write('artworkMimeType: $artworkMimeType, ')
+          ..write('customArtworkPath: $customArtworkPath, ')
+          ..write('customArtworkHash: $customArtworkHash, ')
+          ..write('customArtworkMimeType: $customArtworkMimeType, ')
           ..write('codec: $codec, ')
           ..write('durationMs: $durationMs, ')
           ..write('trackNumber: $trackNumber, ')
@@ -1273,6 +1377,9 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
         artworkPath,
         artworkHash,
         artworkMimeType,
+        customArtworkPath,
+        customArtworkHash,
+        customArtworkMimeType,
         codec,
         durationMs,
         trackNumber,
@@ -1304,6 +1411,9 @@ class TrackRow extends DataClass implements Insertable<TrackRow> {
           other.artworkPath == this.artworkPath &&
           other.artworkHash == this.artworkHash &&
           other.artworkMimeType == this.artworkMimeType &&
+          other.customArtworkPath == this.customArtworkPath &&
+          other.customArtworkHash == this.customArtworkHash &&
+          other.customArtworkMimeType == this.customArtworkMimeType &&
           other.codec == this.codec &&
           other.durationMs == this.durationMs &&
           other.trackNumber == this.trackNumber &&
@@ -1333,6 +1443,9 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
   final Value<String?> artworkPath;
   final Value<String?> artworkHash;
   final Value<String?> artworkMimeType;
+  final Value<String?> customArtworkPath;
+  final Value<String?> customArtworkHash;
+  final Value<String?> customArtworkMimeType;
   final Value<String?> codec;
   final Value<int?> durationMs;
   final Value<int?> trackNumber;
@@ -1360,6 +1473,9 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
     this.artworkPath = const Value.absent(),
     this.artworkHash = const Value.absent(),
     this.artworkMimeType = const Value.absent(),
+    this.customArtworkPath = const Value.absent(),
+    this.customArtworkHash = const Value.absent(),
+    this.customArtworkMimeType = const Value.absent(),
     this.codec = const Value.absent(),
     this.durationMs = const Value.absent(),
     this.trackNumber = const Value.absent(),
@@ -1388,6 +1504,9 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
     this.artworkPath = const Value.absent(),
     this.artworkHash = const Value.absent(),
     this.artworkMimeType = const Value.absent(),
+    this.customArtworkPath = const Value.absent(),
+    this.customArtworkHash = const Value.absent(),
+    this.customArtworkMimeType = const Value.absent(),
     this.codec = const Value.absent(),
     this.durationMs = const Value.absent(),
     this.trackNumber = const Value.absent(),
@@ -1418,6 +1537,9 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
     Expression<String>? artworkPath,
     Expression<String>? artworkHash,
     Expression<String>? artworkMimeType,
+    Expression<String>? customArtworkPath,
+    Expression<String>? customArtworkHash,
+    Expression<String>? customArtworkMimeType,
     Expression<String>? codec,
     Expression<int>? durationMs,
     Expression<int>? trackNumber,
@@ -1446,6 +1568,10 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
       if (artworkPath != null) 'artwork_path': artworkPath,
       if (artworkHash != null) 'artwork_hash': artworkHash,
       if (artworkMimeType != null) 'artwork_mime_type': artworkMimeType,
+      if (customArtworkPath != null) 'custom_artwork_path': customArtworkPath,
+      if (customArtworkHash != null) 'custom_artwork_hash': customArtworkHash,
+      if (customArtworkMimeType != null)
+        'custom_artwork_mime_type': customArtworkMimeType,
       if (codec != null) 'codec': codec,
       if (durationMs != null) 'duration_ms': durationMs,
       if (trackNumber != null) 'track_number': trackNumber,
@@ -1476,6 +1602,9 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
       Value<String?>? artworkPath,
       Value<String?>? artworkHash,
       Value<String?>? artworkMimeType,
+      Value<String?>? customArtworkPath,
+      Value<String?>? customArtworkHash,
+      Value<String?>? customArtworkMimeType,
       Value<String?>? codec,
       Value<int?>? durationMs,
       Value<int?>? trackNumber,
@@ -1503,6 +1632,10 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
       artworkPath: artworkPath ?? this.artworkPath,
       artworkHash: artworkHash ?? this.artworkHash,
       artworkMimeType: artworkMimeType ?? this.artworkMimeType,
+      customArtworkPath: customArtworkPath ?? this.customArtworkPath,
+      customArtworkHash: customArtworkHash ?? this.customArtworkHash,
+      customArtworkMimeType:
+          customArtworkMimeType ?? this.customArtworkMimeType,
       codec: codec ?? this.codec,
       durationMs: durationMs ?? this.durationMs,
       trackNumber: trackNumber ?? this.trackNumber,
@@ -1560,6 +1693,16 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
     }
     if (artworkMimeType.present) {
       map['artwork_mime_type'] = Variable<String>(artworkMimeType.value);
+    }
+    if (customArtworkPath.present) {
+      map['custom_artwork_path'] = Variable<String>(customArtworkPath.value);
+    }
+    if (customArtworkHash.present) {
+      map['custom_artwork_hash'] = Variable<String>(customArtworkHash.value);
+    }
+    if (customArtworkMimeType.present) {
+      map['custom_artwork_mime_type'] =
+          Variable<String>(customArtworkMimeType.value);
     }
     if (codec.present) {
       map['codec'] = Variable<String>(codec.value);
@@ -1619,6 +1762,9 @@ class TracksCompanion extends UpdateCompanion<TrackRow> {
           ..write('artworkPath: $artworkPath, ')
           ..write('artworkHash: $artworkHash, ')
           ..write('artworkMimeType: $artworkMimeType, ')
+          ..write('customArtworkPath: $customArtworkPath, ')
+          ..write('customArtworkHash: $customArtworkHash, ')
+          ..write('customArtworkMimeType: $customArtworkMimeType, ')
           ..write('codec: $codec, ')
           ..write('durationMs: $durationMs, ')
           ..write('trackNumber: $trackNumber, ')
@@ -3925,6 +4071,9 @@ typedef $$TracksTableCreateCompanionBuilder = TracksCompanion Function({
   Value<String?> artworkPath,
   Value<String?> artworkHash,
   Value<String?> artworkMimeType,
+  Value<String?> customArtworkPath,
+  Value<String?> customArtworkHash,
+  Value<String?> customArtworkMimeType,
   Value<String?> codec,
   Value<int?> durationMs,
   Value<int?> trackNumber,
@@ -3953,6 +4102,9 @@ typedef $$TracksTableUpdateCompanionBuilder = TracksCompanion Function({
   Value<String?> artworkPath,
   Value<String?> artworkHash,
   Value<String?> artworkMimeType,
+  Value<String?> customArtworkPath,
+  Value<String?> customArtworkHash,
+  Value<String?> customArtworkMimeType,
   Value<String?> codec,
   Value<int?> durationMs,
   Value<int?> trackNumber,
@@ -4079,6 +4231,18 @@ class $$TracksTableFilterComposer
 
   ColumnFilters<String> get artworkMimeType => $composableBuilder(
       column: $table.artworkMimeType,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get customArtworkPath => $composableBuilder(
+      column: $table.customArtworkPath,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get customArtworkHash => $composableBuilder(
+      column: $table.customArtworkHash,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get customArtworkMimeType => $composableBuilder(
+      column: $table.customArtworkMimeType,
       builder: (column) => ColumnFilters(column));
 
   ColumnFilters<String> get codec => $composableBuilder(
@@ -4252,6 +4416,18 @@ class $$TracksTableOrderingComposer
       column: $table.artworkMimeType,
       builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<String> get customArtworkPath => $composableBuilder(
+      column: $table.customArtworkPath,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get customArtworkHash => $composableBuilder(
+      column: $table.customArtworkHash,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get customArtworkMimeType => $composableBuilder(
+      column: $table.customArtworkMimeType,
+      builder: (column) => ColumnOrderings(column));
+
   ColumnOrderings<String> get codec => $composableBuilder(
       column: $table.codec, builder: (column) => ColumnOrderings(column));
 
@@ -4359,6 +4535,15 @@ class $$TracksTableAnnotationComposer
 
   GeneratedColumn<String> get artworkMimeType => $composableBuilder(
       column: $table.artworkMimeType, builder: (column) => column);
+
+  GeneratedColumn<String> get customArtworkPath => $composableBuilder(
+      column: $table.customArtworkPath, builder: (column) => column);
+
+  GeneratedColumn<String> get customArtworkHash => $composableBuilder(
+      column: $table.customArtworkHash, builder: (column) => column);
+
+  GeneratedColumn<String> get customArtworkMimeType => $composableBuilder(
+      column: $table.customArtworkMimeType, builder: (column) => column);
 
   GeneratedColumn<String> get codec =>
       $composableBuilder(column: $table.codec, builder: (column) => column);
@@ -4523,6 +4708,9 @@ class $$TracksTableTableManager extends RootTableManager<
             Value<String?> artworkPath = const Value.absent(),
             Value<String?> artworkHash = const Value.absent(),
             Value<String?> artworkMimeType = const Value.absent(),
+            Value<String?> customArtworkPath = const Value.absent(),
+            Value<String?> customArtworkHash = const Value.absent(),
+            Value<String?> customArtworkMimeType = const Value.absent(),
             Value<String?> codec = const Value.absent(),
             Value<int?> durationMs = const Value.absent(),
             Value<int?> trackNumber = const Value.absent(),
@@ -4551,6 +4739,9 @@ class $$TracksTableTableManager extends RootTableManager<
             artworkPath: artworkPath,
             artworkHash: artworkHash,
             artworkMimeType: artworkMimeType,
+            customArtworkPath: customArtworkPath,
+            customArtworkHash: customArtworkHash,
+            customArtworkMimeType: customArtworkMimeType,
             codec: codec,
             durationMs: durationMs,
             trackNumber: trackNumber,
@@ -4579,6 +4770,9 @@ class $$TracksTableTableManager extends RootTableManager<
             Value<String?> artworkPath = const Value.absent(),
             Value<String?> artworkHash = const Value.absent(),
             Value<String?> artworkMimeType = const Value.absent(),
+            Value<String?> customArtworkPath = const Value.absent(),
+            Value<String?> customArtworkHash = const Value.absent(),
+            Value<String?> customArtworkMimeType = const Value.absent(),
             Value<String?> codec = const Value.absent(),
             Value<int?> durationMs = const Value.absent(),
             Value<int?> trackNumber = const Value.absent(),
@@ -4607,6 +4801,9 @@ class $$TracksTableTableManager extends RootTableManager<
             artworkPath: artworkPath,
             artworkHash: artworkHash,
             artworkMimeType: artworkMimeType,
+            customArtworkPath: customArtworkPath,
+            customArtworkHash: customArtworkHash,
+            customArtworkMimeType: customArtworkMimeType,
             codec: codec,
             durationMs: durationMs,
             trackNumber: trackNumber,
