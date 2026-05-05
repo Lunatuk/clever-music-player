@@ -223,6 +223,54 @@ final class PlaybackQueueService {
     });
   }
 
+  Future<void> refreshPlaylistContextOrder({
+    required int playlistId,
+    required Iterable<PlaylistEntry> entries,
+  }) async {
+    if (_isDisposed) {
+      return;
+    }
+
+    final context = _state.playbackContext;
+    if (!context.isPlaylist || context.playlistId != playlistId) {
+      return;
+    }
+
+    final currentTrackId = (_state.currentTrack ?? context.currentTrack)?.id;
+    if (currentTrackId == null) {
+      return;
+    }
+
+    final playableTracks = <Track>[];
+    var currentIndex = -1;
+    for (final entry in _orderedPlaylistEntries(entries)) {
+      if (!entry.isPlayable) {
+        continue;
+      }
+      final playableTrack = await _resolvePlayableTrack(entry.track);
+      if (playableTrack == null) {
+        continue;
+      }
+      if (entry.trackId == currentTrackId) {
+        currentIndex = playableTracks.length;
+      }
+      playableTracks.add(playableTrack);
+    }
+
+    if (playableTracks.isEmpty || currentIndex < 0) {
+      return;
+    }
+
+    _emit(
+      _state.copyWith(
+        playbackContext: context.copyWith(
+          tracks: playableTracks,
+          currentIndex: currentIndex,
+        ),
+      ),
+    );
+  }
+
   Future<void> addToQueue(Track track) async {
     if (_isDisposed) {
       return;
@@ -638,22 +686,10 @@ final class PlaybackQueueService {
     required Iterable<PlaylistEntry> entries,
     required int startTrackId,
   }) async {
-    final orderedEntries = entries.toList(growable: false)
-      ..sort((left, right) {
-        final positionOrder = left.position.compareTo(right.position);
-        if (positionOrder != 0) {
-          return positionOrder;
-        }
-        final addedOrder = left.addedAt.compareTo(right.addedAt);
-        if (addedOrder != 0) {
-          return addedOrder;
-        }
-        return left.trackId.compareTo(right.trackId);
-      });
     final playableTracks = <Track>[];
     var startIndex = -1;
 
-    for (final entry in orderedEntries) {
+    for (final entry in _orderedPlaylistEntries(entries)) {
       if (!entry.isPlayable) {
         continue;
       }
@@ -691,6 +727,23 @@ final class PlaybackQueueService {
       tracks: playableTracks,
       currentIndex: startIndex,
     );
+  }
+
+  List<PlaylistEntry> _orderedPlaylistEntries(
+    Iterable<PlaylistEntry> entries,
+  ) {
+    return entries.toList(growable: false)
+      ..sort((left, right) {
+        final positionOrder = left.position.compareTo(right.position);
+        if (positionOrder != 0) {
+          return positionOrder;
+        }
+        final addedOrder = left.addedAt.compareTo(right.addedAt);
+        if (addedOrder != 0) {
+          return addedOrder;
+        }
+        return left.trackId.compareTo(right.trackId);
+      });
   }
 
   Future<void> _advancePlaylist({required bool manualSkip}) async {

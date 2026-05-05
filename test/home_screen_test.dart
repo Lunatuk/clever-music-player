@@ -293,6 +293,63 @@ void main() {
     expect(find.widgetWithText(TextButton, 'Added'), findsNWidgets(2));
   });
 
+  testWidgets('playlist detail exposes reorder and preserves row actions',
+      (tester) async {
+    await _setLargeSurface(tester);
+    final fixture = await _HomeScreenFixture.create(
+      seedTracks: [
+        _testTrack(id: 1, title: 'First Track'),
+        _testTrack(id: 2, title: 'Second Track'),
+      ],
+    );
+    _addFixtureTearDown(tester, fixture);
+    final playlistId =
+        await fixture.dependencies.repositories.playlists.createPlaylist(
+      'Road Mix',
+    );
+    await fixture.dependencies.repositories.playlists.addTrackToPlaylist(
+      playlistId,
+      1,
+    );
+    await fixture.dependencies.repositories.playlists.addTrackToPlaylist(
+      playlistId,
+      2,
+    );
+
+    await fixture.pump(tester);
+    await tester.tap(find.text('Моя музыка'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(ChoiceChip, 'Плейлисты'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Road Mix'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(ReorderableListView), findsOneWidget);
+    expect(find.byTooltip('Reorder track'), findsNWidgets(2));
+    expect(find.byTooltip('Add to queue'), findsNWidgets(2));
+    expect(find.byTooltip('Remove from playlist'), findsNWidgets(2));
+    expect(find.byTooltip('Play'), findsAtLeastNWidgets(2));
+
+    await tester.drag(
+      find.byIcon(Icons.drag_handle_outlined).first,
+      const Offset(0, 180),
+    );
+    await tester.pumpAndSettle();
+    final entries = await fixture.dependencies.repositories.playlists
+        .watchPlaylistTracks(playlistId)
+        .first;
+    final trackIds =
+        entries.map((entry) => entry.trackId).toList(growable: false);
+    expect(trackIds, [2, 1]);
+    await tester.pumpAndSettle();
+
+    final firstTrackTop = tester.getTopLeft(find.text('First Track').first).dy;
+    final secondTrackTop =
+        tester.getTopLeft(find.text('Second Track').first).dy;
+
+    expect(secondTrackTop, lessThan(firstTrackTop));
+  });
+
   testWidgets('settings gear opens library folders and recommendation debug',
       (tester) async {
     await _setLargeSurface(tester);
@@ -647,6 +704,7 @@ final class _FakePlaylistRepository implements PlaylistRepository {
   final List<PlaylistEntry> _entries = [];
   final StreamController<List<PlaylistWithCount>> _controller =
       StreamController<List<PlaylistWithCount>>.broadcast();
+  final Map<int, StreamController<List<PlaylistEntry>>> _entryControllers = {};
 
   @override
   Stream<List<PlaylistWithCount>> watchPlaylists() async* {
@@ -696,12 +754,13 @@ final class _FakePlaylistRepository implements PlaylistRepository {
   }
 
   @override
-  Stream<List<PlaylistEntry>> watchPlaylistTracks(int playlistId) {
-    return Stream.value(
-      _entries
-          .where((entry) => entry.playlistId == playlistId)
-          .toList(growable: false),
+  Stream<List<PlaylistEntry>> watchPlaylistTracks(int playlistId) async* {
+    yield _playlistEntriesSnapshot(playlistId);
+    final controller = _entryControllers.putIfAbsent(
+      playlistId,
+      () => StreamController<List<PlaylistEntry>>.broadcast(),
     );
+    yield* controller.stream;
   }
 
   @override
@@ -725,6 +784,44 @@ final class _FakePlaylistRepository implements PlaylistRepository {
       ),
     );
     _emit();
+    _emitPlaylistTracks(playlistId);
+  }
+
+  @override
+  Future<void> reorderPlaylistTracks({
+    required int playlistId,
+    required List<int> trackIds,
+  }) async {
+    final currentEntries = _playlistEntriesSnapshot(playlistId);
+    final currentTrackIds = {for (final entry in currentEntries) entry.trackId};
+    final requestedTrackIds = trackIds.toSet();
+    if (requestedTrackIds.length != trackIds.length ||
+        requestedTrackIds.length != currentTrackIds.length ||
+        !requestedTrackIds.containsAll(currentTrackIds)) {
+      throw ArgumentError.value(
+        trackIds,
+        'trackIds',
+        'Reorder input must contain each target playlist track exactly once.',
+      );
+    }
+
+    for (var index = 0; index < trackIds.length; index++) {
+      final entryIndex = _entries.indexWhere(
+        (entry) =>
+            entry.playlistId == playlistId && entry.trackId == trackIds[index],
+      );
+      final entry = _entries[entryIndex];
+      _entries[entryIndex] = PlaylistEntry(
+        playlistId: entry.playlistId,
+        trackId: entry.trackId,
+        position: index,
+        addedAt: entry.addedAt,
+        track: entry.track,
+        unavailableReason: entry.unavailableReason,
+      );
+    }
+    _emit();
+    _emitPlaylistTracks(playlistId);
   }
 
   @override
@@ -733,6 +830,7 @@ final class _FakePlaylistRepository implements PlaylistRepository {
       (entry) => entry.playlistId == playlistId && entry.trackId == trackId,
     );
     _emit();
+    _emitPlaylistTracks(playlistId);
   }
 
   List<PlaylistWithCount> _snapshot() {
@@ -749,6 +847,30 @@ final class _FakePlaylistRepository implements PlaylistRepository {
   void _emit() {
     if (!_controller.isClosed) {
       _controller.add(_snapshot());
+    }
+  }
+
+  List<PlaylistEntry> _playlistEntriesSnapshot(int playlistId) {
+    return _entries
+        .where((entry) => entry.playlistId == playlistId)
+        .toList(growable: false)
+      ..sort((left, right) {
+        final positionOrder = left.position.compareTo(right.position);
+        if (positionOrder != 0) {
+          return positionOrder;
+        }
+        final addedOrder = left.addedAt.compareTo(right.addedAt);
+        if (addedOrder != 0) {
+          return addedOrder;
+        }
+        return left.trackId.compareTo(right.trackId);
+      });
+  }
+
+  void _emitPlaylistTracks(int playlistId) {
+    final controller = _entryControllers[playlistId];
+    if (controller != null && !controller.isClosed) {
+      controller.add(_playlistEntriesSnapshot(playlistId));
     }
   }
 }
