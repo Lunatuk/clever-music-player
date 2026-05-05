@@ -497,6 +497,49 @@ final class DriftPlaylistRepository implements PlaylistRepository {
   }
 
   @override
+  Future<void> reorderPlaylistTracks({
+    required int playlistId,
+    required List<int> trackIds,
+  }) async {
+    await _database.transaction(() async {
+      final existingEntries = await (_database.select(_database.playlistTracks)
+            ..where((table) => table.playlistId.equals(playlistId))
+            ..orderBy([
+              (table) => OrderingTerm(expression: table.position),
+              (table) => OrderingTerm(expression: table.addedAt),
+              (table) => OrderingTerm(expression: table.trackId),
+            ]))
+          .get();
+      final existingTrackIds = {
+        for (final entry in existingEntries) entry.trackId,
+      };
+      final requestedTrackIds = trackIds.toSet();
+
+      if (requestedTrackIds.length != trackIds.length ||
+          requestedTrackIds.length != existingTrackIds.length ||
+          !requestedTrackIds.containsAll(existingTrackIds)) {
+        throw ArgumentError.value(
+          trackIds,
+          'trackIds',
+          'Reorder input must contain each target playlist track exactly once.',
+        );
+      }
+
+      for (var index = 0; index < trackIds.length; index++) {
+        await (_database.update(_database.playlistTracks)
+              ..where(
+                (table) =>
+                    table.playlistId.equals(playlistId) &
+                    table.trackId.equals(trackIds[index]),
+              ))
+            .write(PlaylistTracksCompanion(position: Value(index)));
+      }
+
+      await _touchPlaylist(playlistId, _clock());
+    });
+  }
+
+  @override
   Future<void> removeTrackFromPlaylist(int playlistId, int trackId) async {
     final removedRows = await (_database.delete(_database.playlistTracks)
           ..where(

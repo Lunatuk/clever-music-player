@@ -219,6 +219,230 @@ void main() {
     expect(entries.map((entry) => entry.position), [0, 1, 2]);
   });
 
+  test('reorder playlist tracks rewrites gapless positions', () async {
+    final fixture = await _createFixture();
+    addTearDown(fixture.close);
+    final firstTrackId = await fixture.addTrack('First');
+    final secondTrackId = await fixture.addTrack('Second');
+    final thirdTrackId = await fixture.addTrack('Third');
+    final playlistId =
+        await fixture.repositories.playlists.createPlaylist('Ordered');
+    await fixture.repositories.playlists.addTrackToPlaylist(
+      playlistId,
+      firstTrackId,
+    );
+    await fixture.repositories.playlists.addTrackToPlaylist(
+      playlistId,
+      secondTrackId,
+    );
+    await fixture.repositories.playlists.addTrackToPlaylist(
+      playlistId,
+      thirdTrackId,
+    );
+
+    await fixture.repositories.playlists.reorderPlaylistTracks(
+      playlistId: playlistId,
+      trackIds: [thirdTrackId, firstTrackId, secondTrackId],
+    );
+
+    final entries = await fixture.repositories.playlists
+        .watchPlaylistTracks(playlistId)
+        .first;
+
+    expect(entries.map((entry) => entry.trackId), [
+      thirdTrackId,
+      firstTrackId,
+      secondTrackId,
+    ]);
+    expect(entries.map((entry) => entry.position), [0, 1, 2]);
+  });
+
+  test('reordered playlist order is read back from storage', () async {
+    final fixture = await _createFixture();
+    addTearDown(fixture.close);
+    final firstTrackId = await fixture.addTrack('First');
+    final secondTrackId = await fixture.addTrack('Second');
+    final playlistId =
+        await fixture.repositories.playlists.createPlaylist('Persisted');
+    await fixture.repositories.playlists.addTrackToPlaylist(
+      playlistId,
+      firstTrackId,
+    );
+    await fixture.repositories.playlists.addTrackToPlaylist(
+      playlistId,
+      secondTrackId,
+    );
+
+    await fixture.repositories.playlists.reorderPlaylistTracks(
+      playlistId: playlistId,
+      trackIds: [secondTrackId, firstTrackId],
+    );
+    final reloadedRepository = DriftPlaylistRepository(fixture.database);
+
+    final entries =
+        await reloadedRepository.watchPlaylistTracks(playlistId).first;
+
+    expect(entries.map((entry) => entry.trackId), [
+      secondTrackId,
+      firstTrackId,
+    ]);
+  });
+
+  test('reorder only affects the target playlist', () async {
+    final fixture = await _createFixture();
+    addTearDown(fixture.close);
+    final firstTrackId = await fixture.addTrack('First');
+    final secondTrackId = await fixture.addTrack('Second');
+    final thirdTrackId = await fixture.addTrack('Third');
+    final firstPlaylistId =
+        await fixture.repositories.playlists.createPlaylist('First List');
+    final secondPlaylistId =
+        await fixture.repositories.playlists.createPlaylist('Second List');
+    await fixture.repositories.playlists.addTrackToPlaylist(
+      firstPlaylistId,
+      firstTrackId,
+    );
+    await fixture.repositories.playlists.addTrackToPlaylist(
+      firstPlaylistId,
+      secondTrackId,
+    );
+    await fixture.repositories.playlists.addTrackToPlaylist(
+      secondPlaylistId,
+      secondTrackId,
+    );
+    await fixture.repositories.playlists.addTrackToPlaylist(
+      secondPlaylistId,
+      thirdTrackId,
+    );
+
+    await fixture.repositories.playlists.reorderPlaylistTracks(
+      playlistId: firstPlaylistId,
+      trackIds: [secondTrackId, firstTrackId],
+    );
+
+    final firstEntries = await fixture.repositories.playlists
+        .watchPlaylistTracks(firstPlaylistId)
+        .first;
+    final secondEntries = await fixture.repositories.playlists
+        .watchPlaylistTracks(secondPlaylistId)
+        .first;
+
+    expect(firstEntries.map((entry) => entry.trackId), [
+      secondTrackId,
+      firstTrackId,
+    ]);
+    expect(secondEntries.map((entry) => entry.trackId), [
+      secondTrackId,
+      thirdTrackId,
+    ]);
+    expect(secondEntries.map((entry) => entry.position), [0, 1]);
+  });
+
+  test('reorder rejects entries outside the playlist without changing order',
+      () async {
+    final fixture = await _createFixture();
+    addTearDown(fixture.close);
+    final firstTrackId = await fixture.addTrack('First');
+    final secondTrackId = await fixture.addTrack('Second');
+    final outsideTrackId = await fixture.addTrack('Outside');
+    final playlistId =
+        await fixture.repositories.playlists.createPlaylist('Safe');
+    await fixture.repositories.playlists.addTrackToPlaylist(
+      playlistId,
+      firstTrackId,
+    );
+    await fixture.repositories.playlists.addTrackToPlaylist(
+      playlistId,
+      secondTrackId,
+    );
+
+    await expectLater(
+      fixture.repositories.playlists.reorderPlaylistTracks(
+        playlistId: playlistId,
+        trackIds: [secondTrackId, outsideTrackId],
+      ),
+      throwsArgumentError,
+    );
+    final entries = await fixture.repositories.playlists
+        .watchPlaylistTracks(playlistId)
+        .first;
+
+    expect(entries.map((entry) => entry.trackId), [
+      firstTrackId,
+      secondTrackId,
+    ]);
+    expect(entries.map((entry) => entry.position), [0, 1]);
+  });
+
+  test('reorder rejects incomplete order without deleting entries', () async {
+    final fixture = await _createFixture();
+    addTearDown(fixture.close);
+    final firstTrackId = await fixture.addTrack('First');
+    final secondTrackId = await fixture.addTrack('Second');
+    final playlistId =
+        await fixture.repositories.playlists.createPlaylist('Complete');
+    await fixture.repositories.playlists.addTrackToPlaylist(
+      playlistId,
+      firstTrackId,
+    );
+    await fixture.repositories.playlists.addTrackToPlaylist(
+      playlistId,
+      secondTrackId,
+    );
+
+    await expectLater(
+      fixture.repositories.playlists.reorderPlaylistTracks(
+        playlistId: playlistId,
+        trackIds: [secondTrackId],
+      ),
+      throwsArgumentError,
+    );
+    final entries = await fixture.repositories.playlists
+        .watchPlaylistTracks(playlistId)
+        .first;
+
+    expect(entries.map((entry) => entry.trackId), [
+      firstTrackId,
+      secondTrackId,
+    ]);
+    expect(entries, hasLength(2));
+  });
+
+  test('reorder does not affect tracks table or audio file paths', () async {
+    final fixture = await _createFixture();
+    addTearDown(fixture.close);
+    final firstTrackId = await fixture.addTrack(
+      'First',
+      filePath: '/music/original-first.flac',
+    );
+    final secondTrackId = await fixture.addTrack(
+      'Second',
+      filePath: '/music/original-second.flac',
+    );
+    final playlistId =
+        await fixture.repositories.playlists.createPlaylist('Files');
+    await fixture.repositories.playlists.addTrackToPlaylist(
+      playlistId,
+      firstTrackId,
+    );
+    await fixture.repositories.playlists.addTrackToPlaylist(
+      playlistId,
+      secondTrackId,
+    );
+
+    await fixture.repositories.playlists.reorderPlaylistTracks(
+      playlistId: playlistId,
+      trackIds: [secondTrackId, firstTrackId],
+    );
+
+    final firstTrack = await fixture.repositories.tracks.findById(firstTrackId);
+    final secondTrack =
+        await fixture.repositories.tracks.findById(secondTrackId);
+
+    expect(firstTrack?.filePath, '/music/original-first.flac');
+    expect(secondTrack?.filePath, '/music/original-second.flac');
+  });
+
   test('deleting a track removes its playlist entry', () async {
     final fixture = await _createFixture();
     addTearDown(fixture.close);
@@ -315,6 +539,10 @@ void main() {
       playlistId,
       secondTrackId,
     );
+    await fixture.repositories.playlists.reorderPlaylistTracks(
+      playlistId: playlistId,
+      trackIds: [secondTrackId, missingTrackId, firstTrackId],
+    );
     final entries = await fixture.repositories.playlists
         .watchPlaylistTracks(playlistId)
         .first;
@@ -328,7 +556,7 @@ void main() {
     );
 
     expect(queuedCount, 2);
-    expect(queuedTitles, ['First', 'Second']);
+    expect(queuedTitles, ['Second', 'First']);
   });
 }
 

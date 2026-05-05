@@ -510,6 +510,91 @@ void main() {
     await player.dispose();
   });
 
+  test('playlist playback follows reordered entry positions', () async {
+    final now = DateTime(2026);
+    final first = _track(id: 1, title: 'First', now: now);
+    final second = _track(id: 2, title: 'Second', now: now);
+    final third = _track(id: 3, title: 'Third', now: now);
+    final player = _FakePlayerService();
+    final queue = _queue(
+      player: player,
+      tracks: _FakeTrackRepository([first, second, third]),
+      now: now,
+    );
+
+    await queue.playPlaylist(
+      playlistId: 42,
+      playlistName: 'Road Mix',
+      entries: [
+        _playlistEntry(first, playlistId: 42, position: 1, now: now),
+        _playlistEntry(second, playlistId: 42, position: 0, now: now),
+        _playlistEntry(third, playlistId: 42, position: 2, now: now),
+      ],
+      startTrackId: 2,
+    );
+    player.playedTracks.clear();
+
+    await queue.next();
+
+    expect(queue.state.playbackContext.tracks.map((track) => track.id), [
+      2,
+      1,
+      3,
+    ]);
+    expect(player.playedTracks.single.id, 1);
+    expect(queue.state.playbackContext.currentIndex, 1);
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
+  test('refreshing active playlist order keeps current track and updates index',
+      () async {
+    final now = DateTime(2026);
+    final first = _track(id: 1, title: 'First', now: now);
+    final second = _track(id: 2, title: 'Second', now: now);
+    final third = _track(id: 3, title: 'Third', now: now);
+    final player = _FakePlayerService();
+    final queue = _queue(
+      player: player,
+      tracks: _FakeTrackRepository([first, second, third]),
+      now: now,
+    );
+
+    await _startPlaylist(
+      queue,
+      [first, second, third],
+      startTrackId: 2,
+      now: now,
+    );
+    player.playedTracks.clear();
+
+    await queue.refreshPlaylistContextOrder(
+      playlistId: 42,
+      entries: [
+        _playlistEntry(second, playlistId: 42, position: 0, now: now),
+        _playlistEntry(third, playlistId: 42, position: 1, now: now),
+        _playlistEntry(first, playlistId: 42, position: 2, now: now),
+      ],
+    );
+
+    expect(player.playedTracks, isEmpty);
+    expect(queue.state.currentTrack?.id, 2);
+    expect(queue.state.playbackContext.currentIndex, 0);
+    expect(queue.state.playbackContext.tracks.map((track) => track.id), [
+      2,
+      3,
+      1,
+    ]);
+
+    await queue.next();
+
+    expect(player.playedTracks.single.id, 3);
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
   test('natural completion from playlist plays next playlist track', () async {
     final now = DateTime(2026);
     final first = _track(id: 1, title: 'First', now: now);

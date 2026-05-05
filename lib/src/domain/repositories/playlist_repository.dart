@@ -13,5 +13,10 @@ abstract interface class PlaylistRepository {
 
   Future<void> addTrackToPlaylist(int playlistId, int trackId);
 
+  Future<void> reorderPlaylistTracks({
+    required int playlistId,
+    required List<int> trackIds,
+  });
+
   Future<void> removeTrackFromPlaylist(int playlistId, int trackId);
 }

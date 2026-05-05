@@ -1777,29 +1777,126 @@ final class _PlaylistDetailsView extends StatelessWidget {
         if (entries.isEmpty)
           const _InlineMessage(message: 'This playlist is empty.')
         else
-          for (final entry in entries) ...[
-            _PlaylistEntryTile(
-              entry: entry,
-              isCurrent: _isSameTrack(entry.track, currentTrack),
-              onPlay: entry.isPlayable
-                  ? () {
-                      unawaited(_playPlaylistFromEntry(entry));
-                    }
-                  : null,
-              onAddToQueue:
-                  entry.isPlayable ? () => onAddToQueue(entry.track) : null,
-              onRemove: () {
-                unawaited(
-                  playlistRepository.removeTrackFromPlaylist(
-                    entry.playlistId,
-                    entry.trackId,
+          ReorderableListView.builder(
+            buildDefaultDragHandles: false,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: entries.length,
+            proxyDecorator: (child, index, animation) {
+              return AnimatedBuilder(
+                animation: animation,
+                builder: (context, child) {
+                  final elevation =
+                      Tween<double>(begin: 0, end: 8).evaluate(CurvedAnimation(
+                    parent: animation,
+                    curve: Curves.easeOutCubic,
+                  ));
+                  return Material(
+                    color: Colors.transparent,
+                    elevation: elevation,
+                    borderRadius: BorderRadius.circular(20),
+                    child: child,
+                  );
+                },
+                child: child,
+              );
+            },
+            onReorder: (oldIndex, newIndex) {
+              unawaited(_reorderPlaylistEntry(context, oldIndex, newIndex));
+            },
+            itemBuilder: (context, index) {
+              final entry = entries[index];
+              return Padding(
+                key: ValueKey('playlist-entry-${entry.playlistId}-'
+                    '${entry.trackId}'),
+                padding: const EdgeInsets.only(bottom: 8),
+                child: _PlaylistEntryTile(
+                  entry: entry,
+                  isCurrent: _isSameTrack(entry.track, currentTrack),
+                  dragHandle: ReorderableDragStartListener(
+                    index: index,
+                    child: const Tooltip(
+                      message: 'Reorder track',
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 4),
+                        child: Icon(Icons.drag_handle_outlined),
+                      ),
+                    ),
                   ),
-                );
-              },
-            ),
-            const SizedBox(height: 8),
-          ],
+                  onPlay: entry.isPlayable
+                      ? () {
+                          unawaited(_playPlaylistFromEntry(entry));
+                        }
+                      : null,
+                  onAddToQueue:
+                      entry.isPlayable ? () => onAddToQueue(entry.track) : null,
+                  onRemove: () {
+                    unawaited(
+                      playlistRepository.removeTrackFromPlaylist(
+                        entry.playlistId,
+                        entry.trackId,
+                      ),
+                    );
+                  },
+                ),
+              );
+            },
+          ),
       ],
+    );
+  }
+
+  Future<void> _reorderPlaylistEntry(
+    BuildContext context,
+    int oldIndex,
+    int newIndex,
+  ) async {
+    final playlistId = playlist.id;
+    if (playlistId == null || oldIndex < 0 || oldIndex >= entries.length) {
+      return;
+    }
+
+    final adjustedNewIndex = oldIndex < newIndex ? newIndex - 1 : newIndex;
+    if (adjustedNewIndex < 0 ||
+        adjustedNewIndex >= entries.length ||
+        adjustedNewIndex == oldIndex) {
+      return;
+    }
+
+    final reorderedEntries = entries.toList(growable: true);
+    final moved = reorderedEntries.removeAt(oldIndex);
+    reorderedEntries.insert(adjustedNewIndex, moved);
+    final updatedEntries = [
+      for (var index = 0; index < reorderedEntries.length; index++)
+        _withPlaylistPosition(reorderedEntries[index], index),
+    ];
+
+    try {
+      await playlistRepository.reorderPlaylistTracks(
+        playlistId: playlistId,
+        trackIds: [
+          for (final entry in updatedEntries) entry.trackId,
+        ],
+      );
+      await queueService.refreshPlaylistContextOrder(
+        playlistId: playlistId,
+        entries: updatedEntries,
+      );
+    } on Object catch (error) {
+      if (context.mounted) {
+        _showErrorSnack(context, 'Could not reorder playlist: $error');
+      }
+    }
+  }
+
+  PlaylistEntry _withPlaylistPosition(PlaylistEntry entry, int position) {
+    return PlaylistEntry(
+      playlistId: entry.playlistId,
+      trackId: entry.trackId,
+      position: position,
+      addedAt: entry.addedAt,
+      track: entry.track,
+      unavailableReason: entry.unavailableReason,
     );
   }
 
@@ -1858,6 +1955,7 @@ final class _PlaylistEntryTile extends StatelessWidget {
   const _PlaylistEntryTile({
     required this.entry,
     required this.isCurrent,
+    required this.dragHandle,
     required this.onPlay,
     required this.onAddToQueue,
     required this.onRemove,
@@ -1865,6 +1963,7 @@ final class _PlaylistEntryTile extends StatelessWidget {
 
   final PlaylistEntry entry;
   final bool isCurrent;
+  final Widget dragHandle;
   final VoidCallback? onPlay;
   final VoidCallback? onAddToQueue;
   final VoidCallback onRemove;
@@ -1957,6 +2056,8 @@ final class _PlaylistEntryTile extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 12),
+              dragHandle,
+              const SizedBox(width: 4),
               FittedBox(
                 fit: BoxFit.scaleDown,
                 child: Row(
