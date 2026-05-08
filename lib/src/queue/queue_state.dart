@@ -8,6 +8,7 @@ enum PlaybackSource {
   wave,
   manualQueue,
   playlist,
+  library,
 }
 
 enum PlaybackRepeatMode {
@@ -38,7 +39,15 @@ final class PlaybackContext {
       currentIndex >= 0 &&
       currentIndex < tracks.length;
 
-  Track? get currentTrack => isPlaylist ? tracks[currentIndex] : null;
+  bool get isLibrary =>
+      source == PlaybackSource.library &&
+      tracks.isNotEmpty &&
+      currentIndex >= 0 &&
+      currentIndex < tracks.length;
+
+  bool get isTrackList => isPlaylist || isLibrary;
+
+  Track? get currentTrack => isTrackList ? tracks[currentIndex] : null;
 
   PlaybackContext copyWith({
     PlaybackSource? source,
@@ -92,6 +101,7 @@ final class QueueState {
     PlaybackContext? playbackContext,
     this.activeSource = PlaybackSource.none,
     this.repeatMode = PlaybackRepeatMode.none,
+    this.isPlaylistShuffleEnabled = false,
     this.selectedWaveMode = WaveMode.balanced,
     this.lastRecommendationResult,
     Iterable<RecommendationResult> recommendationCandidates = const [],
@@ -110,6 +120,7 @@ final class QueueState {
   final PlaybackContext playbackContext;
   final PlaybackSource activeSource;
   final PlaybackRepeatMode repeatMode;
+  final bool isPlaylistShuffleEnabled;
   final WaveMode selectedWaveMode;
   final RecommendationResult? lastRecommendationResult;
   final List<RecommendationResult> recommendationCandidates;
@@ -125,10 +136,19 @@ final class QueueState {
 
   bool get hasPlaylistContext => playbackContext.isPlaylist;
 
-  bool get canAdvance =>
-      manualQueue.isNotEmpty || hasPlaylistContext || isWaveEnabled;
+  bool get hasLibraryContext => playbackContext.isLibrary;
 
-  bool get canUseRepeat => hasPlaylistContext;
+  bool get hasTrackListContext => playbackContext.isTrackList;
+
+  bool get canAdvance =>
+      manualQueue.isNotEmpty || hasTrackListContext || isWaveEnabled;
+
+  bool get canUseRepeat =>
+      (activeSource == PlaybackSource.playlist && hasPlaylistContext) ||
+      (activeSource == PlaybackSource.library && hasLibraryContext);
+
+  bool get canUseShuffle =>
+      activeSource == PlaybackSource.playlist && hasPlaylistContext;
 
   bool get canGoToPreviousPlaylistTrack {
     if (!hasPlaylistContext) {
@@ -161,6 +181,7 @@ final class QueueState {
     Object? playbackContext = _unset,
     PlaybackSource? activeSource,
     PlaybackRepeatMode? repeatMode,
+    bool? isPlaylistShuffleEnabled,
     WaveMode? selectedWaveMode,
     Object? lastRecommendationResult = _unset,
     Iterable<RecommendationResult>? recommendationCandidates,
@@ -183,6 +204,8 @@ final class QueueState {
           : playbackContext as PlaybackContext,
       activeSource: activeSource ?? this.activeSource,
       repeatMode: repeatMode ?? this.repeatMode,
+      isPlaylistShuffleEnabled:
+          isPlaylistShuffleEnabled ?? this.isPlaylistShuffleEnabled,
       selectedWaveMode: selectedWaveMode ?? this.selectedWaveMode,
       lastRecommendationResult: identical(lastRecommendationResult, _unset)
           ? this.lastRecommendationResult
@@ -212,6 +235,7 @@ final class QueueState {
             other.playbackContext == playbackContext &&
             other.activeSource == activeSource &&
             other.repeatMode == repeatMode &&
+            other.isPlaylistShuffleEnabled == isPlaylistShuffleEnabled &&
             other.selectedWaveMode == selectedWaveMode &&
             other.lastRecommendationResult == lastRecommendationResult &&
             _listEquals(
@@ -234,6 +258,7 @@ final class QueueState {
       playbackContext,
       activeSource,
       repeatMode,
+      isPlaylistShuffleEnabled,
       selectedWaveMode,
       lastRecommendationResult,
       Object.hashAll(recommendationCandidates),

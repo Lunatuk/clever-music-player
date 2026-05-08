@@ -422,6 +422,127 @@ void main() {
     expect(secondTrackTop, lessThan(firstTrackTop));
   });
 
+  testWidgets('All Tracks row starts library context with visible order',
+      (tester) async {
+    await _setLargeSurface(tester);
+    final fixture = await _HomeScreenFixture.create(
+      seedTracks: [
+        _testTrack(id: 1, title: 'Beta Track'),
+        _testTrack(id: 2, title: 'Alpha Track'),
+        _testTrack(id: 3, title: 'Missing Track', isMissing: true),
+      ],
+    );
+    _addFixtureTearDown(tester, fixture);
+
+    await fixture.pump(tester);
+    await tester.tap(find.text('Моя музыка'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Beta Track'));
+    await tester.pumpAndSettle();
+
+    expect(fixture.queue.state.activeSource, PlaybackSource.library);
+    expect(fixture.queue.state.playbackContext.currentIndex, 1);
+    expect(
+        fixture.queue.state.playbackContext.tracks.map((track) => track.id), [
+      2,
+      1,
+    ]);
+    expect(find.text('Playing from: All Tracks'), findsOneWidget);
+    expect(find.byTooltip('No repeat'), findsOneWidget);
+    expect(find.byTooltip('Shuffle playlist'), findsNothing);
+  });
+
+  testWidgets('library repeat control cycles without showing shuffle',
+      (tester) async {
+    await _setLargeSurface(tester);
+    final fixture = await _HomeScreenFixture.create(
+      seedTracks: [
+        _testTrack(id: 1, title: 'First Track'),
+        _testTrack(id: 2, title: 'Second Track'),
+      ],
+    );
+    _addFixtureTearDown(tester, fixture);
+
+    await fixture.queue.playLibraryTrack(
+      track: _testTrack(id: 1, title: 'First Track'),
+      visibleTracks: [
+        _testTrack(id: 1, title: 'First Track'),
+        _testTrack(id: 2, title: 'Second Track'),
+      ],
+    );
+    await fixture.pump(tester);
+
+    expect(find.byTooltip('No repeat'), findsOneWidget);
+    expect(find.byTooltip('Shuffle playlist'), findsNothing);
+
+    await tester.tap(find.byTooltip('No repeat'));
+    await tester.pumpAndSettle();
+
+    expect(fixture.queue.state.repeatMode, PlaybackRepeatMode.playlist);
+    expect(find.byTooltip('Repeat library'), findsOneWidget);
+  });
+
+  testWidgets('playlist bottom controls expose repeat and shuffle',
+      (tester) async {
+    await _setLargeSurface(tester);
+    final fixture = await _HomeScreenFixture.create(
+      seedTracks: [
+        _testTrack(id: 1, title: 'First Track'),
+        _testTrack(id: 2, title: 'Second Track'),
+      ],
+    );
+    _addFixtureTearDown(tester, fixture);
+    final playlistId =
+        await fixture.dependencies.repositories.playlists.createPlaylist(
+      'Road Mix',
+    );
+    await fixture.dependencies.repositories.playlists.addTrackToPlaylist(
+      playlistId,
+      1,
+    );
+    await fixture.dependencies.repositories.playlists.addTrackToPlaylist(
+      playlistId,
+      2,
+    );
+    final entries = await fixture.dependencies.repositories.playlists
+        .watchPlaylistTracks(playlistId)
+        .first;
+
+    await fixture.queue.playPlaylist(
+      playlistId: playlistId,
+      playlistName: 'Road Mix',
+      entries: entries,
+      startTrackId: 1,
+    );
+    await fixture.pump(tester);
+
+    expect(find.byTooltip('No repeat'), findsOneWidget);
+    expect(find.byTooltip('Shuffle playlist'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Shuffle playlist'));
+    await tester.pumpAndSettle();
+
+    expect(fixture.queue.state.isPlaylistShuffleEnabled, isTrue);
+  });
+
+  testWidgets('Wave bottom controls hide repeat and shuffle', (tester) async {
+    await _setLargeSurface(tester);
+    final fixture = await _HomeScreenFixture.create(
+      seedTracks: [
+        _testTrack(id: 1, title: 'Wave Track'),
+        _testTrack(id: 2, title: 'Second Wave Track'),
+      ],
+    );
+    _addFixtureTearDown(tester, fixture);
+
+    await fixture.queue.playSmartNext();
+    await fixture.pump(tester);
+
+    expect(fixture.queue.state.activeSource, PlaybackSource.wave);
+    expect(find.byTooltip('No repeat'), findsNothing);
+    expect(find.byTooltip('Shuffle playlist'), findsNothing);
+  });
+
   testWidgets('settings gear opens library folders and recommendation debug',
       (tester) async {
     await _setLargeSurface(tester);
