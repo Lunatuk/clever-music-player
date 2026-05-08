@@ -33,7 +33,13 @@ void main() {
     expect(find.text('Настроить'), findsOneWidget);
     expect(find.text('Добавить папку'), findsOneWidget);
     expect(find.text('Еще раз'), findsOneWidget);
-    expect(find.text('Моя музыка'), findsOneWidget);
+    expect(find.text('Волна'), findsOneWidget);
+    expect(find.text('Моя музыка'), findsAtLeastNWidgets(2));
+    expect(find.text('Плейлисты'), findsOneWidget);
+    expect(find.text('Настройки'), findsOneWidget);
+    expect(find.text('Clever'), findsNothing);
+    expect(find.byTooltip('Открыть Моя музыка'), findsNothing);
+    expect(find.byKey(const ValueKey('active-nav-wave')), findsOneWidget);
     expect(find.text('No track playing'), findsOneWidget);
     expect(find.byType(TrackArtwork), findsOneWidget);
     expect(find.text('Liquid Wave'), findsNothing);
@@ -193,25 +199,74 @@ void main() {
     _addFixtureTearDown(tester, fixture);
 
     await fixture.pump(tester);
-    await tester.tap(find.text('Моя музыка'));
+    await tester.tap(find.byKey(const ValueKey('nav-music')));
     await tester.pumpAndSettle();
 
     expect(find.text('Track library'), findsOneWidget);
-    expect(find.text('Все треки'), findsOneWidget);
     expect(find.text('Test Track'), findsOneWidget);
     expect(find.text('No track playing'), findsOneWidget);
     expect(find.byType(TrackArtwork), findsNWidgets(2));
   });
 
-  testWidgets('My Music playlists tab can create a playlist', (tester) async {
+  testWidgets('sidebar navigates primary pages and keeps player bar',
+      (tester) async {
     await _setLargeSurface(tester);
     final fixture = await _HomeScreenFixture.create(seedLibrary: true);
     _addFixtureTearDown(tester, fixture);
 
     await fixture.pump(tester);
-    await tester.tap(find.text('Моя музыка'));
+
+    await tester.tap(find.byKey(const ValueKey('nav-music')));
     await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(ChoiceChip, 'Плейлисты'));
+    expect(find.text('Track library'), findsOneWidget);
+    expect(find.byKey(const ValueKey('active-nav-music')), findsOneWidget);
+    expect(find.text('No track playing'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('nav-playlists')));
+    await tester.pumpAndSettle();
+    expect(find.text('Создать плейлист'), findsOneWidget);
+    expect(find.byKey(const ValueKey('active-nav-playlists')), findsOneWidget);
+    expect(find.text('No track playing'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('nav-settings')));
+    await tester.pumpAndSettle();
+    expect(find.text('Library folders'), findsOneWidget);
+    expect(find.text('Почему выбран трек'), findsOneWidget);
+    expect(find.byKey(const ValueKey('active-nav-settings')), findsOneWidget);
+    expect(find.text('No track playing'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('nav-wave')));
+    await tester.pumpAndSettle();
+    expect(find.text('Пустить жидкого'), findsOneWidget);
+    expect(find.byKey(const ValueKey('active-nav-wave')), findsOneWidget);
+    expect(find.text('No track playing'), findsOneWidget);
+  });
+
+  testWidgets('sidebar compacts on narrow windows without overflow',
+      (tester) async {
+    await _setNarrowSurface(tester);
+    final fixture = await _HomeScreenFixture.create(seedLibrary: true);
+    _addFixtureTearDown(tester, fixture);
+
+    await fixture.pump(tester);
+    expect(tester.takeException(), isNull);
+    expect(find.byKey(const ValueKey('nav-wave')), findsOneWidget);
+    expect(find.text('Волна'), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('nav-playlists')));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(find.text('Создать плейлист'), findsOneWidget);
+    expect(find.byKey(const ValueKey('active-nav-playlists')), findsOneWidget);
+  });
+
+  testWidgets('Playlists page can create a playlist', (tester) async {
+    await _setLargeSurface(tester);
+    final fixture = await _HomeScreenFixture.create(seedLibrary: true);
+    _addFixtureTearDown(tester, fixture);
+
+    await fixture.pump(tester);
+    await tester.tap(find.byKey(const ValueKey('nav-playlists')));
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('Создать плейлист'));
@@ -222,6 +277,7 @@ void main() {
 
     expect(find.text('Road Mix'), findsOneWidget);
     expect(find.textContaining('0 tracks'), findsOneWidget);
+    expect(find.byKey(const ValueKey('active-nav-playlists')), findsOneWidget);
   });
 
   testWidgets('track row can add a track to an existing playlist',
@@ -234,7 +290,7 @@ void main() {
     );
 
     await fixture.pump(tester);
-    await tester.tap(find.text('Моя музыка'));
+    await tester.tap(find.byKey(const ValueKey('nav-music')));
     await tester.pumpAndSettle();
 
     await tester.tap(find.byTooltip('Add to playlist'));
@@ -266,7 +322,7 @@ void main() {
     _addFixtureTearDown(tester, fixture);
 
     await fixture.pump(tester);
-    await tester.tap(find.text('Моя музыка'));
+    await tester.tap(find.byKey(const ValueKey('nav-music')));
     await tester.pumpAndSettle();
 
     await tester.tap(find.byTooltip('Track actions'));
@@ -282,7 +338,7 @@ void main() {
     expect(coveredTrack?.customArtworkMimeType, 'image/png');
 
     await fixture.pump(tester);
-    await tester.tap(find.text('Моя музыка'));
+    await tester.tap(find.byKey(const ValueKey('nav-music')));
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Track actions'));
     await tester.pumpAndSettle();
@@ -307,7 +363,7 @@ void main() {
     _addFixtureTearDown(tester, fixture);
 
     await fixture.pump(tester);
-    await tester.tap(find.text('Моя музыка'));
+    await tester.tap(find.byKey(const ValueKey('nav-music')));
     await tester.pumpAndSettle();
 
     await tester.tap(find.byTooltip('Track actions'));
@@ -340,12 +396,13 @@ void main() {
     );
 
     await fixture.pump(tester);
-    await tester.tap(find.text('Моя музыка'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(ChoiceChip, 'Плейлисты'));
+    await tester.tap(find.byKey(const ValueKey('nav-playlists')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Road Mix'));
     await tester.pumpAndSettle();
+
+    expect(find.text('Back to playlists'), findsOneWidget);
+    expect(find.byKey(const ValueKey('active-nav-playlists')), findsOneWidget);
 
     await tester.tap(find.text('Add tracks'));
     await tester.pumpAndSettle();
@@ -389,13 +446,13 @@ void main() {
     );
 
     await fixture.pump(tester);
-    await tester.tap(find.text('Моя музыка'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(ChoiceChip, 'Плейлисты'));
+    await tester.tap(find.byKey(const ValueKey('nav-playlists')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Road Mix'));
     await tester.pumpAndSettle();
 
+    expect(find.text('Back to playlists'), findsOneWidget);
+    expect(find.byKey(const ValueKey('active-nav-playlists')), findsOneWidget);
     expect(find.byType(ReorderableListView), findsOneWidget);
     expect(find.byTooltip('Reorder track'), findsNWidgets(2));
     expect(find.byTooltip('Add to queue'), findsNWidgets(2));
@@ -435,7 +492,7 @@ void main() {
     _addFixtureTearDown(tester, fixture);
 
     await fixture.pump(tester);
-    await tester.tap(find.text('Моя музыка'));
+    await tester.tap(find.byKey(const ValueKey('nav-music')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Beta Track'));
     await tester.pumpAndSettle();
@@ -555,6 +612,7 @@ void main() {
 
     expect(find.text('Library folders'), findsOneWidget);
     expect(find.text('Почему выбран трек'), findsOneWidget);
+    expect(find.byKey(const ValueKey('active-nav-settings')), findsOneWidget);
     expect(find.text('No track playing'), findsOneWidget);
   });
 
@@ -580,6 +638,13 @@ void main() {
 Future<void> _setLargeSurface(WidgetTester tester) async {
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = const Size(1200, 900);
+  addTearDown(tester.view.resetDevicePixelRatio);
+  addTearDown(tester.view.resetPhysicalSize);
+}
+
+Future<void> _setNarrowSurface(WidgetTester tester) async {
+  tester.view.devicePixelRatio = 1;
+  tester.view.physicalSize = const Size(600, 760);
   addTearDown(tester.view.resetDevicePixelRatio);
   addTearDown(tester.view.resetPhysicalSize);
 }
