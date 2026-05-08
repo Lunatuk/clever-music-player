@@ -223,7 +223,12 @@ final class _HomeScreenState extends State<HomeScreen> {
             });
           },
           onPlayTrack: (track) {
-            unawaited(dependencies.playbackQueue.playTrackManually(track));
+            unawaited(
+              dependencies.playbackQueue.playLibraryTrack(
+                track: track,
+                visibleTracks: visibleTracks,
+              ),
+            );
           },
           onLikeTrack: (track) {
             unawaited(dependencies.playbackQueue.toggleLike(track));
@@ -3538,8 +3543,9 @@ final class _BottomPlayerBarState extends State<_BottomPlayerBar> {
               final summary = _NowPlayingSummary(
                 track: track,
                 queueCount: queueState.manualQueue.length,
-                playlistContext:
-                    queueState.activeSource == PlaybackSource.playlist
+                playbackContext:
+                    queueState.activeSource == PlaybackSource.playlist ||
+                            queueState.activeSource == PlaybackSource.library
                         ? queueState.playbackContext
                         : null,
               );
@@ -3573,6 +3579,9 @@ final class _BottomPlayerBarState extends State<_BottomPlayerBar> {
                 canGoNext: canGoNext,
                 repeatMode: queueState.repeatMode,
                 canUseRepeat: queueState.canUseRepeat,
+                canUseShuffle: queueState.canUseShuffle,
+                isShuffleEnabled: queueState.isPlaylistShuffleEnabled,
+                activeSource: queueState.activeSource,
                 onPlayPause: track == null
                     ? null
                     : () {
@@ -3596,6 +3605,9 @@ final class _BottomPlayerBarState extends State<_BottomPlayerBar> {
                     ? () {
                         widget.queueService.cycleRepeatMode();
                       }
+                    : null,
+                onShuffle: queueState.canUseShuffle
+                    ? widget.queueService.togglePlaylistShuffle
                     : null,
               );
               final rightActions = _BottomPlayerActions(
@@ -3680,12 +3692,12 @@ final class _NowPlayingSummary extends StatelessWidget {
   const _NowPlayingSummary({
     required this.track,
     required this.queueCount,
-    required this.playlistContext,
+    required this.playbackContext,
   });
 
   final Track? track;
   final int queueCount;
-  final PlaybackContext? playlistContext;
+  final PlaybackContext? playbackContext;
 
   @override
   Widget build(BuildContext context) {
@@ -3720,7 +3732,7 @@ final class _NowPlayingSummary extends StatelessWidget {
                 style: textTheme.titleSmall,
               ),
               Text(
-                _summarySubtitle(track, playlistContext),
+                _summarySubtitle(track, playbackContext),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: textTheme.bodySmall,
@@ -3801,10 +3813,14 @@ final class _BottomPlaybackButtons extends StatelessWidget {
     required this.canGoNext,
     required this.repeatMode,
     required this.canUseRepeat,
+    required this.canUseShuffle,
+    required this.isShuffleEnabled,
+    required this.activeSource,
     required this.onPlayPause,
     required this.onPrevious,
     required this.onNext,
     required this.onRepeat,
+    required this.onShuffle,
   });
 
   final bool isPlaying;
@@ -3812,23 +3828,38 @@ final class _BottomPlaybackButtons extends StatelessWidget {
   final bool canGoNext;
   final PlaybackRepeatMode repeatMode;
   final bool canUseRepeat;
+  final bool canUseShuffle;
+  final bool isShuffleEnabled;
+  final PlaybackSource activeSource;
   final VoidCallback? onPlayPause;
   final VoidCallback? onPrevious;
   final VoidCallback? onNext;
   final VoidCallback? onRepeat;
+  final VoidCallback? onShuffle;
 
   @override
   Widget build(BuildContext context) {
     final repeatButton = repeatMode == PlaybackRepeatMode.none
         ? IconButton.outlined(
-            tooltip: _repeatTooltip(repeatMode),
+            tooltip: _repeatTooltip(repeatMode, activeSource),
             onPressed: canUseRepeat ? onRepeat : null,
             icon: Icon(_repeatIcon(repeatMode)),
           )
         : IconButton.filledTonal(
-            tooltip: _repeatTooltip(repeatMode),
+            tooltip: _repeatTooltip(repeatMode, activeSource),
             onPressed: canUseRepeat ? onRepeat : null,
             icon: Icon(_repeatIcon(repeatMode)),
+          );
+    final shuffleButton = isShuffleEnabled
+        ? IconButton.filledTonal(
+            tooltip: 'Shuffle playlist',
+            onPressed: canUseShuffle ? onShuffle : null,
+            icon: const Icon(Icons.shuffle_outlined),
+          )
+        : IconButton.outlined(
+            tooltip: 'Shuffle playlist',
+            onPressed: canUseShuffle ? onShuffle : null,
+            icon: const Icon(Icons.shuffle_outlined),
           );
 
     return Row(
@@ -3856,8 +3887,14 @@ final class _BottomPlaybackButtons extends StatelessWidget {
           onPressed: canGoNext ? onNext : null,
           icon: const Icon(Icons.skip_next_outlined),
         ),
-        const SizedBox(width: 4),
-        repeatButton,
+        if (canUseRepeat) ...[
+          const SizedBox(width: 4),
+          repeatButton,
+        ],
+        if (canUseShuffle) ...[
+          const SizedBox(width: 4),
+          shuffleButton,
+        ],
       ],
     );
   }
@@ -3913,20 +3950,24 @@ final class _BottomPlayerActions extends StatelessWidget {
   }
 }
 
-String _summarySubtitle(Track? track, PlaybackContext? playlistContext) {
-  if (playlistContext != null && playlistContext.isPlaylist) {
-    final name = playlistContext.playlistName?.trim();
+String _summarySubtitle(Track? track, PlaybackContext? playbackContext) {
+  if (playbackContext != null && playbackContext.isPlaylist) {
+    final name = playbackContext.playlistName?.trim();
     if (name != null && name.isNotEmpty) {
       return 'Playing from: $name';
     }
   }
+  if (playbackContext != null && playbackContext.isLibrary) {
+    return 'Playing from: All Tracks';
+  }
   return _artistLabel(track);
 }
 
-String _repeatTooltip(PlaybackRepeatMode mode) {
+String _repeatTooltip(PlaybackRepeatMode mode, PlaybackSource source) {
+  final listName = source == PlaybackSource.library ? 'library' : 'playlist';
   return switch (mode) {
     PlaybackRepeatMode.none => 'No repeat',
-    PlaybackRepeatMode.playlist => 'Repeat playlist',
+    PlaybackRepeatMode.playlist => 'Repeat $listName',
     PlaybackRepeatMode.track => 'Repeat track',
   };
 }
