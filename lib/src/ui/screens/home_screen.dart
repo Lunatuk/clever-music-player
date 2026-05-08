@@ -21,7 +21,10 @@ import '../track_artwork.dart';
 const double _cardRadius = 24;
 const double _controlRadius = 18;
 
-enum _MyMusicTab { tracks, playlists }
+const int _wavePageIndex = 0;
+const int _myMusicPageIndex = 1;
+const int _playlistsPageIndex = 2;
+const int _settingsPageIndex = 3;
 
 final class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -34,11 +37,10 @@ final class _HomeScreenState extends State<HomeScreen> {
   late final TextEditingController _searchController;
   LibraryScanResult? _lastScanResult;
   Object? _lastError;
-  int _selectedPageIndex = 0;
+  int _selectedPageIndex = _wavePageIndex;
   String _searchQuery = '';
   LibraryTrackSortOption _sortOption = LibraryTrackSortOption.title;
   bool _showMissingTracks = false;
-  _MyMusicTab _selectedMyMusicTab = _MyMusicTab.tracks;
   int? _selectedPlaylistId;
   bool _isScanning = false;
 
@@ -69,7 +71,7 @@ final class _HomeScreenState extends State<HomeScreen> {
           ),
           onOpenSettings: () {
             setState(() {
-              _selectedPageIndex = 2;
+              _selectedPageIndex = _settingsPageIndex;
             });
           },
         ),
@@ -110,18 +112,22 @@ final class _HomeScreenState extends State<HomeScreen> {
                               .watchFolders(),
                           initialData: const [],
                           builder: (context, folderSnapshot) {
-                            return _buildHomeContent(
-                              context,
-                              dependencies,
-                              playerState: playerState,
-                              activeTracks: activeTracks,
-                              totalIndexedTracks:
-                                  indexedSnapshot.data?.length ?? 0,
-                              userStates: userStates,
-                              folders: folderSnapshot.data ?? const [],
-                              trackLoadError:
-                                  trackSnapshot.error ?? indexedSnapshot.error,
-                              folderLoadError: folderSnapshot.error,
+                            return _NavigationShell(
+                              selectedPageIndex: _selectedPageIndex,
+                              onPageSelected: _selectPage,
+                              child: _buildHomeContent(
+                                context,
+                                dependencies,
+                                playerState: playerState,
+                                activeTracks: activeTracks,
+                                totalIndexedTracks:
+                                    indexedSnapshot.data?.length ?? 0,
+                                userStates: userStates,
+                                folders: folderSnapshot.data ?? const [],
+                                trackLoadError: trackSnapshot.error ??
+                                    indexedSnapshot.error,
+                                folderLoadError: folderSnapshot.error,
+                              ),
                             );
                           },
                         );
@@ -158,7 +164,7 @@ final class _HomeScreenState extends State<HomeScreen> {
     final missingCount = activeTracks.where((track) => track.isMissing).length;
 
     return switch (_selectedPageIndex) {
-      0 => _HomeWavePage(
+      _wavePageIndex => _HomeWavePage(
           playerState: playerState,
           playerService: dependencies.playerService,
           queueService: dependencies.playbackQueue,
@@ -169,12 +175,9 @@ final class _HomeScreenState extends State<HomeScreen> {
           onAddFolder: () => _addMusicFolder(dependencies),
           onRescanLibrary: () => _rescanLibrary(dependencies),
         ),
-      1 => _MyMusicPage(
-          selectedPageIndex: _selectedPageIndex,
+      _myMusicPageIndex => _MyMusicPage(
           playerState: playerState,
           queueService: dependencies.playbackQueue,
-          playlistRepository: dependencies.repositories.playlists,
-          activeTracks: activeTracks,
           visibleTracks: visibleTracks,
           totalIndexedTracks: totalIndexedTracks,
           missingCount: missingCount,
@@ -185,22 +188,6 @@ final class _HomeScreenState extends State<HomeScreen> {
           searchQuery: _searchQuery,
           sortOption: _sortOption,
           showMissingTracks: _showMissingTracks,
-          selectedTab: _selectedMyMusicTab,
-          selectedPlaylistId: _selectedPlaylistId,
-          onPageSelected: _selectPage,
-          onTabChanged: (tab) {
-            setState(() {
-              _selectedMyMusicTab = tab;
-              if (tab == _MyMusicTab.tracks) {
-                _selectedPlaylistId = null;
-              }
-            });
-          },
-          onSelectedPlaylistChanged: (playlistId) {
-            setState(() {
-              _selectedPlaylistId = playlistId;
-            });
-          },
           onSearchChanged: (value) {
             setState(() {
               _searchQuery = value;
@@ -252,15 +239,28 @@ final class _HomeScreenState extends State<HomeScreen> {
             unawaited(_removeTrackCustomCover(dependencies, track));
           },
         ),
+      _playlistsPageIndex => _PlaylistsPage(
+          playerState: playerState,
+          queueService: dependencies.playbackQueue,
+          playlistRepository: dependencies.repositories.playlists,
+          activeTracks: activeTracks,
+          selectedPlaylistId: _selectedPlaylistId,
+          onSelectedPlaylistChanged: (playlistId) {
+            setState(() {
+              _selectedPlaylistId = playlistId;
+            });
+          },
+          onAddToQueue: (track) {
+            unawaited(dependencies.playbackQueue.addToQueue(track));
+          },
+        ),
       _ => _SettingsPage(
-          selectedPageIndex: _selectedPageIndex,
           folders: folders,
           folderLoadError: folderLoadError,
           scanResult: _lastScanResult,
           scanError: _lastError,
           isScanning: _isScanning,
           queueService: dependencies.playbackQueue,
-          onPageSelected: _selectPage,
           onAddFolder: () => _addMusicFolder(dependencies),
           onRescanLibrary: () => _rescanLibrary(dependencies),
           onRescanFolder: (folder) {
@@ -598,6 +598,234 @@ final class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
+final class _NavigationShell extends StatelessWidget {
+  const _NavigationShell({
+    required this.selectedPageIndex,
+    required this.onPageSelected,
+    required this.child,
+  });
+
+  final int selectedPageIndex;
+  final ValueChanged<int> onPageSelected;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isCompact = constraints.maxWidth < 820;
+        return Row(
+          children: [
+            _NavigationSidebar(
+              isCompact: isCompact,
+              selectedPageIndex: selectedPageIndex,
+              onPageSelected: onPageSelected,
+            ),
+            const VerticalDivider(width: 1),
+            Expanded(child: child),
+          ],
+        );
+      },
+    );
+  }
+}
+
+final class _NavigationSidebar extends StatelessWidget {
+  const _NavigationSidebar({
+    required this.isCompact,
+    required this.selectedPageIndex,
+    required this.onPageSelected,
+  });
+
+  final bool isCompact;
+  final int selectedPageIndex;
+  final ValueChanged<int> onPageSelected;
+
+  static const _destinations = [
+    _NavigationDestinationData(
+      id: 'wave',
+      pageIndex: _wavePageIndex,
+      label: 'Волна',
+      icon: Icons.graphic_eq_outlined,
+    ),
+    _NavigationDestinationData(
+      id: 'music',
+      pageIndex: _myMusicPageIndex,
+      label: 'Моя музыка',
+      icon: Icons.library_music_outlined,
+    ),
+    _NavigationDestinationData(
+      id: 'playlists',
+      pageIndex: _playlistsPageIndex,
+      label: 'Плейлисты',
+      icon: Icons.queue_music_outlined,
+    ),
+    _NavigationDestinationData(
+      id: 'settings',
+      pageIndex: _settingsPageIndex,
+      label: 'Настройки',
+      icon: Icons.settings_outlined,
+    ),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final width = isCompact ? 72.0 : 208.0;
+
+    return SizedBox(
+      width: width,
+      child: Material(
+        color: colorScheme.surfaceContainerLowest,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            border: Border(
+              right: BorderSide(
+                color: colorScheme.outlineVariant.withValues(alpha: 0.35),
+              ),
+            ),
+          ),
+          child: SafeArea(
+            top: false,
+            bottom: false,
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(
+                isCompact ? 8 : 12,
+                16,
+                isCompact ? 8 : 12,
+                16,
+              ),
+              child: Column(
+                crossAxisAlignment: isCompact
+                    ? CrossAxisAlignment.center
+                    : CrossAxisAlignment.stretch,
+                children: [
+                  for (final destination in _destinations) ...[
+                    _NavigationSidebarItem(
+                      destination: destination,
+                      isCompact: isCompact,
+                      selected: destination.pageIndex == selectedPageIndex,
+                      onPressed: () => onPageSelected(destination.pageIndex),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                  const Spacer(),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+final class _NavigationSidebarItem extends StatelessWidget {
+  const _NavigationSidebarItem({
+    required this.destination,
+    required this.isCompact,
+    required this.selected,
+    required this.onPressed,
+  });
+
+  final _NavigationDestinationData destination;
+  final bool isCompact;
+  final bool selected;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    final foreground = selected
+        ? colorScheme.onPrimaryContainer
+        : colorScheme.onSurfaceVariant;
+    final background = selected
+        ? colorScheme.primaryContainer.withValues(alpha: 0.82)
+        : Colors.transparent;
+
+    final content = AnimatedContainer(
+      duration: const Duration(milliseconds: 160),
+      curve: Curves.easeOutCubic,
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: selected
+              ? colorScheme.primary.withValues(alpha: 0.38)
+              : Colors.transparent,
+        ),
+      ),
+      padding: EdgeInsets.symmetric(
+        horizontal: isCompact ? 0 : 12,
+        vertical: 10,
+      ),
+      child: Row(
+        mainAxisAlignment:
+            isCompact ? MainAxisAlignment.center : MainAxisAlignment.start,
+        children: [
+          if (selected)
+            SizedBox(
+              key: ValueKey('active-nav-${destination.id}'),
+              width: 4,
+              height: 24,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: colorScheme.primary,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              ),
+            ),
+          if (selected) SizedBox(width: isCompact ? 0 : 10),
+          Icon(destination.icon, color: foreground),
+          if (!isCompact) ...[
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                destination.label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: textTheme.labelLarge?.copyWith(
+                  color: foreground,
+                  fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+
+    return Semantics(
+      selected: selected,
+      button: true,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          key: ValueKey('nav-${destination.id}'),
+          borderRadius: BorderRadius.circular(16),
+          onTap: onPressed,
+          child: content,
+        ),
+      ),
+    );
+  }
+}
+
+final class _NavigationDestinationData {
+  const _NavigationDestinationData({
+    required this.id,
+    required this.pageIndex,
+    required this.label,
+    required this.icon,
+  });
+
+  final String id;
+  final int pageIndex;
+  final String label;
+  final IconData icon;
+}
+
 final class _HomeWavePage extends StatelessWidget {
   const _HomeWavePage({
     required this.playerState,
@@ -640,7 +868,7 @@ final class _HomeWavePage extends StatelessWidget {
                   isScanning: isScanning,
                   onAddFolder: onAddFolder,
                   onRescanLibrary: onRescanLibrary,
-                  onOpenLibrary: () => onPageSelected(1),
+                  onOpenLibrary: () => onPageSelected(_myMusicPageIndex),
                 ),
                 const SizedBox(height: 14),
                 Center(
@@ -662,11 +890,8 @@ final class _HomeWavePage extends StatelessWidget {
 
 final class _MyMusicPage extends StatelessWidget {
   const _MyMusicPage({
-    required this.selectedPageIndex,
     required this.playerState,
     required this.queueService,
-    required this.playlistRepository,
-    required this.activeTracks,
     required this.visibleTracks,
     required this.totalIndexedTracks,
     required this.missingCount,
@@ -677,11 +902,6 @@ final class _MyMusicPage extends StatelessWidget {
     required this.searchQuery,
     required this.sortOption,
     required this.showMissingTracks,
-    required this.selectedTab,
-    required this.selectedPlaylistId,
-    required this.onPageSelected,
-    required this.onTabChanged,
-    required this.onSelectedPlaylistChanged,
     required this.onSearchChanged,
     required this.onClearSearch,
     required this.onSortChanged,
@@ -696,11 +916,8 @@ final class _MyMusicPage extends StatelessWidget {
     required this.onRemoveCustomCover,
   });
 
-  final int selectedPageIndex;
   final PlayerState playerState;
   final PlaybackQueueService queueService;
-  final PlaylistRepository playlistRepository;
-  final List<Track> activeTracks;
   final List<Track> visibleTracks;
   final int totalIndexedTracks;
   final int missingCount;
@@ -711,11 +928,6 @@ final class _MyMusicPage extends StatelessWidget {
   final String searchQuery;
   final LibraryTrackSortOption sortOption;
   final bool showMissingTracks;
-  final _MyMusicTab selectedTab;
-  final int? selectedPlaylistId;
-  final ValueChanged<int> onPageSelected;
-  final ValueChanged<_MyMusicTab> onTabChanged;
-  final ValueChanged<int?> onSelectedPlaylistChanged;
   final ValueChanged<String> onSearchChanged;
   final VoidCallback onClearSearch;
   final ValueChanged<LibraryTrackSortOption> onSortChanged;
@@ -732,7 +944,6 @@ final class _MyMusicPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
-    final isTrackTab = selectedTab == _MyMusicTab.tracks;
 
     return CustomScrollView(
       slivers: [
@@ -744,18 +955,11 @@ final class _MyMusicPage extends StatelessWidget {
                 _ShellHeader(
                   title: 'Моя музыка',
                   subtitle: 'Search, sort, queue, and edit local tracks',
-                  selectedPageIndex: selectedPageIndex,
-                  onPageSelected: onPageSelected,
                 ),
                 const SizedBox(height: 22),
                 Text(
-                  isTrackTab ? 'Track library' : 'Плейлисты',
+                  'Track library',
                   style: textTheme.headlineSmall,
-                ),
-                const SizedBox(height: 12),
-                _LibraryTabs(
-                  selectedTab: selectedTab,
-                  onTabChanged: onTabChanged,
                 ),
                 const SizedBox(height: 12),
                 StreamBuilder<QueueState>(
@@ -779,47 +983,45 @@ final class _MyMusicPage extends StatelessWidget {
                     );
                   },
                 ),
-                if (isTrackTab) ...[
-                  _TrackListControls(
-                    searchController: searchController,
-                    searchQuery: searchQuery,
-                    sortOption: sortOption,
-                    showMissingTracks: showMissingTracks,
-                    onSearchChanged: onSearchChanged,
-                    onClearSearch: onClearSearch,
-                    onSortChanged: onSortChanged,
-                    onShowMissingChanged: onShowMissingChanged,
+                _TrackListControls(
+                  searchController: searchController,
+                  searchQuery: searchQuery,
+                  sortOption: sortOption,
+                  showMissingTracks: showMissingTracks,
+                  onSearchChanged: onSearchChanged,
+                  onClearSearch: onClearSearch,
+                  onSortChanged: onSortChanged,
+                  onShowMissingChanged: onShowMissingChanged,
+                ),
+                const SizedBox(height: 8),
+                _LibraryStats(
+                  visibleTracks: visibleTracks.length,
+                  totalIndexedTracks: totalIndexedTracks,
+                  missingTracks: missingCount,
+                  folderCount: folderCount,
+                ),
+                if (trackLoadError != null) ...[
+                  const SizedBox(height: 24),
+                  _InlineMessage(
+                    message: 'Could not load tracks: $trackLoadError',
+                    isError: true,
                   ),
-                  const SizedBox(height: 8),
-                  _LibraryStats(
-                    visibleTracks: visibleTracks.length,
-                    totalIndexedTracks: totalIndexedTracks,
-                    missingTracks: missingCount,
-                    folderCount: folderCount,
+                ] else if (visibleTracks.isEmpty && searchQuery.isEmpty) ...[
+                  const SizedBox(height: 24),
+                  const _InlineMessage(
+                    message: 'No active tracks indexed yet.',
                   ),
-                  if (trackLoadError != null) ...[
-                    const SizedBox(height: 24),
-                    _InlineMessage(
-                      message: 'Could not load tracks: $trackLoadError',
-                      isError: true,
-                    ),
-                  ] else if (activeTracks.isEmpty) ...[
-                    const SizedBox(height: 24),
-                    const _InlineMessage(
-                      message: 'No active tracks indexed yet.',
-                    ),
-                  ] else if (visibleTracks.isEmpty) ...[
-                    const SizedBox(height: 24),
-                    const _InlineMessage(
-                      message: 'No tracks match these filters.',
-                    ),
-                  ],
+                ] else if (visibleTracks.isEmpty) ...[
+                  const SizedBox(height: 24),
+                  const _InlineMessage(
+                    message: 'No tracks match these filters.',
+                  ),
                 ],
               ],
             ),
           ),
         ),
-        if (isTrackTab && trackLoadError == null && visibleTracks.isNotEmpty)
+        if (trackLoadError == null && visibleTracks.isNotEmpty)
           _TrackListSliver(
             tracks: visibleTracks,
             userStates: userStates,
@@ -832,22 +1034,80 @@ final class _MyMusicPage extends StatelessWidget {
             onEditTrack: onEditTrack,
             onSetCustomCover: onSetCustomCover,
             onRemoveCustomCover: onRemoveCustomCover,
-          )
-        else if (!isTrackTab)
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(28, 8, 28, 0),
-            sliver: SliverToBoxAdapter(
-              child: _PlaylistsContent(
-                playlistRepository: playlistRepository,
-                queueService: queueService,
-                selectedPlaylistId: selectedPlaylistId,
-                activeTracks: activeTracks,
-                currentTrack: playerState.currentTrack,
-                onSelectedPlaylistChanged: onSelectedPlaylistChanged,
-                onAddToQueue: onAddToQueue,
-              ),
+          ),
+        const SliverToBoxAdapter(child: SizedBox(height: 56)),
+      ],
+    );
+  }
+}
+
+final class _PlaylistsPage extends StatelessWidget {
+  const _PlaylistsPage({
+    required this.playerState,
+    required this.queueService,
+    required this.playlistRepository,
+    required this.activeTracks,
+    required this.selectedPlaylistId,
+    required this.onSelectedPlaylistChanged,
+    required this.onAddToQueue,
+  });
+
+  final PlayerState playerState;
+  final PlaybackQueueService queueService;
+  final PlaylistRepository playlistRepository;
+  final List<Track> activeTracks;
+  final int? selectedPlaylistId;
+  final ValueChanged<int?> onSelectedPlaylistChanged;
+  final ValueChanged<Track> onAddToQueue;
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomScrollView(
+      slivers: [
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(28, 22, 28, 0),
+          sliver: SliverList(
+            delegate: SliverChildListDelegate(
+              [
+                const _ShellHeader(
+                  title: 'Плейлисты',
+                  subtitle: 'Create, reorder, and play local playlists',
+                ),
+                const SizedBox(height: 22),
+                StreamBuilder<QueueState>(
+                  stream: queueService.stateStream,
+                  initialData: queueService.state,
+                  builder: (context, snapshot) {
+                    final queueState = snapshot.data ?? QueueState();
+                    if (queueState.manualQueue.isEmpty) {
+                      return const SizedBox.shrink();
+                    }
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 18),
+                      child: _QueuePanel(
+                        queueState: queueState,
+                        onRemoveQueuedTrack: queueService.removeQueuedTrack,
+                        onClearQueue: queueService.clearQueue,
+                        onPlayQueuedTrackNow: (index) {
+                          unawaited(queueService.playQueuedTrackNow(index));
+                        },
+                      ),
+                    );
+                  },
+                ),
+                _PlaylistsContent(
+                  playlistRepository: playlistRepository,
+                  queueService: queueService,
+                  selectedPlaylistId: selectedPlaylistId,
+                  activeTracks: activeTracks,
+                  currentTrack: playerState.currentTrack,
+                  onSelectedPlaylistChanged: onSelectedPlaylistChanged,
+                  onAddToQueue: onAddToQueue,
+                ),
+              ],
             ),
           ),
+        ),
         const SliverToBoxAdapter(child: SizedBox(height: 56)),
       ],
     );
@@ -856,14 +1116,12 @@ final class _MyMusicPage extends StatelessWidget {
 
 final class _SettingsPage extends StatelessWidget {
   const _SettingsPage({
-    required this.selectedPageIndex,
     required this.folders,
     required this.folderLoadError,
     required this.scanResult,
     required this.scanError,
     required this.isScanning,
     required this.queueService,
-    required this.onPageSelected,
     required this.onAddFolder,
     required this.onRescanLibrary,
     required this.onRescanFolder,
@@ -871,14 +1129,12 @@ final class _SettingsPage extends StatelessWidget {
     required this.onRemoveFolder,
   });
 
-  final int selectedPageIndex;
   final List<LibraryFolder> folders;
   final Object? folderLoadError;
   final LibraryScanResult? scanResult;
   final Object? scanError;
   final bool isScanning;
   final PlaybackQueueService queueService;
-  final ValueChanged<int> onPageSelected;
   final VoidCallback onAddFolder;
   final VoidCallback onRescanLibrary;
   final ValueChanged<LibraryFolder> onRescanFolder;
@@ -894,11 +1150,9 @@ final class _SettingsPage extends StatelessWidget {
           sliver: SliverList(
             delegate: SliverChildListDelegate(
               [
-                _ShellHeader(
-                  title: 'Settings',
+                const _ShellHeader(
+                  title: 'Настройки',
                   subtitle: 'Library management and development tools',
-                  selectedPageIndex: selectedPageIndex,
-                  onPageSelected: onPageSelected,
                 ),
                 const SizedBox(height: 22),
                 _SettingsSection(
@@ -957,14 +1211,10 @@ final class _ShellHeader extends StatelessWidget {
   const _ShellHeader({
     required this.title,
     required this.subtitle,
-    required this.selectedPageIndex,
-    required this.onPageSelected,
   });
 
   final String title;
   final String subtitle;
-  final int selectedPageIndex;
-  final ValueChanged<int> onPageSelected;
 
   @override
   Widget build(BuildContext context) {
@@ -998,51 +1248,7 @@ final class _ShellHeader extends StatelessWidget {
             ],
           ),
         ),
-        const SizedBox(width: 12),
-        _ShellIconButton(
-          tooltip: 'Go to wave page',
-          icon: Icons.waves_outlined,
-          selected: selectedPageIndex == 0,
-          onPressed: () => onPageSelected(0),
-        ),
-        const SizedBox(width: 4),
-        _ShellIconButton(
-          tooltip: 'Go to My Music page',
-          icon: Icons.library_music_outlined,
-          selected: selectedPageIndex == 1,
-          onPressed: () => onPageSelected(1),
-        ),
       ],
-    );
-  }
-}
-
-final class _ShellIconButton extends StatelessWidget {
-  const _ShellIconButton({
-    required this.tooltip,
-    required this.icon,
-    required this.selected,
-    required this.onPressed,
-  });
-
-  final String tooltip;
-  final IconData icon;
-  final bool selected;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    if (selected) {
-      return IconButton.filledTonal(
-        tooltip: tooltip,
-        onPressed: onPressed,
-        icon: Icon(icon),
-      );
-    }
-    return IconButton(
-      tooltip: tooltip,
-      onPressed: onPressed,
-      icon: Icon(icon),
     );
   }
 }
@@ -1088,59 +1294,6 @@ final class _HomeQuickActions extends StatelessWidget {
             dimension: 20,
             child: CircularProgressIndicator(strokeWidth: 2),
           ),
-      ],
-    );
-  }
-}
-
-final class _LibraryTabs extends StatelessWidget {
-  const _LibraryTabs({
-    required this.selectedTab,
-    required this.onTabChanged,
-  });
-
-  final _MyMusicTab selectedTab;
-  final ValueChanged<_MyMusicTab> onTabChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: [
-        ChoiceChip(
-          avatar: const Icon(Icons.music_note_outlined, size: 16),
-          label: const Text('Все треки'),
-          selected: selectedTab == _MyMusicTab.tracks,
-          showCheckmark: false,
-          onSelected: (selected) {
-            if (selected) {
-              onTabChanged(_MyMusicTab.tracks);
-            }
-          },
-          side: BorderSide(
-            color: selectedTab == _MyMusicTab.tracks
-                ? colorScheme.primary.withValues(alpha: 0.65)
-                : colorScheme.outlineVariant.withValues(alpha: 0.45),
-          ),
-        ),
-        ChoiceChip(
-          avatar: const Icon(Icons.queue_music_outlined, size: 16),
-          label: const Text('Плейлисты'),
-          selected: selectedTab == _MyMusicTab.playlists,
-          showCheckmark: false,
-          onSelected: (selected) {
-            if (selected) {
-              onTabChanged(_MyMusicTab.playlists);
-            }
-          },
-          backgroundColor: colorScheme.surfaceContainer,
-          labelStyle: selectedTab == _MyMusicTab.playlists
-              ? null
-              : TextStyle(color: colorScheme.onSurfaceVariant),
-        ),
       ],
     );
   }
@@ -1814,38 +1967,34 @@ final class _PlaylistDetailsView extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Row(
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            onPressed: onBack,
+            icon: const Icon(Icons.arrow_back_outlined),
+            label: const Text('Back to playlists'),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          playlist.name,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: textTheme.titleLarge?.copyWith(
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        Text(
+          '${_trackCountLabel(entries.length)} · $playableCount playable',
+          style: textTheme.bodySmall?.copyWith(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
           children: [
-            IconButton(
-              tooltip: 'Back to playlists',
-              onPressed: onBack,
-              icon: const Icon(Icons.arrow_back_outlined),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    playlist.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  Text(
-                    '${_trackCountLabel(entries.length)} · '
-                    '$playableCount playable',
-                    style: textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 12),
             OutlinedButton.icon(
               onPressed: playlist.id == null
                   ? null
@@ -1855,7 +2004,6 @@ final class _PlaylistDetailsView extends StatelessWidget {
               icon: const Icon(Icons.playlist_add_outlined),
               label: const Text('Add tracks'),
             ),
-            const SizedBox(width: 8),
             FilledButton.icon(
               onPressed: playableCount == 0
                   ? null
