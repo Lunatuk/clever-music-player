@@ -5,6 +5,8 @@ import 'package:clever_music_player/src/app/dependency_scope.dart';
 import 'package:clever_music_player/src/data/drift/app_database.dart';
 import 'package:clever_music_player/src/domain/models/models.dart';
 import 'package:clever_music_player/src/domain/repositories/repositories.dart';
+import 'package:clever_music_player/src/library/artwork_cache_service.dart';
+import 'package:clever_music_player/src/library/custom_artwork_service.dart';
 import 'package:clever_music_player/src/library/directory_picker_service.dart';
 import 'package:clever_music_player/src/library/library_scanner_service.dart';
 import 'package:clever_music_player/src/library/metadata_reader_service.dart';
@@ -248,6 +250,76 @@ void main() {
     expect(playlists.single.trackCount, 1);
   });
 
+  testWidgets('track row can set and remove custom cover art', (tester) async {
+    await _setLargeSurface(tester);
+    final customArtwork = _FakeCustomArtworkService(
+      artwork: const CachedArtwork(
+        path: '/app/custom_artwork/cover.png',
+        hash: 'custom-hash',
+        mimeType: 'image/png',
+      ),
+    );
+    final fixture = await _HomeScreenFixture.create(
+      seedLibrary: true,
+      customArtwork: customArtwork,
+    );
+    _addFixtureTearDown(tester, fixture);
+
+    await fixture.pump(tester);
+    await tester.tap(find.text('Моя музыка'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Track actions'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Set cover'));
+    await tester.pumpAndSettle();
+
+    final coveredTrack =
+        await fixture.dependencies.repositories.tracks.findById(1);
+    expect(customArtwork.pickCount, 1);
+    expect(coveredTrack?.customArtworkPath, '/app/custom_artwork/cover.png');
+    expect(coveredTrack?.customArtworkHash, 'custom-hash');
+    expect(coveredTrack?.customArtworkMimeType, 'image/png');
+
+    await fixture.pump(tester);
+    await tester.tap(find.text('Моя музыка'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Track actions'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Remove custom cover'));
+    await tester.pumpAndSettle();
+
+    final updatedTrack =
+        await fixture.dependencies.repositories.tracks.findById(1);
+    expect(updatedTrack?.customArtworkPath, isNull);
+    expect(updatedTrack?.customArtworkHash, isNull);
+    expect(updatedTrack?.customArtworkMimeType, isNull);
+  });
+
+  testWidgets('track row surfaces custom cover picker errors', (tester) async {
+    await _setLargeSurface(tester);
+    final fixture = await _HomeScreenFixture.create(
+      seedLibrary: true,
+      customArtwork: _FakeCustomArtworkService(
+        error: const FormatException('not an image'),
+      ),
+    );
+    _addFixtureTearDown(tester, fixture);
+
+    await fixture.pump(tester);
+    await tester.tap(find.text('Моя музыка'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Track actions'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Set cover'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Could not set cover'), findsOneWidget);
+    final track = await fixture.dependencies.repositories.tracks.findById(1);
+    expect(track?.customArtworkPath, isNull);
+  });
+
   testWidgets('playlist detail can add tracks from the active library',
       (tester) async {
     await _setLargeSurface(tester);
@@ -430,6 +502,7 @@ final class _HomeScreenFixture {
   static Future<_HomeScreenFixture> create({
     bool seedLibrary = false,
     List<Track>? seedTracks,
+    CustomArtworkService? customArtwork,
   }) async {
     final initialTracks =
         seedTracks ?? (seedLibrary ? [_testTrack()] : const <Track>[]);
@@ -462,6 +535,7 @@ final class _HomeScreenFixture {
       recommendationService: recommendationService,
       libraryScanner: libraryScanner,
       directoryPicker: const _NoopDirectoryPickerService(),
+      customArtwork: customArtwork ?? _FakeCustomArtworkService(),
       playerService: player,
       playbackQueue: queue,
     );
@@ -606,6 +680,43 @@ final class _FakeTrackRepository implements TrackRepository {
 
   @override
   Future<void> updateTrackMetadata(TrackMetadataUpdate metadata) async {}
+
+  @override
+  Future<void> updateCustomArtwork({
+    required int trackId,
+    required String path,
+    required String hash,
+    required String? mimeType,
+    required DateTime updatedAt,
+  }) async {
+    final index = _tracks.indexWhere((track) => track.id == trackId);
+    if (index < 0) {
+      throw StateError('Track $trackId was not found.');
+    }
+    _tracks[index] = _tracks[index].copyWith(
+      customArtworkPath: path,
+      customArtworkHash: hash,
+      customArtworkMimeType: mimeType,
+      updatedAt: updatedAt,
+    );
+  }
+
+  @override
+  Future<void> clearCustomArtwork({
+    required int trackId,
+    required DateTime updatedAt,
+  }) async {
+    final index = _tracks.indexWhere((track) => track.id == trackId);
+    if (index < 0) {
+      throw StateError('Track $trackId was not found.');
+    }
+    _tracks[index] = _tracks[index].copyWith(
+      customArtworkPath: null,
+      customArtworkHash: null,
+      customArtworkMimeType: null,
+      updatedAt: updatedAt,
+    );
+  }
 
   @override
   Future<Track?> findById(int id) async {
@@ -985,6 +1096,9 @@ Track _testTrack({
   String title = 'Test Track',
   String artist = 'Test Artist',
   bool isMissing = false,
+  String? customArtworkPath,
+  String? customArtworkHash,
+  String? customArtworkMimeType,
 }) {
   final now = DateTime(2026, 5);
   final fileName = title.toLowerCase().replaceAll(' ', '-');
@@ -998,9 +1112,30 @@ Track _testTrack({
     codec: 'mp3',
     duration: const Duration(minutes: 3, seconds: 15),
     isMissing: isMissing,
+    customArtworkPath: customArtworkPath,
+    customArtworkHash: customArtworkHash,
+    customArtworkMimeType: customArtworkMimeType,
     addedAt: now,
     updatedAt: now,
   );
+}
+
+final class _FakeCustomArtworkService implements CustomArtworkService {
+  _FakeCustomArtworkService({this.artwork, this.error});
+
+  final CachedArtwork? artwork;
+  final Object? error;
+  var pickCount = 0;
+
+  @override
+  Future<CachedArtwork?> pickCustomArtwork() async {
+    pickCount++;
+    final error = this.error;
+    if (error != null) {
+      throw error;
+    }
+    return artwork;
+  }
 }
 
 final class _NoopDirectoryPickerService implements DirectoryPickerService {

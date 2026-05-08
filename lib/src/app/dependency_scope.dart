@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 
 import '../data/drift/app_database.dart';
 import '../domain/repositories/repositories.dart';
+import '../library/custom_artwork_service.dart';
 import '../library/directory_picker_service.dart';
 import '../library/library_scanner_service.dart';
 import '../player/player_service.dart';
@@ -15,6 +16,7 @@ final class AppDependencies {
     required this.recommendationService,
     required this.libraryScanner,
     required this.directoryPicker,
+    required this.customArtwork,
     required this.playerService,
     required this.playbackQueue,
   });
@@ -24,6 +26,7 @@ final class AppDependencies {
   final RecommendationService recommendationService;
   final LibraryScannerService libraryScanner;
   final DirectoryPickerService directoryPicker;
+  final CustomArtworkService customArtwork;
   final PlayerService playerService;
   final PlaybackQueueService playbackQueue;
 

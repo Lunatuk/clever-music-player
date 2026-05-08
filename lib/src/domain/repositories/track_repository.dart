@@ -6,6 +6,19 @@ abstract interface class TrackRepository {
 
   Future<void> updateTrackMetadata(TrackMetadataUpdate metadata);
 
+  Future<void> updateCustomArtwork({
+    required int trackId,
+    required String path,
+    required String hash,
+    required String? mimeType,
+    required DateTime updatedAt,
+  });
+
+  Future<void> clearCustomArtwork({
+    required int trackId,
+    required DateTime updatedAt,
+  });
+
   Future<Track?> findById(int id);
 
   Future<Track?> findByStableId(String stableId);

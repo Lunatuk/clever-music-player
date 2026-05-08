@@ -18,4 +18,26 @@ void main() {
 
     expect(track.displayTitle, 'track-one.flac');
   });
+
+  test('Track detects custom artwork override by path', () {
+    final now = DateTime(2026);
+
+    expect(
+      Track(
+        filePath: '/music/plain.mp3',
+        addedAt: now,
+        updatedAt: now,
+      ).hasCustomArtwork,
+      isFalse,
+    );
+    expect(
+      Track(
+        filePath: '/music/custom.mp3',
+        customArtworkPath: ' /app/custom_artwork/cover.png ',
+        addedAt: now,
+        updatedAt: now,
+      ).hasCustomArtwork,
+      isTrue,
+    );
+  });
 }

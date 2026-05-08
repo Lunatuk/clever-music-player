@@ -36,6 +36,9 @@ class Tracks extends Table {
   TextColumn get artworkPath => text().nullable()();
   TextColumn get artworkHash => text().nullable()();
   TextColumn get artworkMimeType => text().nullable()();
+  TextColumn get customArtworkPath => text().nullable()();
+  TextColumn get customArtworkHash => text().nullable()();
+  TextColumn get customArtworkMimeType => text().nullable()();
   TextColumn get codec => text().nullable()();
   IntColumn get durationMs => integer().nullable()();
   IntColumn get trackNumber => integer().nullable()();
@@ -137,7 +140,7 @@ class AppDatabase extends _$AppDatabase {
   factory AppDatabase.open() => AppDatabase(_openConnection());
 
   @override
-  int get schemaVersion => 6;
+  int get schemaVersion => 7;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -170,6 +173,11 @@ class AppDatabase extends _$AppDatabase {
             await migrator.addColumn(tracks, tracks.artworkPath);
             await migrator.addColumn(tracks, tracks.artworkHash);
             await migrator.addColumn(tracks, tracks.artworkMimeType);
+          }
+          if (from < 7) {
+            await migrator.addColumn(tracks, tracks.customArtworkPath);
+            await migrator.addColumn(tracks, tracks.customArtworkHash);
+            await migrator.addColumn(tracks, tracks.customArtworkMimeType);
           }
           await _createIndexes();
         },

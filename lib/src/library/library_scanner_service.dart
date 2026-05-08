@@ -289,6 +289,9 @@ final class LibraryScannerService {
       artworkPath: artwork?.path ?? existing?.artworkPath,
       artworkHash: artwork?.hash ?? existing?.artworkHash,
       artworkMimeType: artwork?.mimeType ?? existing?.artworkMimeType,
+      customArtworkPath: existing?.customArtworkPath,
+      customArtworkHash: existing?.customArtworkHash,
+      customArtworkMimeType: existing?.customArtworkMimeType,
       codec: metadata.codec,
       duration: metadata.duration,
       trackNumber:

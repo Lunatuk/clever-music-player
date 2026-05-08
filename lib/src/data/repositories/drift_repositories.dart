@@ -115,9 +115,13 @@ final class DriftTrackRepository implements TrackRepository {
     }
 
     final id = existing.id!;
+    final updatedTrack = _preserveExistingCustomArtwork(
+      incoming: track,
+      existing: existing,
+    );
     await (_database.update(_database.tracks)
           ..where((table) => table.id.equals(id)))
-        .write(trackToCompanion(track.copyWith(id: id)));
+        .write(trackToCompanion(updatedTrack.copyWith(id: id)));
     return id;
   }
 
@@ -144,6 +148,53 @@ final class DriftTrackRepository implements TrackRepository {
     if (updatedRows == 0) {
       throw StateError('Track ${metadata.trackId} was not found.');
     }
+  }
+
+  @override
+  Future<void> updateCustomArtwork({
+    required int trackId,
+    required String path,
+    required String hash,
+    required String? mimeType,
+    required DateTime updatedAt,
+  }) async {
+    final updatedRows = await (_database.update(_database.tracks)
+          ..where((table) => table.id.equals(trackId)))
+        .write(
+      TracksCompanion(
+        customArtworkPath: Value(path),
+        customArtworkHash: Value(hash),
+        customArtworkMimeType: Value(mimeType),
+        updatedAt: Value(updatedAt),
+      ),
+    );
+
+    if (updatedRows == 0) {
+      throw StateError('Track $trackId was not found.');
+    }
+  }
+
+  @override
+  Future<void> clearCustomArtwork({
+    required int trackId,
+    required DateTime updatedAt,
+  }) async {
+    final updatedRows = await (_database.update(_database.tracks)
+          ..where((table) => table.id.equals(trackId)))
+        .write(
+      TracksCompanion(
+        customArtworkPath: const Value(null),
+        customArtworkHash: const Value(null),
+        customArtworkMimeType: const Value(null),
+        updatedAt: Value(updatedAt),
+      ),
+    );
+
+    if (updatedRows == 0) {
+      throw StateError('Track $trackId was not found.');
+    }
+    // TODO: Delete unreferenced app-owned custom artwork files after adding
+    // reference counting or a safe startup cleanup pass.
   }
 
   @override
@@ -299,6 +350,24 @@ final class DriftTrackRepository implements TrackRepository {
     }
 
     return null;
+  }
+
+  Track _preserveExistingCustomArtwork({
+    required Track incoming,
+    required Track existing,
+  }) {
+    final hasIncomingCustomArtwork = incoming.customArtworkPath != null ||
+        incoming.customArtworkHash != null ||
+        incoming.customArtworkMimeType != null;
+    if (hasIncomingCustomArtwork) {
+      return incoming;
+    }
+
+    return incoming.copyWith(
+      customArtworkPath: existing.customArtworkPath,
+      customArtworkHash: existing.customArtworkHash,
+      customArtworkMimeType: existing.customArtworkMimeType,
+    );
   }
 
   JoinedSelectStatement<HasResultSet, dynamic> _selectTracks({

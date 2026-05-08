@@ -35,6 +35,31 @@ void main() {
     expect(find.byType(FallbackTrackArtwork), findsOneWidget);
     expect(find.text('T'), findsOneWidget);
   });
+
+  test('artwork candidates prefer custom artwork over embedded artwork', () {
+    expect(
+      trackArtworkPathCandidates(
+        _track(
+          artworkPath: ' /app/artwork/embedded.png ',
+          customArtworkPath: ' /app/custom_artwork/custom.png ',
+        ),
+      ),
+      ['/app/custom_artwork/custom.png', '/app/artwork/embedded.png'],
+    );
+  });
+
+  test('artwork candidates use embedded artwork after custom removal', () {
+    expect(
+      trackArtworkPathCandidates(
+        _track(artworkPath: '/app/artwork/embedded.png'),
+      ),
+      ['/app/artwork/embedded.png'],
+    );
+  });
+
+  test('artwork candidates are empty when no artwork fields exist', () {
+    expect(trackArtworkPathCandidates(_track()), isEmpty);
+  });
 }
 
 final class _TestApp extends StatelessWidget {
@@ -51,13 +76,14 @@ final class _TestApp extends StatelessWidget {
   }
 }
 
-Track _track({String? artworkPath}) {
+Track _track({String? artworkPath, String? customArtworkPath}) {
   return Track(
     stableId: 'stable-track',
     filePath: '/music/test-track.mp3',
     title: 'Test Track',
     artist: 'Test Artist',
     artworkPath: artworkPath,
+    customArtworkPath: customArtworkPath,
     addedAt: DateTime(2026),
     updatedAt: DateTime(2026),
   );

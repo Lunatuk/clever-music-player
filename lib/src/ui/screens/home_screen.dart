@@ -240,6 +240,12 @@ final class _HomeScreenState extends State<HomeScreen> {
           onEditTrack: (track) {
             unawaited(_editTrackMetadata(dependencies, track));
           },
+          onSetCustomCover: (track) {
+            unawaited(_setTrackCustomCover(dependencies, track));
+          },
+          onRemoveCustomCover: (track) {
+            unawaited(_removeTrackCustomCover(dependencies, track));
+          },
         ),
       _ => _SettingsPage(
           selectedPageIndex: _selectedPageIndex,
@@ -401,6 +407,83 @@ final class _HomeScreenState extends State<HomeScreen> {
       setState(() {
         _lastError = error;
       });
+    }
+  }
+
+  Future<void> _setTrackCustomCover(
+    AppDependencies dependencies,
+    Track track,
+  ) async {
+    final trackId = track.id;
+    if (trackId == null) {
+      return;
+    }
+
+    try {
+      final artwork = await dependencies.customArtwork.pickCustomArtwork();
+      if (artwork == null) {
+        return;
+      }
+      await dependencies.repositories.tracks.updateCustomArtwork(
+        trackId: trackId,
+        path: artwork.path,
+        hash: artwork.hash,
+        mimeType: artwork.mimeType,
+        updatedAt: DateTime.now(),
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _lastError = null;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Updated cover for "${track.displayTitle}".')),
+      );
+    } on Object catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _lastError = error;
+      });
+      _showErrorSnack(context, 'Could not set cover: $error');
+    }
+  }
+
+  Future<void> _removeTrackCustomCover(
+    AppDependencies dependencies,
+    Track track,
+  ) async {
+    final trackId = track.id;
+    if (trackId == null) {
+      return;
+    }
+
+    try {
+      await dependencies.repositories.tracks.clearCustomArtwork(
+        trackId: trackId,
+        updatedAt: DateTime.now(),
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _lastError = null;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Removed custom cover for "${track.displayTitle}".'),
+        ),
+      );
+    } on Object catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _lastError = error;
+      });
+      _showErrorSnack(context, 'Could not remove custom cover: $error');
     }
   }
 
@@ -604,6 +687,8 @@ final class _MyMusicPage extends StatelessWidget {
     required this.onAddToQueue,
     required this.onAddToPlaylist,
     required this.onEditTrack,
+    required this.onSetCustomCover,
+    required this.onRemoveCustomCover,
   });
 
   final int selectedPageIndex;
@@ -636,6 +721,8 @@ final class _MyMusicPage extends StatelessWidget {
   final ValueChanged<Track> onAddToQueue;
   final ValueChanged<Track> onAddToPlaylist;
   final ValueChanged<Track> onEditTrack;
+  final ValueChanged<Track> onSetCustomCover;
+  final ValueChanged<Track> onRemoveCustomCover;
 
   @override
   Widget build(BuildContext context) {
@@ -738,6 +825,8 @@ final class _MyMusicPage extends StatelessWidget {
             onAddToQueue: onAddToQueue,
             onAddToPlaylist: onAddToPlaylist,
             onEditTrack: onEditTrack,
+            onSetCustomCover: onSetCustomCover,
+            onRemoveCustomCover: onRemoveCustomCover,
           )
         else if (!isTrackTab)
           SliverPadding(
@@ -2776,6 +2865,8 @@ final class _TrackListSliver extends StatelessWidget {
     required this.onAddToQueue,
     required this.onAddToPlaylist,
     required this.onEditTrack,
+    required this.onSetCustomCover,
+    required this.onRemoveCustomCover,
   });
 
   final List<Track> tracks;
@@ -2787,6 +2878,8 @@ final class _TrackListSliver extends StatelessWidget {
   final ValueChanged<Track> onAddToQueue;
   final ValueChanged<Track> onAddToPlaylist;
   final ValueChanged<Track> onEditTrack;
+  final ValueChanged<Track> onSetCustomCover;
+  final ValueChanged<Track> onRemoveCustomCover;
 
   @override
   Widget build(BuildContext context) {
@@ -2810,6 +2903,11 @@ final class _TrackListSliver extends StatelessWidget {
                 onAddToPlaylist:
                     track.id == null ? null : () => onAddToPlaylist(track),
                 onEdit: () => onEditTrack(track),
+                onSetCustomCover:
+                    track.id == null ? null : () => onSetCustomCover(track),
+                onRemoveCustomCover: track.id == null || !track.hasCustomArtwork
+                    ? null
+                    : () => onRemoveCustomCover(track),
               ),
             );
           },
@@ -4248,6 +4346,8 @@ final class _InlineMessage extends StatelessWidget {
   }
 }
 
+enum _TrackRowAction { setCover, removeCustomCover }
+
 final class _TrackListTile extends StatelessWidget {
   const _TrackListTile({
     required this.track,
@@ -4259,6 +4359,8 @@ final class _TrackListTile extends StatelessWidget {
     required this.onAddToQueue,
     required this.onAddToPlaylist,
     required this.onEdit,
+    required this.onSetCustomCover,
+    required this.onRemoveCustomCover,
   });
 
   final Track track;
@@ -4270,6 +4372,8 @@ final class _TrackListTile extends StatelessWidget {
   final VoidCallback? onAddToQueue;
   final VoidCallback? onAddToPlaylist;
   final VoidCallback onEdit;
+  final VoidCallback? onSetCustomCover;
+  final VoidCallback? onRemoveCustomCover;
 
   @override
   Widget build(BuildContext context) {
@@ -4330,6 +4434,37 @@ final class _TrackListTile extends StatelessWidget {
             tooltip: 'Edit metadata',
             onPressed: track.id == null ? null : onEdit,
             icon: const Icon(Icons.edit_outlined),
+          ),
+          const SizedBox(width: 2),
+          PopupMenuButton<_TrackRowAction>(
+            tooltip: 'Track actions',
+            enabled: track.id != null,
+            icon: const Icon(Icons.more_horiz_outlined),
+            onSelected: (action) {
+              switch (action) {
+                case _TrackRowAction.setCover:
+                  onSetCustomCover?.call();
+                case _TrackRowAction.removeCustomCover:
+                  onRemoveCustomCover?.call();
+              }
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: _TrackRowAction.setCover,
+                child: ListTile(
+                  leading: Icon(Icons.image_outlined),
+                  title: Text('Set cover'),
+                ),
+              ),
+              if (track.hasCustomArtwork)
+                const PopupMenuItem(
+                  value: _TrackRowAction.removeCustomCover,
+                  child: ListTile(
+                    leading: Icon(Icons.hide_image_outlined),
+                    title: Text('Remove custom cover'),
+                  ),
+                ),
+            ],
           ),
           const SizedBox(width: 2),
           IconButton(
