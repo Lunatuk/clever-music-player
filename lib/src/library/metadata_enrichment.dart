@@ -1,5 +1,17 @@
+import 'dart:typed_data';
+
 import '../domain/models/models.dart';
 import 'filename_metadata_parser.dart';
+
+final class EmbeddedArtwork {
+  const EmbeddedArtwork({
+    required this.bytes,
+    this.mimeType,
+  });
+
+  final Uint8List bytes;
+  final String? mimeType;
+}
 
 final class EmbeddedAudioMetadata {
   const EmbeddedAudioMetadata({
@@ -12,6 +24,7 @@ final class EmbeddedAudioMetadata {
     this.trackNumber,
     this.discNumber,
     this.year,
+    this.artwork,
   });
 
   final String? title;
@@ -23,6 +36,7 @@ final class EmbeddedAudioMetadata {
   final int? trackNumber;
   final int? discNumber;
   final int? year;
+  final EmbeddedArtwork? artwork;
 }
 
 final class MergedMetadata {

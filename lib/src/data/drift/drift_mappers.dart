@@ -41,6 +41,12 @@ Track trackFromRow(TrackRow row) {
     album: row.album,
     albumArtist: row.albumArtist,
     genre: row.genre,
+    artworkPath: row.artworkPath,
+    artworkHash: row.artworkHash,
+    artworkMimeType: row.artworkMimeType,
+    customArtworkPath: row.customArtworkPath,
+    customArtworkHash: row.customArtworkHash,
+    customArtworkMimeType: row.customArtworkMimeType,
     codec: row.codec,
     duration: _durationFromMilliseconds(row.durationMs),
     trackNumber: row.trackNumber,
@@ -57,6 +63,26 @@ Track trackFromRow(TrackRow row) {
   );
 }
 
+Playlist playlistFromRow(PlaylistRow row) {
+  return Playlist(
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  );
+}
+
+PlaylistsCompanion playlistToCompanion(Playlist playlist) {
+  return PlaylistsCompanion(
+    id: playlist.id == null ? const Value.absent() : Value(playlist.id!),
+    name: Value(playlist.name),
+    description: Value(playlist.description),
+    createdAt: Value(playlist.createdAt),
+    updatedAt: Value(playlist.updatedAt),
+  );
+}
+
 TracksCompanion trackToCompanion(Track track) {
   return TracksCompanion(
     id: track.id == null ? const Value.absent() : Value(track.id!),
@@ -69,6 +95,12 @@ TracksCompanion trackToCompanion(Track track) {
     album: Value(track.album),
     albumArtist: Value(track.albumArtist),
     genre: Value(track.genre),
+    artworkPath: Value(track.artworkPath),
+    artworkHash: Value(track.artworkHash),
+    artworkMimeType: Value(track.artworkMimeType),
+    customArtworkPath: Value(track.customArtworkPath),
+    customArtworkHash: Value(track.customArtworkHash),
+    customArtworkMimeType: Value(track.customArtworkMimeType),
     codec: Value(track.codec),
     durationMs: Value(track.duration?.inMilliseconds),
     trackNumber: Value(track.trackNumber),

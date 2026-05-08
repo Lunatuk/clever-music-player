@@ -7,6 +7,7 @@ import 'package:clever_music_player/src/domain/repositories/repositories.dart';
 import 'package:clever_music_player/src/player/player_service.dart';
 import 'package:clever_music_player/src/player/player_state.dart';
 import 'package:clever_music_player/src/queue/playback_queue_service.dart';
+import 'package:clever_music_player/src/queue/queue_state.dart';
 import 'package:clever_music_player/src/recommendation/recommendation_service.dart';
 import 'package:clever_music_player/src/library/library_management_service.dart';
 import 'package:clever_music_player/src/library/library_scanner_service.dart';
@@ -200,8 +201,52 @@ void main() {
     await queue.playSmartNext();
 
     expect(queue.state.isWaveEnabled, isTrue);
+    expect(queue.state.isWaveCurrentSource, isTrue);
     expect(queue.state.lastRecommendationResult?.track.id, 2);
     expect(player.playedTracks.single.id, 2);
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
+  test('isWaveCurrentSource is true only for Smart Wave playback', () async {
+    final now = DateTime(2026);
+    final single = _track(id: 1, title: 'Single', now: now);
+    final playlistTrack = _track(id: 2, title: 'Playlist', now: now);
+    final queued = _track(id: 3, title: 'Queued', now: now);
+    final smart = _track(id: 4, title: 'Smart', now: now);
+    final player = _FakePlayerService();
+    final queue = _queue(
+      player: player,
+      tracks: _FakeTrackRepository([single, playlistTrack, queued, smart]),
+      now: now,
+    );
+
+    await queue.playTrackManually(single);
+
+    expect(queue.state.activeSource, PlaybackSource.singleTrack);
+    expect(queue.state.isWaveCurrentSource, isFalse);
+
+    await _startPlaylist(
+      queue,
+      [playlistTrack],
+      startTrackId: playlistTrack.id!,
+      now: now,
+    );
+
+    expect(queue.state.activeSource, PlaybackSource.playlist);
+    expect(queue.state.isWaveCurrentSource, isFalse);
+
+    await queue.addToQueue(queued);
+    await queue.next();
+
+    expect(queue.state.activeSource, PlaybackSource.manualQueue);
+    expect(queue.state.isWaveCurrentSource, isFalse);
+
+    await queue.playSmartNext();
+
+    expect(queue.state.activeSource, PlaybackSource.wave);
+    expect(queue.state.isWaveCurrentSource, isTrue);
 
     await queue.dispose();
     await player.dispose();
@@ -391,6 +436,1011 @@ void main() {
 
     expect(player.playedTracks.map((track) => track.id), [2]);
     expect(queue.state.manualQueue.map((track) => track.id), [3]);
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
+  test('playing playlist track sets playlist context at selected index',
+      () async {
+    final now = DateTime(2026);
+    final first = _track(id: 1, title: 'First', now: now);
+    final missing = _track(id: 2, title: 'Missing', isMissing: true, now: now);
+    final second = _track(id: 3, title: 'Second', now: now);
+    final player = _FakePlayerService();
+    final queue = _queue(
+      player: player,
+      tracks: _FakeTrackRepository([first, missing, second]),
+      now: now,
+    );
+
+    await queue.playPlaylist(
+      playlistId: 42,
+      playlistName: 'Road Mix',
+      entries: [
+        _playlistEntry(first, playlistId: 42, position: 0, now: now),
+        _playlistEntry(
+          missing,
+          playlistId: 42,
+          position: 1,
+          now: now,
+          unavailableReason: 'Missing',
+        ),
+        _playlistEntry(second, playlistId: 42, position: 2, now: now),
+      ],
+      startTrackId: 3,
+    );
+
+    expect(player.playedTracks.single.id, 3);
+    expect(queue.state.activeSource, PlaybackSource.playlist);
+    expect(queue.state.repeatMode, PlaybackRepeatMode.none);
+    expect(queue.state.playbackContext.source, PlaybackSource.playlist);
+    expect(queue.state.playbackContext.playlistId, 42);
+    expect(queue.state.playbackContext.playlistName, 'Road Mix');
+    expect(queue.state.playbackContext.currentIndex, 1);
+    expect(queue.state.playbackContext.tracks.map((track) => track.id), [
+      1,
+      3,
+    ]);
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
+  test('next from playlist plays next playlist track', () async {
+    final now = DateTime(2026);
+    final first = _track(id: 1, title: 'First', now: now);
+    final second = _track(id: 2, title: 'Second', now: now);
+    final player = _FakePlayerService();
+    final queue = _queue(
+      player: player,
+      tracks: _FakeTrackRepository([first, second]),
+      now: now,
+    );
+
+    await _startPlaylist(queue, [first, second], startTrackId: 1, now: now);
+    player.playedTracks.clear();
+
+    await queue.next();
+
+    expect(player.playedTracks.single.id, 2);
+    expect(queue.state.playbackContext.currentIndex, 1);
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
+  test('playlist playback follows reordered entry positions', () async {
+    final now = DateTime(2026);
+    final first = _track(id: 1, title: 'First', now: now);
+    final second = _track(id: 2, title: 'Second', now: now);
+    final third = _track(id: 3, title: 'Third', now: now);
+    final player = _FakePlayerService();
+    final queue = _queue(
+      player: player,
+      tracks: _FakeTrackRepository([first, second, third]),
+      now: now,
+    );
+
+    await queue.playPlaylist(
+      playlistId: 42,
+      playlistName: 'Road Mix',
+      entries: [
+        _playlistEntry(first, playlistId: 42, position: 1, now: now),
+        _playlistEntry(second, playlistId: 42, position: 0, now: now),
+        _playlistEntry(third, playlistId: 42, position: 2, now: now),
+      ],
+      startTrackId: 2,
+    );
+    player.playedTracks.clear();
+
+    await queue.next();
+
+    expect(queue.state.playbackContext.tracks.map((track) => track.id), [
+      2,
+      1,
+      3,
+    ]);
+    expect(player.playedTracks.single.id, 1);
+    expect(queue.state.playbackContext.currentIndex, 1);
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
+  test('refreshing active playlist order keeps current track and updates index',
+      () async {
+    final now = DateTime(2026);
+    final first = _track(id: 1, title: 'First', now: now);
+    final second = _track(id: 2, title: 'Second', now: now);
+    final third = _track(id: 3, title: 'Third', now: now);
+    final player = _FakePlayerService();
+    final queue = _queue(
+      player: player,
+      tracks: _FakeTrackRepository([first, second, third]),
+      now: now,
+    );
+
+    await _startPlaylist(
+      queue,
+      [first, second, third],
+      startTrackId: 2,
+      now: now,
+    );
+    player.playedTracks.clear();
+
+    await queue.refreshPlaylistContextOrder(
+      playlistId: 42,
+      entries: [
+        _playlistEntry(second, playlistId: 42, position: 0, now: now),
+        _playlistEntry(third, playlistId: 42, position: 1, now: now),
+        _playlistEntry(first, playlistId: 42, position: 2, now: now),
+      ],
+    );
+
+    expect(player.playedTracks, isEmpty);
+    expect(queue.state.currentTrack?.id, 2);
+    expect(queue.state.playbackContext.currentIndex, 0);
+    expect(queue.state.playbackContext.tracks.map((track) => track.id), [
+      2,
+      3,
+      1,
+    ]);
+
+    await queue.next();
+
+    expect(player.playedTracks.single.id, 3);
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
+  test('natural completion from playlist plays next playlist track', () async {
+    final now = DateTime(2026);
+    final first = _track(id: 1, title: 'First', now: now);
+    final second = _track(id: 2, title: 'Second', now: now);
+    final player = _FakePlayerService();
+    final queue = _queue(
+      player: player,
+      tracks: _FakeTrackRepository([first, second]),
+      now: now,
+    );
+
+    await _startPlaylist(queue, [first, second], startTrackId: 1, now: now);
+    player.playedTracks.clear();
+    player.emit(_completedState(first));
+    await _waitUntil(() => player.playedTracks.isNotEmpty);
+
+    expect(player.playedTracks.single.id, 2);
+    expect(queue.state.playbackContext.currentIndex, 1);
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
+  test('manual queue has priority and playlist continues after it is consumed',
+      () async {
+    final now = DateTime(2026);
+    final first = _track(id: 1, title: 'First', now: now);
+    final second = _track(id: 2, title: 'Second', now: now);
+    final queued = _track(id: 3, title: 'Queued', now: now);
+    final player = _FakePlayerService();
+    final queue = _queue(
+      player: player,
+      tracks: _FakeTrackRepository([first, second, queued]),
+      now: now,
+    );
+
+    await _startPlaylist(queue, [first, second], startTrackId: 1, now: now);
+    await queue.addToQueue(queued);
+    player.playedTracks.clear();
+
+    player.emit(_completedState(first));
+    await _waitUntil(() => player.playedTracks.length == 1);
+    player.emit(_completedState(queued));
+    await _waitUntil(() => player.playedTracks.length == 2);
+
+    expect(player.playedTracks.map((track) => track.id), [3, 2]);
+    expect(queue.state.manualQueue, isEmpty);
+    expect(queue.state.playbackContext.currentIndex, 1);
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
+  test('natural completion at playlist end falls back to Wave when disabled',
+      () async {
+    final now = DateTime(2026);
+    final playlistTrack =
+        _track(id: 1, title: 'Playlist', artist: 'A', now: now);
+    final smart = _track(id: 2, title: 'Smart', artist: 'B', now: now);
+    final player = _FakePlayerService();
+    final queue = _queue(
+      player: player,
+      tracks: _FakeTrackRepository([playlistTrack, smart]),
+      now: now,
+    );
+
+    await _startPlaylist(
+      queue,
+      [playlistTrack],
+      startTrackId: 1,
+      now: now,
+    );
+    player.playedTracks.clear();
+    player.emit(_completedState(playlistTrack));
+    await _waitUntil(() => player.playedTracks.isNotEmpty);
+
+    expect(player.playedTracks.single.id, 2);
+    expect(queue.state.playbackContext.source, PlaybackSource.none);
+    expect(queue.state.lastRecommendationResult?.track.id, 2);
+    expect(queue.state.isWaveEnabled, isTrue);
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
+  test('manual next at playlist end falls back to Wave when disabled',
+      () async {
+    final now = DateTime(2026);
+    final playlistTrack =
+        _track(id: 1, title: 'Playlist', artist: 'A', now: now);
+    final smart = _track(id: 2, title: 'Smart', artist: 'B', now: now);
+    final events = _FakePlaybackEventRepository();
+    final player = _FakePlayerService();
+    final queue = _queue(
+      player: player,
+      tracks: _FakeTrackRepository([playlistTrack, smart]),
+      events: events,
+      now: now,
+    );
+
+    await _startPlaylist(
+      queue,
+      [playlistTrack],
+      startTrackId: 1,
+      now: now,
+    );
+    player.emit(
+      _playingState(
+        playlistTrack,
+        position: const Duration(seconds: 42),
+      ),
+    );
+    player.playedTracks.clear();
+
+    await queue.next();
+
+    expect(player.playedTracks.single.id, 2);
+    expect(queue.state.playbackContext.source, PlaybackSource.none);
+    expect(queue.state.lastRecommendationResult?.track.id, 2);
+    expect(queue.state.isWaveEnabled, isTrue);
+    expect(events.events.single.type, PlaybackEventType.skipped);
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
+  test('manual queue still has priority over playlist end fallback', () async {
+    final now = DateTime(2026);
+    final playlistTrack =
+        _track(id: 1, title: 'Playlist', artist: 'A', now: now);
+    final queued = _track(id: 2, title: 'Queued', artist: 'B', now: now);
+    final smart = _track(id: 3, title: 'Smart', artist: 'C', now: now);
+    final player = _FakePlayerService();
+    final queue = _queue(
+      player: player,
+      tracks: _FakeTrackRepository([playlistTrack, queued, smart]),
+      now: now,
+    );
+
+    await _startPlaylist(
+      queue,
+      [playlistTrack],
+      startTrackId: 1,
+      now: now,
+    );
+    await queue.addToQueue(queued);
+    player.playedTracks.clear();
+
+    player.emit(_completedState(playlistTrack));
+    await _waitUntil(() => player.playedTracks.length == 1);
+    player.emit(_completedState(queued));
+    await _waitUntil(() => player.playedTracks.length == 2);
+
+    expect(player.playedTracks.first.id, 2);
+    expect(player.playedTracks, hasLength(2));
+    expect(queue.state.manualQueue, isEmpty);
+    expect(queue.state.playbackContext.source, PlaybackSource.none);
+    expect(queue.state.lastRecommendationResult?.track.id,
+        player.playedTracks.last.id);
+    expect(queue.state.isWaveEnabled, isTrue);
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
+  test('repeat playlist loops from last to first', () async {
+    final now = DateTime(2026);
+    final first = _track(id: 1, title: 'First', now: now);
+    final second = _track(id: 2, title: 'Second', now: now);
+    final player = _FakePlayerService();
+    final queue = _queue(
+      player: player,
+      tracks: _FakeTrackRepository([first, second]),
+      now: now,
+    );
+
+    await _startPlaylist(queue, [first, second], startTrackId: 2, now: now);
+    queue.setRepeatMode(PlaybackRepeatMode.playlist);
+    player.playedTracks.clear();
+    player.emit(_completedState(second));
+    await _waitUntil(() => player.playedTracks.isNotEmpty);
+
+    expect(player.playedTracks.single.id, 1);
+    expect(queue.state.playbackContext.currentIndex, 0);
+    expect(queue.state.lastRecommendationResult, isNull);
+    expect(queue.state.isWaveEnabled, isFalse);
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
+  test('repeat track repeats last playlist track without Wave fallback',
+      () async {
+    final now = DateTime(2026);
+    final first = _track(id: 1, title: 'First', now: now);
+    final second = _track(id: 2, title: 'Second', now: now);
+    final player = _FakePlayerService();
+    final queue = _queue(
+      player: player,
+      tracks: _FakeTrackRepository([first, second]),
+      now: now,
+    );
+
+    await _startPlaylist(queue, [first, second], startTrackId: 2, now: now);
+    queue.setRepeatMode(PlaybackRepeatMode.track);
+    player.playedTracks.clear();
+    player.emit(_completedState(second));
+    await _waitUntil(() => player.playedTracks.isNotEmpty);
+
+    expect(player.playedTracks.single.id, 2);
+    expect(queue.state.playbackContext.currentIndex, 1);
+    expect(queue.state.lastRecommendationResult, isNull);
+    expect(queue.state.isWaveEnabled, isFalse);
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
+  test('repeat track plus manual next advances to next playlist track',
+      () async {
+    final now = DateTime(2026);
+    final first = _track(id: 1, title: 'First', now: now);
+    final second = _track(id: 2, title: 'Second', now: now);
+    final player = _FakePlayerService();
+    final queue = _queue(
+      player: player,
+      tracks: _FakeTrackRepository([first, second]),
+      now: now,
+    );
+
+    await _startPlaylist(queue, [first, second], startTrackId: 1, now: now);
+    queue.setRepeatMode(PlaybackRepeatMode.track);
+    player.playedTracks.clear();
+
+    await queue.next();
+
+    expect(player.playedTracks.single.id, 2);
+    expect(queue.state.playbackContext.currentIndex, 1);
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
+  test('previous in playlist after threshold seeks to start', () async {
+    final now = DateTime(2026);
+    final first = _track(id: 1, title: 'First', now: now);
+    final second = _track(id: 2, title: 'Second', now: now);
+    final player = _FakePlayerService();
+    final queue = _queue(
+      player: player,
+      tracks: _FakeTrackRepository([first, second]),
+      now: now,
+    );
+
+    await _startPlaylist(queue, [first, second], startTrackId: 2, now: now);
+    player.emit(
+      _playingState(second, position: const Duration(seconds: 6)),
+    );
+    player.playedTracks.clear();
+
+    await queue.previous();
+
+    expect(player.playedTracks, isEmpty);
+    expect(player.seekCalls, [Duration.zero]);
+    expect(player.state.position, Duration.zero);
+    expect(queue.state.playbackContext.currentIndex, 1);
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
+  test('previous in playlist before threshold plays previous track', () async {
+    final now = DateTime(2026);
+    final first = _track(id: 1, title: 'First', now: now);
+    final second = _track(id: 2, title: 'Second', now: now);
+    final player = _FakePlayerService();
+    final queue = _queue(
+      player: player,
+      tracks: _FakeTrackRepository([first, second]),
+      now: now,
+    );
+
+    await _startPlaylist(queue, [first, second], startTrackId: 2, now: now);
+    player.emit(
+      _playingState(second, position: const Duration(seconds: 5)),
+    );
+    player.playedTracks.clear();
+
+    await queue.previous();
+
+    expect(player.playedTracks.single.id, 1);
+    expect(player.seekCalls, isEmpty);
+    expect(queue.state.playbackContext.currentIndex, 0);
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
+  test(
+      'previous at first track with repeat playlist before threshold plays last',
+      () async {
+    final now = DateTime(2026);
+    final first = _track(id: 1, title: 'First', now: now);
+    final second = _track(id: 2, title: 'Second', now: now);
+    final player = _FakePlayerService();
+    final queue = _queue(
+      player: player,
+      tracks: _FakeTrackRepository([first, second]),
+      now: now,
+    );
+
+    await _startPlaylist(queue, [first, second], startTrackId: 1, now: now);
+    queue.setRepeatMode(PlaybackRepeatMode.playlist);
+    player.emit(
+      _playingState(first, position: const Duration(seconds: 5)),
+    );
+    player.playedTracks.clear();
+
+    await queue.previous();
+
+    expect(player.playedTracks.single.id, 2);
+    expect(player.seekCalls, isEmpty);
+    expect(queue.state.playbackContext.currentIndex, 1);
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
+  test('previous outside playlist after threshold seeks to start', () async {
+    final now = DateTime(2026);
+    final current = _track(id: 1, title: 'Current', now: now);
+    final player = _FakePlayerService();
+    final queue = _queue(
+      player: player,
+      tracks: _FakeTrackRepository([current]),
+      now: now,
+    );
+    await queue.playTrackManually(current);
+    player.emit(
+      _playingState(current, position: const Duration(seconds: 6)),
+    );
+    player.playedTracks.clear();
+
+    await queue.previous();
+
+    expect(player.playedTracks, isEmpty);
+    expect(player.seekCalls, [Duration.zero]);
+    expect(player.state.position, Duration.zero);
+    expect(queue.state.playbackContext.source, PlaybackSource.none);
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
+  test('previous outside playlist before threshold is no-op', () async {
+    final now = DateTime(2026);
+    final current = _track(id: 1, title: 'Current', now: now);
+    final player = _FakePlayerService();
+    final queue = _queue(
+      player: player,
+      tracks: _FakeTrackRepository([current]),
+      now: now,
+    );
+    await queue.playTrackManually(current);
+    player.emit(
+      _playingState(current, position: const Duration(seconds: 5)),
+    );
+    player.playedTracks.clear();
+
+    await queue.previous();
+
+    expect(player.playedTracks, isEmpty);
+    expect(player.seekCalls, isEmpty);
+    expect(queue.state.playbackContext.source, PlaybackSource.none);
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
+  test('previous with no current track is no-op', () async {
+    final now = DateTime(2026);
+    final player = _FakePlayerService();
+    final queue = _queue(
+      player: player,
+      tracks: const _FakeTrackRepository([]),
+      now: now,
+    );
+
+    await queue.previous();
+
+    expect(player.playedTracks, isEmpty);
+    expect(player.seekCalls, isEmpty);
+    expect(queue.state.currentTrack, isNull);
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
+  test('missing playlist track cannot start playlist playback', () async {
+    final now = DateTime(2026);
+    final missing = _track(id: 1, title: 'Missing', isMissing: true, now: now);
+    final player = _FakePlayerService();
+    final queue = _queue(
+      player: player,
+      tracks: _FakeTrackRepository([missing]),
+      now: now,
+    );
+
+    await queue.playPlaylist(
+      playlistId: 42,
+      playlistName: 'Broken',
+      entries: [
+        _playlistEntry(
+          missing,
+          playlistId: 42,
+          position: 0,
+          now: now,
+          unavailableReason: 'Missing',
+        ),
+      ],
+      startTrackId: 1,
+    );
+
+    expect(player.playedTracks, isEmpty);
+    expect(queue.state.playbackContext.source, PlaybackSource.none);
+    expect(queue.state.lastError, contains('No playable tracks'));
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
+  test('playing library track sets library context at selected index',
+      () async {
+    final now = DateTime(2026);
+    final first = _track(id: 1, title: 'First', now: now);
+    final missing = _track(id: 2, title: 'Missing', isMissing: true, now: now);
+    final second = _track(id: 3, title: 'Second', now: now);
+    final third = _track(id: 4, title: 'Third', now: now);
+    final player = _FakePlayerService();
+    final queue = _queue(
+      player: player,
+      tracks: _FakeTrackRepository([first, missing, second, third]),
+      now: now,
+    );
+
+    await queue.playLibraryTrack(
+      track: first,
+      visibleTracks: [third, missing, first, second],
+    );
+
+    expect(player.playedTracks.single.id, 1);
+    expect(queue.state.activeSource, PlaybackSource.library);
+    expect(queue.state.repeatMode, PlaybackRepeatMode.none);
+    expect(queue.state.playbackContext.source, PlaybackSource.library);
+    expect(queue.state.playbackContext.currentIndex, 1);
+    expect(queue.state.playbackContext.tracks.map((track) => track.id), [
+      4,
+      1,
+      3,
+    ]);
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
+  test('next from library plays next library track', () async {
+    final now = DateTime(2026);
+    final first = _track(id: 1, title: 'First', now: now);
+    final second = _track(id: 2, title: 'Second', now: now);
+    final player = _FakePlayerService();
+    final queue = _queue(
+      player: player,
+      tracks: _FakeTrackRepository([first, second]),
+      now: now,
+    );
+
+    await _startLibrary(queue, [first, second], startTrack: first);
+    player.playedTracks.clear();
+
+    await queue.next();
+
+    expect(player.playedTracks.single.id, 2);
+    expect(queue.state.playbackContext.currentIndex, 1);
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
+  test('natural completion from library plays next library track', () async {
+    final now = DateTime(2026);
+    final first = _track(id: 1, title: 'First', now: now);
+    final second = _track(id: 2, title: 'Second', now: now);
+    final player = _FakePlayerService();
+    final queue = _queue(
+      player: player,
+      tracks: _FakeTrackRepository([first, second]),
+      now: now,
+    );
+
+    await _startLibrary(queue, [first, second], startTrack: first);
+    player.playedTracks.clear();
+    player.emit(_completedState(first));
+    await _waitUntil(() => player.playedTracks.isNotEmpty);
+
+    expect(player.playedTracks.single.id, 2);
+    expect(queue.state.playbackContext.currentIndex, 1);
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
+  test('previous in library before threshold plays previous track', () async {
+    final now = DateTime(2026);
+    final first = _track(id: 1, title: 'First', now: now);
+    final second = _track(id: 2, title: 'Second', now: now);
+    final player = _FakePlayerService();
+    final queue = _queue(
+      player: player,
+      tracks: _FakeTrackRepository([first, second]),
+      now: now,
+    );
+
+    await _startLibrary(queue, [first, second], startTrack: second);
+    player.emit(_playingState(second, position: const Duration(seconds: 5)));
+    player.playedTracks.clear();
+
+    await queue.previous();
+
+    expect(player.playedTracks.single.id, 1);
+    expect(player.seekCalls, isEmpty);
+    expect(queue.state.playbackContext.currentIndex, 0);
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
+  test('previous in library after threshold seeks to start', () async {
+    final now = DateTime(2026);
+    final first = _track(id: 1, title: 'First', now: now);
+    final second = _track(id: 2, title: 'Second', now: now);
+    final player = _FakePlayerService();
+    final queue = _queue(
+      player: player,
+      tracks: _FakeTrackRepository([first, second]),
+      now: now,
+    );
+
+    await _startLibrary(queue, [first, second], startTrack: second);
+    player.emit(_playingState(second, position: const Duration(seconds: 6)));
+    player.playedTracks.clear();
+
+    await queue.previous();
+
+    expect(player.playedTracks, isEmpty);
+    expect(player.seekCalls, [Duration.zero]);
+    expect(player.state.position, Duration.zero);
+    expect(queue.state.playbackContext.currentIndex, 1);
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
+  test('repeat library loops from last to first', () async {
+    final now = DateTime(2026);
+    final first = _track(id: 1, title: 'First', now: now);
+    final second = _track(id: 2, title: 'Second', now: now);
+    final player = _FakePlayerService();
+    final queue = _queue(
+      player: player,
+      tracks: _FakeTrackRepository([first, second]),
+      now: now,
+    );
+
+    await _startLibrary(queue, [first, second], startTrack: second);
+    queue.setRepeatMode(PlaybackRepeatMode.playlist);
+    player.playedTracks.clear();
+    player.emit(_completedState(second));
+    await _waitUntil(() => player.playedTracks.isNotEmpty);
+
+    expect(player.playedTracks.single.id, 1);
+    expect(queue.state.playbackContext.currentIndex, 0);
+    expect(queue.state.lastRecommendationResult, isNull);
+    expect(queue.state.isWaveEnabled, isFalse);
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
+  test('repeat track repeats current library track on natural completion',
+      () async {
+    final now = DateTime(2026);
+    final first = _track(id: 1, title: 'First', now: now);
+    final second = _track(id: 2, title: 'Second', now: now);
+    final player = _FakePlayerService();
+    final queue = _queue(
+      player: player,
+      tracks: _FakeTrackRepository([first, second]),
+      now: now,
+    );
+
+    await _startLibrary(queue, [first, second], startTrack: second);
+    queue.setRepeatMode(PlaybackRepeatMode.track);
+    player.playedTracks.clear();
+    player.emit(_completedState(second));
+    await _waitUntil(() => player.playedTracks.isNotEmpty);
+
+    expect(player.playedTracks.single.id, 2);
+    expect(queue.state.playbackContext.currentIndex, 1);
+    expect(queue.state.lastRecommendationResult, isNull);
+    expect(queue.state.isWaveEnabled, isFalse);
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
+  test('library end with repeat none falls back to Wave', () async {
+    final now = DateTime(2026);
+    final libraryTrack = _track(id: 1, title: 'Library', artist: 'A', now: now);
+    final smart = _track(id: 2, title: 'Smart', artist: 'B', now: now);
+    final player = _FakePlayerService();
+    final queue = _queue(
+      player: player,
+      tracks: _FakeTrackRepository([libraryTrack, smart]),
+      now: now,
+    );
+
+    await _startLibrary(queue, [libraryTrack], startTrack: libraryTrack);
+    player.playedTracks.clear();
+    player.emit(_completedState(libraryTrack));
+    await _waitUntil(() => player.playedTracks.isNotEmpty);
+
+    expect(player.playedTracks.single.id, 2);
+    expect(queue.state.playbackContext.source, PlaybackSource.none);
+    expect(queue.state.lastRecommendationResult?.track.id, 2);
+    expect(queue.state.isWaveEnabled, isTrue);
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
+  test('manual queue has priority and library continues after it is consumed',
+      () async {
+    final now = DateTime(2026);
+    final first = _track(id: 1, title: 'First', now: now);
+    final second = _track(id: 2, title: 'Second', now: now);
+    final queued = _track(id: 3, title: 'Queued', now: now);
+    final player = _FakePlayerService();
+    final queue = _queue(
+      player: player,
+      tracks: _FakeTrackRepository([first, second, queued]),
+      now: now,
+    );
+
+    await _startLibrary(queue, [first, second], startTrack: first);
+    await queue.addToQueue(queued);
+    player.playedTracks.clear();
+
+    player.emit(_completedState(first));
+    await _waitUntil(() => player.playedTracks.length == 1);
+    player.emit(_completedState(queued));
+    await _waitUntil(() => player.playedTracks.length == 2);
+
+    expect(player.playedTracks.map((track) => track.id), [3, 2]);
+    expect(queue.state.manualQueue, isEmpty);
+    expect(queue.state.playbackContext.currentIndex, 1);
+    expect(queue.state.activeSource, PlaybackSource.library);
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
+  test('playlist shuffle next does not pick current track', () async {
+    final now = DateTime(2026);
+    final first = _track(id: 1, title: 'First', now: now);
+    final second = _track(id: 2, title: 'Second', now: now);
+    final third = _track(id: 3, title: 'Third', now: now);
+    final player = _FakePlayerService();
+    final queue = _queue(
+      player: player,
+      tracks: _FakeTrackRepository([first, second, third]),
+      now: now,
+    );
+
+    await _startPlaylist(
+      queue,
+      [first, second, third],
+      startTrackId: 1,
+      now: now,
+    );
+    queue.setPlaylistShuffleEnabled(true);
+    player.playedTracks.clear();
+
+    await queue.next();
+
+    expect(player.playedTracks.single.id, isNot(1));
+    expect(queue.state.lastRecommendationResult, isNull);
+    expect(queue.state.recommendationCandidates, isEmpty);
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
+  test('playlist shuffle completion does not pick current track', () async {
+    final now = DateTime(2026);
+    final first = _track(id: 1, title: 'First', now: now);
+    final second = _track(id: 2, title: 'Second', now: now);
+    final third = _track(id: 3, title: 'Third', now: now);
+    final player = _FakePlayerService();
+    final queue = _queue(
+      player: player,
+      tracks: _FakeTrackRepository([first, second, third]),
+      now: now,
+    );
+
+    await _startPlaylist(
+      queue,
+      [first, second, third],
+      startTrackId: 1,
+      now: now,
+    );
+    queue.setPlaylistShuffleEnabled(true);
+    player.playedTracks.clear();
+    player.emit(_completedState(first));
+    await _waitUntil(() => player.playedTracks.isNotEmpty);
+
+    expect(player.playedTracks.single.id, isNot(1));
+    expect(queue.state.lastRecommendationResult, isNull);
+    expect(queue.state.recommendationCandidates, isEmpty);
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
+  test('playlist shuffle with repeat playlist continues after bag is used',
+      () async {
+    final now = DateTime(2026);
+    final first = _track(id: 1, title: 'First', now: now);
+    final second = _track(id: 2, title: 'Second', now: now);
+    final player = _FakePlayerService();
+    final queue = _queue(
+      player: player,
+      tracks: _FakeTrackRepository([first, second]),
+      now: now,
+    );
+
+    await _startPlaylist(queue, [first, second], startTrackId: 1, now: now);
+    queue.setPlaylistShuffleEnabled(true);
+    queue.setRepeatMode(PlaybackRepeatMode.playlist);
+    player.playedTracks.clear();
+
+    player.emit(_completedState(first));
+    await _waitUntil(() => player.playedTracks.length == 1);
+    player.emit(_completedState(second));
+    await _waitUntil(() => player.playedTracks.length == 2);
+
+    expect(player.playedTracks.map((track) => track.id), [2, 1]);
+    expect(queue.state.isWaveEnabled, isFalse);
+    expect(queue.state.isPlaylistShuffleEnabled, isTrue);
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
+  test('playlist shuffle with repeat none falls back to Wave after bag is used',
+      () async {
+    final now = DateTime(2026);
+    final first = _track(id: 1, title: 'First', artist: 'A', now: now);
+    final second = _track(id: 2, title: 'Second', artist: 'B', now: now);
+    final smart = _track(id: 3, title: 'Smart', artist: 'C', now: now);
+    final player = _FakePlayerService();
+    final queue = _queue(
+      player: player,
+      tracks: _FakeTrackRepository([first, second, smart]),
+      now: now,
+    );
+
+    await _startPlaylist(queue, [first, second], startTrackId: 1, now: now);
+    queue.setPlaylistShuffleEnabled(true);
+    player.playedTracks.clear();
+
+    player.emit(_completedState(first));
+    await _waitUntil(() => player.playedTracks.length == 1);
+    player.emit(_completedState(second));
+    await _waitUntil(() => player.playedTracks.length == 2);
+
+    expect(player.playedTracks.first.id, 2);
+    expect(player.playedTracks, hasLength(2));
+    expect(queue.state.playbackContext.source, PlaybackSource.none);
+    expect(queue.state.isPlaylistShuffleEnabled, isFalse);
+    expect(queue.state.lastRecommendationResult?.track.id,
+        player.playedTracks.last.id);
+    expect(queue.state.isWaveEnabled, isTrue);
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
+  test('repeat track overrides playlist shuffle on natural completion',
+      () async {
+    final now = DateTime(2026);
+    final first = _track(id: 1, title: 'First', now: now);
+    final second = _track(id: 2, title: 'Second', now: now);
+    final player = _FakePlayerService();
+    final queue = _queue(
+      player: player,
+      tracks: _FakeTrackRepository([first, second]),
+      now: now,
+    );
+
+    await _startPlaylist(queue, [first, second], startTrackId: 1, now: now);
+    queue.setPlaylistShuffleEnabled(true);
+    queue.setRepeatMode(PlaybackRepeatMode.track);
+    player.playedTracks.clear();
+    player.emit(_completedState(first));
+    await _waitUntil(() => player.playedTracks.isNotEmpty);
+
+    expect(player.playedTracks.single.id, 1);
+    expect(queue.state.playbackContext.currentIndex, 0);
+    expect(queue.state.isPlaylistShuffleEnabled, isTrue);
+
+    await queue.dispose();
+    await player.dispose();
+  });
+
+  test('manual next with repeat track advances through playlist shuffle',
+      () async {
+    final now = DateTime(2026);
+    final first = _track(id: 1, title: 'First', now: now);
+    final second = _track(id: 2, title: 'Second', now: now);
+    final player = _FakePlayerService();
+    final queue = _queue(
+      player: player,
+      tracks: _FakeTrackRepository([first, second]),
+      now: now,
+    );
+
+    await _startPlaylist(queue, [first, second], startTrackId: 1, now: now);
+    queue.setPlaylistShuffleEnabled(true);
+    queue.setRepeatMode(PlaybackRepeatMode.track);
+    player.playedTracks.clear();
+
+    await queue.next();
+
+    expect(player.playedTracks.single.id, 2);
+    expect(queue.state.playbackContext.currentIndex, 1);
+    expect(queue.state.isPlaylistShuffleEnabled, isTrue);
 
     await queue.dispose();
     await player.dispose();
@@ -1803,6 +2853,57 @@ void main() {
   });
 }
 
+Future<void> _startPlaylist(
+  PlaybackQueueService queue,
+  List<Track> tracks, {
+  required int startTrackId,
+  required DateTime now,
+}) {
+  return queue.playPlaylist(
+    playlistId: 42,
+    playlistName: 'Road Mix',
+    entries: [
+      for (var index = 0; index < tracks.length; index++)
+        _playlistEntry(
+          tracks[index],
+          playlistId: 42,
+          position: index,
+          now: now.add(Duration(milliseconds: index)),
+        ),
+    ],
+    startTrackId: startTrackId,
+  );
+}
+
+Future<void> _startLibrary(
+  PlaybackQueueService queue,
+  List<Track> tracks, {
+  required Track startTrack,
+}) {
+  return queue.playLibraryTrack(
+    track: startTrack,
+    visibleTracks: tracks,
+  );
+}
+
+PlaylistEntry _playlistEntry(
+  Track track, {
+  required int playlistId,
+  required int position,
+  required DateTime now,
+  String? unavailableReason,
+}) {
+  return PlaylistEntry(
+    playlistId: playlistId,
+    trackId: track.id!,
+    position: position,
+    addedAt: now,
+    track: track,
+    unavailableReason:
+        unavailableReason ?? (track.isMissing ? 'Missing' : null),
+  );
+}
+
 PlaybackQueueService _queue({
   required _FakePlayerService player,
   required _FakeTrackRepository tracks,
@@ -1872,6 +2973,19 @@ PlayerState _completedState(Track track) {
   );
 }
 
+PlayerState _playingState(
+  Track track, {
+  required Duration position,
+}) {
+  return PlayerState(
+    currentTrack: track,
+    isPlaying: true,
+    position: position,
+    duration: track.duration,
+    status: PlayerPlaybackStatus.playing,
+  );
+}
+
 RecommendationResult _recommendationResult({
   required int id,
   required String title,
@@ -1906,6 +3020,7 @@ final class _FakePlayerService implements PlayerService {
 
   final List<Track> playedTracks = [];
   final List<Track> playTrackCalls = [];
+  final List<Duration> seekCalls = [];
   Completer<void>? playTrackBlocker;
   Object? playTrackError;
   PlayerState _state = const PlayerState.idle();
@@ -1975,6 +3090,7 @@ final class _FakePlayerService implements PlayerService {
 
   @override
   Future<void> seek(Duration position) async {
+    seekCalls.add(position);
     emit(_state.copyWith(position: position));
   }
 
@@ -2006,6 +3122,21 @@ final class _FakeTrackRepository implements TrackRepository {
 
   @override
   Future<void> updateTrackMetadata(TrackMetadataUpdate metadata) async {}
+
+  @override
+  Future<void> updateCustomArtwork({
+    required int trackId,
+    required String path,
+    required String hash,
+    required String? mimeType,
+    required DateTime updatedAt,
+  }) async {}
+
+  @override
+  Future<void> clearCustomArtwork({
+    required int trackId,
+    required DateTime updatedAt,
+  }) async {}
 
   @override
   Future<Track?> findById(int id) async {

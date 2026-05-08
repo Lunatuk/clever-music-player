@@ -4,6 +4,8 @@ import 'package:path/path.dart' as p;
 
 import '../domain/models/models.dart';
 import '../domain/repositories/repositories.dart';
+import 'artwork_cache_service.dart';
+import 'metadata_enrichment.dart';
 import 'metadata_reader_service.dart';
 import 'stable_track_id.dart';
 
@@ -96,12 +98,14 @@ final class LibraryScannerService {
     required this.libraryRepository,
     required this.trackRepository,
     required this.metadataReader,
+    this.artworkCache = const NoopArtworkCacheService(),
     this.listEntities = _defaultDirectoryEntityLister,
   });
 
   final LibraryRepository libraryRepository;
   final TrackRepository trackRepository;
   final MetadataReaderService metadataReader;
+  final ArtworkCacheService artworkCache;
   final DirectoryEntityLister listEntities;
 
   Future<LibraryScanResult> scanFolder(String folderPath) async {
@@ -159,8 +163,10 @@ final class LibraryScannerService {
 
         try {
           final metadata = await metadataReader.read(entity);
+          final artwork = await _cacheArtwork(metadata.artwork);
           final track = _trackFromMetadata(
             metadata: metadata,
+            artwork: artwork,
             folderId: folderId,
             knownByStableId: knownByStableId,
             knownByFilePath: knownByFilePath,
@@ -247,6 +253,7 @@ final class LibraryScannerService {
 
   Track _trackFromMetadata({
     required AudioMetadata metadata,
+    required CachedArtwork? artwork,
     required int folderId,
     required Map<String, Track> knownByStableId,
     required Map<String, Track> knownByFilePath,
@@ -279,6 +286,12 @@ final class LibraryScannerService {
       albumArtist:
           preserveManualMetadata ? existing?.albumArtist : metadata.albumArtist,
       genre: preserveManualMetadata ? existing?.genre : metadata.genre,
+      artworkPath: artwork?.path ?? existing?.artworkPath,
+      artworkHash: artwork?.hash ?? existing?.artworkHash,
+      artworkMimeType: artwork?.mimeType ?? existing?.artworkMimeType,
+      customArtworkPath: existing?.customArtworkPath,
+      customArtworkHash: existing?.customArtworkHash,
+      customArtworkMimeType: existing?.customArtworkMimeType,
       codec: metadata.codec,
       duration: metadata.duration,
       trackNumber:
@@ -298,6 +311,18 @@ final class LibraryScannerService {
       addedAt: existing?.addedAt ?? now,
       updatedAt: now,
     );
+  }
+
+  Future<CachedArtwork?> _cacheArtwork(EmbeddedArtwork? artwork) async {
+    if (artwork == null) {
+      return null;
+    }
+
+    try {
+      return await artworkCache.saveEmbeddedArtwork(artwork);
+    } on Object {
+      return null;
+    }
   }
 
   bool _shouldIgnoreEntity(FileSystemEntity entity,
