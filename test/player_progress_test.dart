@@ -29,6 +29,19 @@ void main() {
     expect(progress.maxMilliseconds, 180000);
   });
 
+  test('shows progress when duration comes from track metadata fallback', () {
+    const progress = PlayerProgress(
+      position: Duration(seconds: 30),
+      duration: Duration(minutes: 3),
+    );
+
+    expect(progress.canSeek, isTrue);
+    expect(progress.displayPosition, const Duration(seconds: 30));
+    expect(progress.displayDuration, const Duration(minutes: 3));
+    expect(progress.valueMilliseconds, 30000);
+    expect(progress.maxMilliseconds, 180000);
+  });
+
   test('fromSliderValue clamps negative and oversized values', () {
     const duration = Duration(minutes: 2);
 
