@@ -1,10 +1,13 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:clever_music_player/src/domain/models/models.dart';
 import 'package:clever_music_player/src/domain/repositories/repositories.dart';
 import 'package:clever_music_player/src/player/just_audio_player_service.dart';
 import 'package:clever_music_player/src/player/player_state.dart';
+import 'package:clever_music_player/src/player/windows_playback_cache.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 
 void main() {
   test('playTrack reports missing files without loading audio', () async {
@@ -18,7 +21,7 @@ void main() {
 
     expect(service.state.status, PlayerPlaybackStatus.error);
     expect(service.state.currentTrack, isNull);
-    expect(service.state.errorMessage, contains('File does not exist'));
+    expect(service.state.errorMessage, contains('File not found'));
     expect(engine.setFilePathCalls, 0);
     expect(engine.playCalls, 0);
 
@@ -62,6 +65,205 @@ void main() {
     expect(playbackEvents.events.single.type, PlaybackEventType.started);
     expect(userState.states[1]!.playCount, 1);
     expect(userState.states[1]!.lastPlayedAt, isNotNull);
+
+    await service.dispose();
+  });
+
+  test('direct Windows playback uses the normalized source path', () async {
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'clever_music_player_direct_test_',
+    );
+    addTearDown(() => tempDirectory.delete(recursive: true));
+    final file = File(p.join(tempDirectory.path, 'song.mp3'));
+    await file.writeAsBytes([1, 2, 3, 4]);
+    final engine = _FakeAudioEngine();
+    final service = _service(
+      audioEngine: engine,
+      isWindows: true,
+      fileExists: (path) => File(path).existsSync(),
+    );
+
+    final track = _track(filePath: file.path);
+    await service.playTrack(track);
+
+    expect(engine.setFilePaths, [p.normalize(file.absolute.path)]);
+    expect(service.state.currentTrack?.filePath, file.path);
+    expect(service.state.status, PlayerPlaybackStatus.playing);
+
+    await service.dispose();
+  });
+
+  test('non-ASCII Windows path falls back to cached ASCII path', () async {
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'clever_music_player_unicode_test_',
+    );
+    addTearDown(() => tempDirectory.delete(recursive: true));
+    final appSupportDirectory =
+        Directory(p.join(tempDirectory.path, 'support'));
+    final source = File(p.join(tempDirectory.path, 'МУЗЫКА', 'трек.mp3'));
+    await source.parent.create(recursive: true);
+    await source.writeAsBytes([1, 2, 3, 4]);
+    final normalizedSourcePath = p.normalize(source.absolute.path);
+    final engine = _FakeAudioEngine();
+    final service = _service(
+      audioEngine: engine,
+      isWindows: true,
+      fileExists: (path) => File(path).existsSync(),
+      playbackCache: WindowsPlaybackCache(
+        appSupportDirectoryProvider: () async => appSupportDirectory,
+      ),
+    );
+
+    final track = _track(filePath: source.path, stableId: 'stable-track');
+    await service.playTrack(track);
+
+    expect(engine.setFilePaths, hasLength(1));
+    final cachedPath = engine.setFilePaths.single;
+    expect(cachedPath, isNot(normalizedSourcePath));
+    expect(p.basename(cachedPath), matches(RegExp(r'^[A-Za-z0-9_.-]+$')));
+    expect(p.extension(cachedPath), '.mp3');
+    expect(File(cachedPath).readAsBytesSync(), [1, 2, 3, 4]);
+    expect(service.state.currentTrack?.filePath, source.path);
+    expect(service.state.status, PlayerPlaybackStatus.playing);
+
+    await service.dispose();
+  });
+
+  test('Windows playback cache reuses a valid cached file', () async {
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'clever_music_player_cache_reuse_test_',
+    );
+    addTearDown(() => tempDirectory.delete(recursive: true));
+    final appSupportDirectory =
+        Directory(p.join(tempDirectory.path, 'support'));
+    final source = File(p.join(tempDirectory.path, 'МУЗЫКА', 'трек.mp3'));
+    await source.parent.create(recursive: true);
+    await source.writeAsBytes([1, 2, 3, 4]);
+    final engine = _FakeAudioEngine();
+    final service = _service(
+      audioEngine: engine,
+      isWindows: true,
+      fileExists: (path) => File(path).existsSync(),
+      playbackCache: WindowsPlaybackCache(
+        appSupportDirectoryProvider: () async => appSupportDirectory,
+      ),
+    );
+
+    final track = _track(filePath: source.path, stableId: 'stable-track');
+    await service.playTrack(track);
+    final cachedPath = engine.setFilePaths.last;
+    await File(cachedPath).writeAsBytes([9, 9, 9, 9]);
+
+    await service.playTrack(track);
+
+    expect(engine.setFilePaths, hasLength(2));
+    expect(engine.setFilePaths.last, cachedPath);
+    expect(File(cachedPath).readAsBytesSync(), [9, 9, 9, 9]);
+
+    await service.dispose();
+  });
+
+  test('missing source file fails without loading or caching audio', () async {
+    final engine = _FakeAudioEngine();
+    final cache = _ThrowingPlaybackCache('cache should not be used');
+    final service = _service(
+      audioEngine: engine,
+      isWindows: true,
+      fileExists: (_) => false,
+      playbackCache: cache,
+    );
+
+    await service.playTrack(_track(filePath: r'D:\МУЗЫКА\missing.mp3'));
+
+    expect(service.state.status, PlayerPlaybackStatus.error);
+    expect(service.state.errorMessage, contains('File not found'));
+    expect(engine.setFilePathCalls, 0);
+    expect(cache.calls, 0);
+
+    await service.dispose();
+  });
+
+  test('failed direct load and failed cache fallback report useful error',
+      () async {
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'clever_music_player_cache_failure_test_',
+    );
+    addTearDown(() => tempDirectory.delete(recursive: true));
+    final source = File(p.join(tempDirectory.path, 'МУЗЫКА', 'трек.mp3'));
+    await source.parent.create(recursive: true);
+    await source.writeAsBytes([1, 2, 3, 4]);
+    final engine = _FakeAudioEngine()
+      ..setFilePathHandler = (filePath, _) {
+        throw FileSystemException('Cannot find path', filePath);
+      };
+    final cache = _ThrowingPlaybackCache('cache copy failed');
+    final service = _service(
+      audioEngine: engine,
+      isWindows: true,
+      fileExists: (path) => File(path).existsSync(),
+      playbackCache: cache,
+    );
+
+    await service.playTrack(_track(filePath: source.path));
+
+    expect(service.state.status, PlayerPlaybackStatus.error);
+    expect(
+      service.state.errorMessage,
+      allOf(
+        contains('Windows Unicode path fallback failed'),
+        contains('cache copy failed'),
+      ),
+    );
+    expect(engine.playCalls, 0);
+    expect(cache.calls, 1);
+
+    await service.dispose();
+  });
+
+  test('duration stream null preserves track duration fallback', () async {
+    final engine = _FakeAudioEngine()..loadedDuration = null;
+    final service = _service(audioEngine: engine);
+
+    await service.playTrack(_track());
+    engine.emitDuration(null);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(service.state.duration, const Duration(minutes: 3));
+
+    await service.dispose();
+  });
+
+  test('duration stream uses backend duration when available', () async {
+    final engine = _FakeAudioEngine()..loadedDuration = null;
+    final service = _service(audioEngine: engine);
+
+    await service.playTrack(_track());
+    engine.emitDuration(const Duration(minutes: 4));
+    await Future<void>.delayed(Duration.zero);
+
+    expect(service.state.duration, const Duration(minutes: 4));
+
+    await service.dispose();
+  });
+
+  test('audio error stream stops loading and reports failure', () async {
+    final engine = _FakeAudioEngine()..loadedDuration = Duration.zero;
+    final service = _service(audioEngine: engine);
+
+    await service.playTrack(_track());
+    engine.emitState(
+      const AudioEngineState(
+        isPlaying: false,
+        processingState: AudioEngineProcessingState.loading,
+      ),
+    );
+    engine.emitError(FileSystemException('Cannot find path', r'D:\song.mp3'));
+    await Future<void>.delayed(Duration.zero);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(service.state.status, PlayerPlaybackStatus.error);
+    expect(service.state.currentTrack, isNull);
+    expect(service.state.errorMessage, contains('Cannot find path'));
 
     await service.dispose();
   });
@@ -136,6 +338,8 @@ void main() {
 JustAudioPlayerService _service({
   required _FakeAudioEngine audioEngine,
   bool Function(String filePath)? fileExists,
+  bool? isWindows,
+  PlaybackCache? playbackCache,
   _FakePlaybackEventRepository? playbackEvents,
   _FakeTrackUserStateRepository? trackUserState,
 }) {
@@ -143,15 +347,21 @@ JustAudioPlayerService _service({
     playbackEvents: playbackEvents ?? _FakePlaybackEventRepository(),
     trackUserState: trackUserState ?? _FakeTrackUserStateRepository(),
     audioEngine: audioEngine,
+    isWindows: isWindows ?? false,
+    playbackCache: playbackCache,
     fileExists: fileExists ?? (_) => true,
   );
 }
 
-Track _track() {
+Track _track({
+  String filePath = '/music/song.flac',
+  String? stableId,
+}) {
   final now = DateTime(2026);
   return Track(
     id: 1,
-    filePath: '/music/song.flac',
+    stableId: stableId,
+    filePath: filePath,
     title: 'Song',
     artist: 'Artist',
     duration: const Duration(minutes: 3),
@@ -167,10 +377,14 @@ final class _FakeAudioEngine implements LocalAudioEngine {
       StreamController<Duration>.broadcast();
   final StreamController<Duration?> _durationController =
       StreamController<Duration?>.broadcast();
+  final StreamController<Object> _errorController =
+      StreamController<Object>.broadcast();
 
   Duration? loadedDuration = const Duration(minutes: 3);
   Object? setFilePathError;
+  Duration? Function(String filePath, int call)? setFilePathHandler;
   int setFilePathCalls = 0;
+  final List<String> setFilePaths = [];
   int playCalls = 0;
   int pauseCalls = 0;
   int stopCalls = 0;
@@ -187,8 +401,16 @@ final class _FakeAudioEngine implements LocalAudioEngine {
   Stream<Duration?> get durationStream => _durationController.stream;
 
   @override
+  Stream<Object> get errorStream => _errorController.stream;
+
+  @override
   Future<Duration?> setFilePath(String filePath) async {
     setFilePathCalls += 1;
+    setFilePaths.add(filePath);
+    final handler = setFilePathHandler;
+    if (handler != null) {
+      return handler(filePath, setFilePathCalls);
+    }
     final error = setFilePathError;
     if (error != null) {
       throw error;
@@ -226,10 +448,32 @@ final class _FakeAudioEngine implements LocalAudioEngine {
     await _stateController.close();
     await _positionController.close();
     await _durationController.close();
+    await _errorController.close();
   }
 
   void emitState(AudioEngineState state) {
     _stateController.add(state);
+  }
+
+  void emitDuration(Duration? duration) {
+    _durationController.add(duration);
+  }
+
+  void emitError(Object error) {
+    _errorController.add(error);
+  }
+}
+
+final class _ThrowingPlaybackCache implements PlaybackCache {
+  _ThrowingPlaybackCache(this.message);
+
+  final String message;
+  int calls = 0;
+
+  @override
+  Future<PlaybackCacheEntry> resolve(Track track, String sourcePath) async {
+    calls += 1;
+    throw PlaybackCacheException(message);
   }
 }
 

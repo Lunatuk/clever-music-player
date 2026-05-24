@@ -1,12 +1,15 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart' as just_audio;
+import 'package:path/path.dart' as p;
 
 import '../domain/models/models.dart';
 import '../domain/repositories/repositories.dart';
 import 'player_service.dart';
 import 'player_state.dart';
+import 'windows_playback_cache.dart';
 
 enum AudioEngineProcessingState {
   idle,
@@ -32,6 +35,8 @@ abstract interface class LocalAudioEngine {
   Stream<Duration> get positionStream;
 
   Stream<Duration?> get durationStream;
+
+  Stream<Object> get errorStream;
 
   Future<Duration?> setFilePath(String filePath);
 
@@ -69,6 +74,9 @@ final class JustAudioEngine implements LocalAudioEngine {
 
   @override
   Stream<Duration?> get durationStream => _player.durationStream;
+
+  @override
+  Stream<Object> get errorStream => _player.errorStream;
 
   @override
   Future<Duration?> setFilePath(String filePath) {
@@ -126,20 +134,27 @@ final class JustAudioPlayerService implements PlayerService {
     required TrackUserStateRepository trackUserState,
     LocalAudioEngine? audioEngine,
     bool Function(String filePath)? fileExists,
+    bool? isWindows,
+    PlaybackCache? playbackCache,
   })  : _playbackEvents = playbackEvents,
         _trackUserState = trackUserState,
         _audioEngine = audioEngine ?? JustAudioEngine(),
+        _isWindows = isWindows ?? Platform.isWindows,
+        _playbackCache = playbackCache ?? WindowsPlaybackCache(),
         _fileExists =
             fileExists ?? ((filePath) => File(filePath).existsSync()) {
     _subscriptions
       ..add(_audioEngine.stateStream.listen(_handleAudioState))
       ..add(_audioEngine.positionStream.listen(_handlePosition))
-      ..add(_audioEngine.durationStream.listen(_handleDuration));
+      ..add(_audioEngine.durationStream.listen(_handleDuration))
+      ..add(_audioEngine.errorStream.listen(_handleAudioError));
   }
 
   final PlaybackEventRepository _playbackEvents;
   final TrackUserStateRepository _trackUserState;
   final LocalAudioEngine _audioEngine;
+  final bool _isWindows;
+  final PlaybackCache _playbackCache;
   final bool Function(String filePath) _fileExists;
   final StreamController<PlayerState> _stateController =
       StreamController<PlayerState>.broadcast();
@@ -148,6 +163,9 @@ final class JustAudioPlayerService implements PlayerService {
   PlayerState _state = const PlayerState.idle();
   bool _isDisposed = false;
   bool _didRecordCompletion = false;
+  int _positionEventsSinceLoad = 0;
+  int _durationEventsSinceLoad = 0;
+  Timer? _positionDiagnosticsTimer;
 
   @override
   PlayerState get state => _state;
@@ -176,38 +194,52 @@ final class JustAudioPlayerService implements PlayerService {
       return;
     }
 
+    _resetPlaybackDiagnostics();
     _didRecordCompletion = false;
+    final normalizedPath = _normalizedAbsolutePath(track.filePath);
     _emit(
       _state.copyWith(
         currentTrack: track,
         isPlaying: false,
         position: Duration.zero,
-        duration: track.duration,
+        duration: _effectiveDuration(null, track),
         status: PlayerPlaybackStatus.loading,
         errorMessage: null,
       ),
     );
 
-    if (!_fileExists(track.filePath)) {
+    _debugLogPlaybackDiagnostics(
+      originalPath: track.filePath,
+      normalizedPath: normalizedPath,
+      strategy: _initialLoadStrategy(normalizedPath),
+    );
+
+    if (!_fileExists(normalizedPath)) {
       await _stopAfterFailure(
-        'File does not exist: ${track.filePath}',
+        'File not found: ${track.filePath} (resolved: $normalizedPath)',
       );
       return;
     }
 
     try {
       await _audioEngine.stop();
-      final loadedDuration = await _audioEngine.setFilePath(track.filePath);
+      final loadedAudio = await _loadTrackAudio(track, normalizedPath);
+      if (_isDisposed ||
+          _state.status == PlayerPlaybackStatus.error ||
+          _state.currentTrack != track) {
+        return;
+      }
       _emit(
         _state.copyWith(
           currentTrack: track,
           isPlaying: true,
           position: Duration.zero,
-          duration: loadedDuration ?? track.duration,
+          duration: _effectiveDuration(loadedAudio.duration, track),
           status: PlayerPlaybackStatus.playing,
           errorMessage: null,
         ),
       );
+      _scheduleWindowsPositionDiagnostics(track);
       unawaited(_recordPlaybackStarted(track));
       _playInBackground();
     } on Object catch (error) {
@@ -338,6 +370,7 @@ final class JustAudioPlayerService implements PlayerService {
       return;
     }
 
+    _positionDiagnosticsTimer?.cancel();
     _isDisposed = true;
     for (final subscription in _subscriptions) {
       await subscription.cancel();
@@ -391,6 +424,8 @@ final class JustAudioPlayerService implements PlayerService {
       return;
     }
 
+    _positionEventsSinceLoad += 1;
+    _debugLogPositionEvent(position);
     _emit(_state.copyWith(position: position));
   }
 
@@ -399,7 +434,89 @@ final class JustAudioPlayerService implements PlayerService {
       return;
     }
 
-    _emit(_state.copyWith(duration: duration));
+    _durationEventsSinceLoad += 1;
+    final effectiveDuration = _effectiveDuration(duration, _state.currentTrack);
+    _debugLogDurationEvent(duration, effectiveDuration);
+    _emit(_state.copyWith(duration: effectiveDuration));
+  }
+
+  void _handleAudioError(Object error) {
+    if (_isDisposed || _state.currentTrack == null) {
+      return;
+    }
+
+    final track = _state.currentTrack!;
+    _debugLogAudioError(error);
+    unawaited(
+      _stopAfterFailure(
+        'Could not play "${track.displayTitle}": ${_describeError(error)}',
+      ),
+    );
+  }
+
+  Future<_LoadedAudio> _loadTrackAudio(
+    Track track,
+    String normalizedPath,
+  ) async {
+    if (_shouldPreferWindowsCache(normalizedPath)) {
+      return _loadFromWindowsCache(
+        track: track,
+        normalizedPath: normalizedPath,
+        directError: null,
+      );
+    }
+
+    try {
+      final duration = await _audioEngine.setFilePath(normalizedPath);
+      return _LoadedAudio(duration: duration);
+    } on Object catch (directError) {
+      if (!_shouldUseWindowsCacheFallback(
+        path: normalizedPath,
+        error: directError,
+      )) {
+        rethrow;
+      }
+
+      // TODO: Remove this fallback if the Windows audio backend reliably
+      // accepts Unicode local file paths.
+      return _loadFromWindowsCache(
+        track: track,
+        normalizedPath: normalizedPath,
+        directError: directError,
+      );
+    }
+  }
+
+  Future<_LoadedAudio> _loadFromWindowsCache({
+    required Track track,
+    required String normalizedPath,
+    required Object? directError,
+  }) async {
+    try {
+      final cached = await _playbackCache.resolve(track, normalizedPath);
+      final strategyPrefix = directError == null
+          ? 'windows_cache_preferred'
+          : 'windows_cache_fallback';
+      _debugLogPlaybackDiagnostics(
+        originalPath: track.filePath,
+        normalizedPath: cached.filePath,
+        strategy: cached.reusedExistingFile
+            ? '${strategyPrefix}_reused'
+            : '${strategyPrefix}_copied',
+      );
+      final duration = await _audioEngine.setFilePath(cached.filePath);
+      return _LoadedAudio(duration: duration);
+    } on Object catch (cacheError) {
+      final directDetails = directError == null
+          ? 'Direct load skipped for Windows non-ASCII path.'
+          : 'Direct load error: ${_describeError(directError)}.';
+      throw PlaybackLoadException(
+        'Windows Unicode path fallback failed. '
+        '$directDetails '
+        'Cache fallback error: ${_describeError(cacheError)}. '
+        'Source path: $normalizedPath',
+      );
+    }
   }
 
   void _playInBackground() {
@@ -583,6 +700,173 @@ final class JustAudioPlayerService implements PlayerService {
     return position;
   }
 
+  Duration? _effectiveDuration(Duration? backendDuration, Track? track) {
+    if (backendDuration != null && backendDuration > Duration.zero) {
+      return backendDuration;
+    }
+    return track?.duration ?? backendDuration;
+  }
+
+  String _normalizedAbsolutePath(String filePath) {
+    return p.normalize(File(filePath).absolute.path);
+  }
+
+  bool _shouldUseWindowsCacheFallback({
+    required String path,
+    required Object error,
+  }) {
+    if (!_isWindows) {
+      return false;
+    }
+    if (_isLikelyUnsupportedFormatError(error)) {
+      return false;
+    }
+    return _isLikelyFilePathError(error) || _containsNonAscii(path);
+  }
+
+  bool _shouldPreferWindowsCache(String path) {
+    return _isWindows && _containsNonAscii(path);
+  }
+
+  String _initialLoadStrategy(String path) {
+    return _shouldPreferWindowsCache(path)
+        ? 'windows_cache_preferred'
+        : 'direct';
+  }
+
+  bool _isLikelyUnsupportedFormatError(Object error) {
+    final message = _errorText(error).toLowerCase();
+    return message.contains('unsupported') ||
+        message.contains('format') ||
+        message.contains('codec') ||
+        message.contains('decode');
+  }
+
+  bool _isLikelyFilePathError(Object error) {
+    if (error is FileSystemException || error is PathNotFoundException) {
+      return true;
+    }
+
+    final message = _errorText(error).toLowerCase();
+    return message.contains('path') ||
+        message.contains('file') ||
+        message.contains('not found') ||
+        message.contains('cannot find') ||
+        message.contains('does not exist') ||
+        message.contains('не удается найти') ||
+        message.contains('не удаётся найти') ||
+        message.contains('указанный путь') ||
+        message.contains('путь');
+  }
+
+  String _errorText(Object error) {
+    if (error is just_audio.PlayerException) {
+      return [
+        error.code,
+        if (error.message != null) error.message!,
+      ].join(' ');
+    }
+    return error.toString();
+  }
+
+  bool _containsNonAscii(String value) {
+    return value.runes.any((rune) => rune > 0x7f);
+  }
+
+  void _resetPlaybackDiagnostics() {
+    _positionEventsSinceLoad = 0;
+    _durationEventsSinceLoad = 0;
+    _positionDiagnosticsTimer?.cancel();
+    _positionDiagnosticsTimer = null;
+  }
+
+  void _scheduleWindowsPositionDiagnostics(Track track) {
+    if (!kDebugMode || !_isWindows) {
+      return;
+    }
+
+    _positionDiagnosticsTimer?.cancel();
+    _positionDiagnosticsTimer = Timer(const Duration(seconds: 3), () {
+      if (_isDisposed || _state.currentTrack != track) {
+        return;
+      }
+      debugPrint(
+        'JustAudioPlayerService Windows position diagnostics: '
+        'positionStreamEvents=$_positionEventsSinceLoad, '
+        'durationStreamEvents=$_durationEventsSinceLoad, '
+        'position=${_state.position}, duration=${_state.duration}, '
+        'status=${_state.status}',
+      );
+    });
+  }
+
+  void _debugLogPositionEvent(Duration position) {
+    if (!kDebugMode || !_isWindows || _positionEventsSinceLoad > 3) {
+      return;
+    }
+    debugPrint(
+      'JustAudioPlayerService positionStream event '
+      '#$_positionEventsSinceLoad: position=$position',
+    );
+  }
+
+  void _debugLogDurationEvent(
+    Duration? backendDuration,
+    Duration? effectiveDuration,
+  ) {
+    if (!kDebugMode || !_isWindows || _durationEventsSinceLoad > 5) {
+      return;
+    }
+    debugPrint(
+      'JustAudioPlayerService durationStream event '
+      '#$_durationEventsSinceLoad: backend=$backendDuration, '
+      'effective=$effectiveDuration',
+    );
+  }
+
+  void _debugLogAudioError(Object error) {
+    if (!kDebugMode) {
+      return;
+    }
+    debugPrint(
+      'JustAudioPlayerService audio error: '
+      'isWindows=$_isWindows, error=${_describeError(error)}',
+    );
+  }
+
+  void _debugLogPlaybackDiagnostics({
+    required String originalPath,
+    required String normalizedPath,
+    required String strategy,
+  }) {
+    if (!kDebugMode) {
+      return;
+    }
+
+    final file = File(normalizedPath);
+    final exists = file.existsSync();
+    Object? length;
+    if (exists) {
+      try {
+        length = file.lengthSync();
+      } on Object catch (error) {
+        length = 'unavailable ($error)';
+      }
+    }
+
+    debugPrint(
+      'JustAudioPlayerService load diagnostics: '
+      'originalPath="$originalPath", '
+      'normalizedPath="$normalizedPath", '
+      'isWindows=$_isWindows, '
+      'exists=$exists, '
+      'length=$length, '
+      'extension="${p.extension(normalizedPath).toLowerCase()}", '
+      'containsNonAscii=${_containsNonAscii(normalizedPath)}, '
+      'strategy=$strategy',
+    );
+  }
+
   String _describeError(Object error) {
     if (error is just_audio.PlayerException) {
       final message = error.message;
@@ -591,7 +875,27 @@ final class JustAudioPlayerService implements PlayerService {
       }
       return 'Audio player error ${error.code}';
     }
+    if (error is PlaybackLoadException || error is PlaybackCacheException) {
+      return error.toString();
+    }
 
     return error.toString();
   }
+}
+
+final class _LoadedAudio {
+  const _LoadedAudio({
+    required this.duration,
+  });
+
+  final Duration? duration;
+}
+
+final class PlaybackLoadException implements Exception {
+  const PlaybackLoadException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
 }

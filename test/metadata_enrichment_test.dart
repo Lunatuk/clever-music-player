@@ -39,6 +39,21 @@ void main() {
     expect(merged.source, MetadataSource.embeddedTags);
   });
 
+  test('duration is preserved from tags when visible metadata uses filename',
+      () {
+    final merged = mergeMetadata(
+      tagMetadata: const EmbeddedAudioMetadata(
+        duration: Duration(minutes: 2),
+      ),
+      filenameMetadata: parser.parse('Artist - Title.mp3'),
+      fallbackMetadata: parser.fallback('Artist - Title.mp3'),
+    );
+
+    expect(merged.title, 'Title');
+    expect(merged.artist, 'Artist');
+    expect(merged.duration, const Duration(minutes: 2));
+  });
+
   test('fallback works when tags and parser fail', () {
     final merged = mergeMetadata(
       tagMetadata: null,
