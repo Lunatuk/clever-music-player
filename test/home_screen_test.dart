@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show PointerDeviceKind;
 
 import 'package:clever_music_player/src/app/clever_music_player_app.dart';
 import 'package:clever_music_player/src/app/dependency_scope.dart';
@@ -84,6 +85,56 @@ void main() {
     await tester.pump();
 
     expect(fixture.player.toggleMuteCalls, 1);
+  });
+
+  testWidgets('narrow bottom bar shows hover volume popup', (tester) async {
+    await _setNarrowSurface(tester);
+    final fixture = await _HomeScreenFixture.create();
+    _addFixtureTearDown(tester, fixture);
+
+    await fixture.pump(tester);
+
+    expect(
+      find.byKey(const ValueKey('bottom-player-volume-button')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('bottom-player-volume-slider')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('bottom-player-volume-popup-slider')),
+      findsNothing,
+    );
+
+    final gesture = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    addTearDown(gesture.removePointer);
+    await gesture.addPointer(
+      location: tester.getCenter(
+        find.byKey(const ValueKey('bottom-player-volume-button')),
+      ),
+    );
+    await tester.pump();
+
+    expect(
+      find.byKey(const ValueKey('bottom-player-volume-popup-slider')),
+      findsOneWidget,
+    );
+    final buttonRect = tester.getRect(
+      find.byKey(const ValueKey('bottom-player-volume-button')),
+    );
+    final popupRect = tester.getRect(
+      find.byKey(const ValueKey('bottom-player-volume-popup')),
+    );
+    expect(buttonRect.top - popupRect.bottom, closeTo(8, 1));
+
+    final slider = tester.widget<Slider>(
+      find.byKey(const ValueKey('bottom-player-volume-popup-slider')),
+    );
+    slider.onChanged!(0.6);
+    await tester.pump();
+
+    expect(fixture.player.setVolumeCalls.last, 0.6);
   });
 
   testWidgets('central launch icon stays start for non-Wave playback',
