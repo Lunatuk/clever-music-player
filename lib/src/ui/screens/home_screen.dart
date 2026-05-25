@@ -4062,17 +4062,16 @@ final class _BottomPlayerBarState extends State<_BottomPlayerBar> {
                 builder: (context, constraints) {
                   final useWideLayout = constraints.maxWidth >= 720;
                   final sideWidth = (constraints.maxWidth * 0.30)
-                      .clamp(220.0, 340.0)
+                      .clamp(220.0, 344.0)
                       .toDouble();
                   final summary = _NowPlayingSummary(
                     track: track,
                     queueCount: queueState.manualQueue.length,
-                    playbackContext:
-                        queueState.activeSource == PlaybackSource.playlist ||
-                                queueState.activeSource ==
-                                    PlaybackSource.library
-                            ? queueState.playbackContext
-                            : null,
+                    playbackContext: queueState.activeSource ==
+                                PlaybackSource.playlist ||
+                            queueState.activeSource == PlaybackSource.library
+                        ? queueState.playbackContext
+                        : null,
                   );
                   final progressRow = _BottomProgressRow(
                     progress: progress,
@@ -4139,6 +4138,14 @@ final class _BottomPlayerBarState extends State<_BottomPlayerBar> {
                     hasTrack: track != null,
                     isLiked: queueState.isCurrentTrackLiked,
                     isDisliked: queueState.isCurrentTrackDisliked,
+                    volume: playerState.volume,
+                    showVolumeSlider: sideWidth >= 344,
+                    onToggleMute: () {
+                      unawaited(widget.playerService.toggleMute());
+                    },
+                    onVolumeChanged: (value) {
+                      unawaited(widget.playerService.setVolume(value));
+                    },
                     onLike: () {
                       unawaited(widget.queueService.likeCurrentTrack());
                     },
@@ -4433,6 +4440,10 @@ final class _BottomPlayerActions extends StatelessWidget {
     required this.hasTrack,
     required this.isLiked,
     required this.isDisliked,
+    required this.volume,
+    required this.showVolumeSlider,
+    required this.onToggleMute,
+    required this.onVolumeChanged,
     required this.onLike,
     required this.onDislike,
     required this.onOpenSettings,
@@ -4441,6 +4452,10 @@ final class _BottomPlayerActions extends StatelessWidget {
   final bool hasTrack;
   final bool isLiked;
   final bool isDisliked;
+  final double volume;
+  final bool showVolumeSlider;
+  final VoidCallback onToggleMute;
+  final ValueChanged<double> onVolumeChanged;
   final VoidCallback onLike;
   final VoidCallback onDislike;
   final VoidCallback onOpenSettings;
@@ -4450,6 +4465,13 @@ final class _BottomPlayerActions extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
+        _BottomVolumeControl(
+          volume: volume,
+          showSlider: showVolumeSlider,
+          onToggleMute: onToggleMute,
+          onChanged: onVolumeChanged,
+        ),
+        const SizedBox(width: 8),
         _TrackFeedbackIconButton(
           isActive: isLiked,
           onPressed: hasTrack ? onLike : null,
@@ -4473,6 +4495,65 @@ final class _BottomPlayerActions extends StatelessWidget {
           onPressed: onOpenSettings,
           icon: const Icon(Icons.settings_outlined),
         ),
+      ],
+    );
+  }
+}
+
+final class _BottomVolumeControl extends StatelessWidget {
+  const _BottomVolumeControl({
+    required this.volume,
+    required this.showSlider,
+    required this.onToggleMute,
+    required this.onChanged,
+  });
+
+  final double volume;
+  final bool showSlider;
+  final VoidCallback onToggleMute;
+  final ValueChanged<double> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final normalizedVolume = _normalizedVolumeForDisplay(volume);
+    final volumeIcon = _volumeIcon(normalizedVolume);
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          key: const ValueKey('bottom-player-volume-button'),
+          visualDensity: VisualDensity.compact,
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints.tightFor(width: 32, height: 32),
+          tooltip: normalizedVolume <= 0 ? 'Unmute' : 'Mute',
+          onPressed: onToggleMute,
+          icon: Icon(volumeIcon, size: 20),
+        ),
+        if (showSlider) ...[
+          const SizedBox(width: 4),
+          SizedBox(
+            width: 140,
+            child: SliderTheme(
+              data: SliderTheme.of(context).copyWith(
+                trackHeight: 2.5,
+                thumbShape: const RoundSliderThumbShape(
+                  enabledThumbRadius: 5.5,
+                ),
+                overlayShape: const RoundSliderOverlayShape(
+                  overlayRadius: 12,
+                ),
+              ),
+              child: Slider(
+                key: const ValueKey('bottom-player-volume-slider'),
+                value: normalizedVolume,
+                min: 0,
+                max: 1,
+                onChanged: onChanged,
+              ),
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -4506,6 +4587,29 @@ IconData _repeatIcon(PlaybackRepeatMode mode) {
     PlaybackRepeatMode.playlist => Icons.repeat,
     PlaybackRepeatMode.track => Icons.repeat_one,
   };
+}
+
+IconData _volumeIcon(double volume) {
+  if (volume <= 0) {
+    return Icons.volume_off_outlined;
+  }
+  if (volume < 0.5) {
+    return Icons.volume_down_outlined;
+  }
+  return Icons.volume_up_outlined;
+}
+
+double _normalizedVolumeForDisplay(double volume) {
+  if (volume.isNaN) {
+    return 1;
+  }
+  if (volume == double.infinity) {
+    return 1;
+  }
+  if (volume == double.negativeInfinity) {
+    return 0;
+  }
+  return volume.clamp(0.0, 1.0).toDouble();
 }
 
 String _artistLabel(Track? track) {

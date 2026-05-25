@@ -429,6 +429,15 @@ final class _FakePlayerService implements PlayerService {
   Future<void> setVolume(double volume) async {}
 
   @override
+  Future<void> increaseVolume() async {}
+
+  @override
+  Future<void> decreaseVolume() async {}
+
+  @override
+  Future<void> toggleMute() async {}
+
+  @override
   Future<void> dispose() async {
     await _controller.close();
   }

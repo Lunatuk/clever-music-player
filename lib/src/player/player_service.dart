@@ -28,5 +28,11 @@ abstract interface class PlayerService {
 
   Future<void> setVolume(double volume);
 
+  Future<void> increaseVolume();
+
+  Future<void> decreaseVolume();
+
+  Future<void> toggleMute();
+
   Future<void> dispose();
 }

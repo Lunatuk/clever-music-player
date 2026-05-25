@@ -38,7 +38,9 @@ Future<void> main() async {
   final playerService = JustAudioPlayerService(
     playbackEvents: repositories.playbackEvents,
     trackUserState: repositories.trackUserState,
+    settings: repositories.settings,
   );
+  await playerService.restoreSavedVolume();
   final playbackQueue = PlaybackQueueService(
     playerService: playerService,
     tracks: repositories.tracks,

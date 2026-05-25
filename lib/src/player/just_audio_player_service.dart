@@ -140,11 +140,16 @@ final class JustAudioEngine implements LocalAudioEngine {
 
 const _defaultWindowsProgressRecoveryInterval = Duration(milliseconds: 250);
 const _defaultWindowsSyntheticProgressGrace = Duration(seconds: 2);
+const _volumeSettingKey = 'player.volume';
+const _previousVolumeBeforeMuteSettingKey = 'player.previousVolumeBeforeMute';
+const _defaultVolume = 1.0;
+const _volumeStep = 0.05;
 
 final class JustAudioPlayerService implements PlayerService {
   JustAudioPlayerService({
     required PlaybackEventRepository playbackEvents,
     required TrackUserStateRepository trackUserState,
+    SettingsRepository? settings,
     LocalAudioEngine? audioEngine,
     bool Function(String filePath)? fileExists,
     bool? isWindows,
@@ -157,6 +162,7 @@ final class JustAudioPlayerService implements PlayerService {
         assert(windowsSyntheticProgressGrace >= Duration.zero),
         _playbackEvents = playbackEvents,
         _trackUserState = trackUserState,
+        _settings = settings,
         _audioEngine = audioEngine ?? JustAudioEngine(),
         _isWindows = isWindows ?? Platform.isWindows,
         _playbackCache = playbackCache ?? WindowsPlaybackCache(),
@@ -173,6 +179,7 @@ final class JustAudioPlayerService implements PlayerService {
 
   final PlaybackEventRepository _playbackEvents;
   final TrackUserStateRepository _trackUserState;
+  final SettingsRepository? _settings;
   final LocalAudioEngine _audioEngine;
   final bool _isWindows;
   final PlaybackCache _playbackCache;
@@ -194,6 +201,7 @@ final class JustAudioPlayerService implements PlayerService {
   DateTime? _windowsSyntheticAnchorTime;
   Duration _windowsSyntheticAnchorPosition = Duration.zero;
   Duration? _lastWindowsPolledPosition;
+  double _previousVolumeBeforeMute = _defaultVolume;
 
   @override
   PlayerState get state => _state;
@@ -386,18 +394,65 @@ final class JustAudioPlayerService implements PlayerService {
 
   @override
   Future<void> setVolume(double volume) async {
-    final normalizedVolume = volume.clamp(0.0, 1.0).toDouble();
+    final normalizedVolume = _normalizeVolume(volume);
     try {
       await _audioEngine.setVolume(normalizedVolume);
+      if (normalizedVolume > 0) {
+        _previousVolumeBeforeMute = normalizedVolume;
+      }
       _emit(
         _state.copyWith(
           volume: normalizedVolume,
           errorMessage: null,
         ),
       );
+      await _persistVolume(normalizedVolume);
     } on Object catch (error) {
       _emitPlaybackError('Could not set volume: ${_describeError(error)}');
     }
+  }
+
+  @override
+  Future<void> increaseVolume() {
+    return setVolume(_state.volume + _volumeStep);
+  }
+
+  @override
+  Future<void> decreaseVolume() {
+    return setVolume(_state.volume - _volumeStep);
+  }
+
+  @override
+  Future<void> toggleMute() async {
+    if (_state.volume > 0) {
+      _previousVolumeBeforeMute = _state.volume;
+      await _persistPreviousVolumeBeforeMute(_previousVolumeBeforeMute);
+      await setVolume(0);
+      return;
+    }
+
+    await setVolume(_volumeToRestoreAfterMute());
+  }
+
+  Future<void> restoreSavedVolume() async {
+    final settings = _settings;
+    if (settings == null || _isDisposed) {
+      return;
+    }
+
+    final savedPreviousVolume = _parseVolume(
+        await settings.readString(_previousVolumeBeforeMuteSettingKey));
+    if (savedPreviousVolume != null && savedPreviousVolume > 0) {
+      _previousVolumeBeforeMute = savedPreviousVolume;
+    }
+
+    final savedVolume =
+        _parseVolume(await settings.readString(_volumeSettingKey));
+    if (savedVolume == null) {
+      return;
+    }
+
+    await setVolume(savedVolume);
   }
 
   @override
@@ -871,6 +926,61 @@ final class JustAudioPlayerService implements PlayerService {
       return backendDuration;
     }
     return track?.duration ?? backendDuration;
+  }
+
+  double _volumeToRestoreAfterMute() {
+    final previousVolume = _previousVolumeBeforeMute;
+    if (previousVolume > 0) {
+      return previousVolume;
+    }
+    return _defaultVolume;
+  }
+
+  double _normalizeVolume(double volume) {
+    if (volume.isNaN) {
+      return _defaultVolume;
+    }
+    if (volume == double.infinity) {
+      return 1;
+    }
+    if (volume == double.negativeInfinity) {
+      return 0;
+    }
+    return volume.clamp(0.0, 1.0).toDouble();
+  }
+
+  double? _parseVolume(String? value) {
+    final parsed = double.tryParse(value ?? '');
+    return parsed == null ? null : _normalizeVolume(parsed);
+  }
+
+  Future<void> _persistVolume(double volume) async {
+    await _writeSettingSafely(_volumeSettingKey, volume.toString());
+    if (volume > 0) {
+      await _persistPreviousVolumeBeforeMute(volume);
+    }
+  }
+
+  Future<void> _persistPreviousVolumeBeforeMute(double volume) {
+    return _writeSettingSafely(
+      _previousVolumeBeforeMuteSettingKey,
+      _normalizeVolume(volume).toString(),
+    );
+  }
+
+  Future<void> _writeSettingSafely(String key, String value) async {
+    final settings = _settings;
+    if (settings == null) {
+      return;
+    }
+
+    try {
+      await settings.writeString(key, value);
+    } on Object catch (error) {
+      if (kDebugMode) {
+        debugPrint('JustAudioPlayerService settings write failed: $error');
+      }
+    }
   }
 
   String _normalizedAbsolutePath(String filePath) {
