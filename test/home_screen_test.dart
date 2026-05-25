@@ -15,6 +15,7 @@ import 'package:clever_music_player/src/player/player_state.dart';
 import 'package:clever_music_player/src/queue/playback_queue_service.dart';
 import 'package:clever_music_player/src/queue/queue_state.dart';
 import 'package:clever_music_player/src/recommendation/recommendation_service.dart';
+import 'package:clever_music_player/src/smtc/smtc_service.dart';
 import 'package:clever_music_player/src/ui/track_artwork.dart';
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
@@ -29,6 +30,7 @@ void main() {
 
     await fixture.pump(tester);
 
+    expect(tester.widget<Scaffold>(find.byType(Scaffold)).extendBody, isTrue);
     expect(find.text('Пустить жидкого'), findsOneWidget);
     expect(find.text('Настроить'), findsOneWidget);
     expect(find.text('Добавить папку'), findsOneWidget);
@@ -299,6 +301,7 @@ void main() {
     expect(find.text('Пустить жидкого'), findsOneWidget);
     expect(find.byKey(const ValueKey('active-nav-wave')), findsOneWidget);
     expect(find.text('No track playing'), findsOneWidget);
+    expect(find.byTooltip('Stop'), findsNothing);
   });
 
   testWidgets('sidebar compacts on narrow windows without overflow',
@@ -317,6 +320,62 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(find.text('Создать плейлист'), findsOneWidget);
     expect(find.byKey(const ValueKey('active-nav-playlists')), findsOneWidget);
+  });
+
+  testWidgets('page transition keeps content and bottom player visible',
+      (tester) async {
+    await _setLargeSurface(tester);
+    final fixture = await _HomeScreenFixture.create(seedLibrary: true);
+    _addFixtureTearDown(tester, fixture);
+
+    await fixture.pump(tester);
+    expect(find.byType(AnimatedSwitcher), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('nav-music')));
+    await tester.pump(const Duration(milliseconds: 90));
+
+    expect(find.text('Track library'), findsOneWidget);
+    expect(find.text('No track playing'), findsOneWidget);
+    expect(find.byTooltip('Stop'), findsNothing);
+
+    await tester.pumpAndSettle();
+    expect(find.text('Track library'), findsOneWidget);
+  });
+
+  testWidgets('desktop sidebar collapses without losing active state',
+      (tester) async {
+    await _setLargeSurface(tester);
+    final fixture = await _HomeScreenFixture.create(seedLibrary: true);
+    _addFixtureTearDown(tester, fixture);
+
+    await fixture.pump(tester);
+
+    final waveLabelInNav = find.descendant(
+      of: find.byKey(const ValueKey('nav-wave')),
+      matching: find.text('Волна'),
+    );
+    expect(waveLabelInNav, findsOneWidget);
+    expect(find.byKey(const ValueKey('active-nav-wave')), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('sidebar-collapse-toggle')));
+    await tester.pumpAndSettle();
+
+    expect(waveLabelInNav, findsNothing);
+    expect(find.byKey(const ValueKey('active-nav-wave')), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('nav-music')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('active-nav-music')), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('sidebar-collapse-toggle')));
+    await tester.pumpAndSettle();
+
+    final musicLabelInNav = find.descendant(
+      of: find.byKey(const ValueKey('nav-music')),
+      matching: find.text('Моя музыка'),
+    );
+    expect(musicLabelInNav, findsOneWidget);
+    expect(find.byKey(const ValueKey('active-nav-music')), findsOneWidget);
   });
 
   testWidgets('Playlists page can create a playlist', (tester) async {
@@ -872,6 +931,7 @@ final class _HomeScreenFixture {
       customArtwork: customArtwork ?? _FakeCustomArtworkService(),
       playerService: player,
       playbackQueue: queue,
+      smtcService: const NoopSmtcService(),
     );
     return _HomeScreenFixture._(
       dependencies: dependencies,

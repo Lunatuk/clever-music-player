@@ -19,6 +19,7 @@ dependencies:
   just_audio: ^0.10.5
   audio_metadata_reader: ^1.6.0
   just_audio_windows: ^0.2.3
+  smtc_windows: ^1.1.0
 
 dev_dependencies:
   build_runner: ^2.4.15
@@ -26,6 +27,13 @@ dev_dependencies:
   flutter_lints: ^5.0.0
   flutter_test:
     sdk: flutter
+
+dependency_overrides:
+  just_audio_windows:
+    path: third_party/just_audio_windows
+  # smtc_windows 1.1.0 was generated with flutter_rust_bridge 2.11.1.
+  # Newer 2.x runtime versions fail SMTC initialization at runtime.
+  flutter_rust_bridge: 2.11.1
 
 flutter:
   uses-material-design: true

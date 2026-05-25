@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import '../ui/screens/home_screen.dart';
@@ -34,6 +35,7 @@ final class CleverMusicPlayerApp extends StatelessWidget {
       title: 'Clever Music Player',
       debugShowCheckedModeBanner: false,
       themeMode: ThemeMode.dark,
+      scrollBehavior: const _DesktopScrollBehavior(),
       darkTheme: ThemeData(
         colorScheme: colorScheme,
         scaffoldBackgroundColor: colorScheme.surfaceContainerLowest,
@@ -146,4 +148,16 @@ final class CleverMusicPlayerApp extends StatelessWidget {
       home: const HomeScreen(),
     );
   }
+}
+
+final class _DesktopScrollBehavior extends MaterialScrollBehavior {
+  const _DesktopScrollBehavior();
+
+  @override
+  Set<PointerDeviceKind> get dragDevices => const {
+        PointerDeviceKind.touch,
+        PointerDeviceKind.mouse,
+        PointerDeviceKind.stylus,
+        PointerDeviceKind.trackpad,
+      };
 }

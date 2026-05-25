@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 
@@ -20,6 +21,9 @@ import '../track_artwork.dart';
 
 const double _cardRadius = 24;
 const double _controlRadius = 18;
+const double _bottomPlayerBarBackgroundOpacity = 0.48;
+const double _bottomPlayerBarBlurSigma = 18;
+const double _bottomPlayerBarScrollPadding = 152;
 
 const int _wavePageIndex = 0;
 const int _myMusicPageIndex = 1;
@@ -59,6 +63,7 @@ final class _HomeScreenState extends State<HomeScreen> {
   int? _selectedPlaylistId;
   bool _isScanning = false;
   bool _isResettingLearningState = false;
+  bool _isSidebarCollapsed = false;
 
   @override
   void initState() {
@@ -78,6 +83,7 @@ final class _HomeScreenState extends State<HomeScreen> {
     _ensureStreams(dependencies);
 
     return Scaffold(
+      extendBody: true,
       bottomNavigationBar: SafeArea(
         top: false,
         child: _BottomPlayerBar(
@@ -125,7 +131,13 @@ final class _HomeScreenState extends State<HomeScreen> {
 
                             return _NavigationShell(
                               selectedPageIndex: _selectedPageIndex,
+                              isSidebarCollapsed: _isSidebarCollapsed,
                               onPageSelected: _selectPage,
+                              onToggleSidebarCollapsed: () {
+                                setState(() {
+                                  _isSidebarCollapsed = !_isSidebarCollapsed;
+                                });
+                              },
                               child: _buildHomeContent(
                                 context,
                                 dependencies,
@@ -769,28 +781,68 @@ final class _HomeScreenState extends State<HomeScreen> {
 final class _NavigationShell extends StatelessWidget {
   const _NavigationShell({
     required this.selectedPageIndex,
+    required this.isSidebarCollapsed,
     required this.onPageSelected,
+    required this.onToggleSidebarCollapsed,
     required this.child,
   });
 
   final int selectedPageIndex;
+  final bool isSidebarCollapsed;
   final ValueChanged<int> onPageSelected;
+  final VoidCallback onToggleSidebarCollapsed;
   final Widget child;
 
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final isCompact = constraints.maxWidth < 820;
+        final forceCompact = constraints.maxWidth < 820;
+        final isCompact = forceCompact || isSidebarCollapsed;
         return Row(
           children: [
             _NavigationSidebar(
               isCompact: isCompact,
+              showCollapseToggle: !forceCompact,
               selectedPageIndex: selectedPageIndex,
+              onToggleCollapsed: onToggleSidebarCollapsed,
               onPageSelected: onPageSelected,
             ),
             const VerticalDivider(width: 1),
-            Expanded(child: child),
+            Expanded(
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 180),
+                reverseDuration: const Duration(milliseconds: 140),
+                switchInCurve: Curves.easeOutCubic,
+                switchOutCurve: Curves.easeOutCubic,
+                layoutBuilder: (currentChild, previousChildren) {
+                  return Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      ...previousChildren,
+                      if (currentChild != null) currentChild,
+                    ],
+                  );
+                },
+                transitionBuilder: (child, animation) {
+                  final offset = Tween<Offset>(
+                    begin: const Offset(0, 0.015),
+                    end: Offset.zero,
+                  ).animate(animation);
+                  return FadeTransition(
+                    opacity: animation,
+                    child: SlideTransition(
+                      position: offset,
+                      child: child,
+                    ),
+                  );
+                },
+                child: KeyedSubtree(
+                  key: ValueKey('page-$selectedPageIndex'),
+                  child: child,
+                ),
+              ),
+            ),
           ],
         );
       },
@@ -801,12 +853,16 @@ final class _NavigationShell extends StatelessWidget {
 final class _NavigationSidebar extends StatelessWidget {
   const _NavigationSidebar({
     required this.isCompact,
+    required this.showCollapseToggle,
     required this.selectedPageIndex,
+    required this.onToggleCollapsed,
     required this.onPageSelected,
   });
 
   final bool isCompact;
+  final bool showCollapseToggle;
   final int selectedPageIndex;
+  final VoidCallback onToggleCollapsed;
   final ValueChanged<int> onPageSelected;
 
   static const _destinations = [
@@ -841,7 +897,9 @@ final class _NavigationSidebar extends StatelessWidget {
     final colorScheme = Theme.of(context).colorScheme;
     final width = isCompact ? 72.0 : 208.0;
 
-    return SizedBox(
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOutCubic,
       width: width,
       child: Material(
         color: colorScheme.surfaceContainerLowest,
@@ -868,6 +926,27 @@ final class _NavigationSidebar extends StatelessWidget {
                     ? CrossAxisAlignment.center
                     : CrossAxisAlignment.stretch,
                 children: [
+                  if (showCollapseToggle) ...[
+                    Align(
+                      alignment:
+                          isCompact ? Alignment.center : Alignment.centerRight,
+                      child: Semantics(
+                        label:
+                            isCompact ? 'Expand sidebar' : 'Collapse sidebar',
+                        button: true,
+                        child: IconButton(
+                          key: const ValueKey('sidebar-collapse-toggle'),
+                          onPressed: onToggleCollapsed,
+                          icon: Icon(
+                            isCompact
+                                ? Icons.keyboard_double_arrow_right_outlined
+                                : Icons.keyboard_double_arrow_left_outlined,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
                   for (final destination in _destinations) ...[
                     _NavigationSidebarItem(
                       destination: destination,
@@ -928,39 +1007,44 @@ final class _NavigationSidebarItem extends StatelessWidget {
         horizontal: isCompact ? 0 : 12,
         vertical: 10,
       ),
-      child: Row(
-        mainAxisAlignment:
-            isCompact ? MainAxisAlignment.center : MainAxisAlignment.start,
-        children: [
-          if (selected)
-            SizedBox(
-              key: ValueKey('active-nav-${destination.id}'),
-              width: 4,
-              height: 24,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: colorScheme.primary,
-                  borderRadius: BorderRadius.circular(999),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final showLabel = !isCompact && constraints.maxWidth >= 56;
+          return Row(
+            mainAxisAlignment:
+                showLabel ? MainAxisAlignment.start : MainAxisAlignment.center,
+            children: [
+              if (selected)
+                SizedBox(
+                  key: ValueKey('active-nav-${destination.id}'),
+                  width: 4,
+                  height: 24,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: colorScheme.primary,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
                 ),
-              ),
-            ),
-          if (selected) SizedBox(width: isCompact ? 0 : 10),
-          Icon(destination.icon, color: foreground),
-          if (!isCompact) ...[
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                destination.label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: textTheme.labelLarge?.copyWith(
-                  color: foreground,
-                  fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+              if (selected && showLabel) const SizedBox(width: 10),
+              Icon(destination.icon, color: foreground),
+              if (showLabel) ...[
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    destination.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: textTheme.labelLarge?.copyWith(
+                      color: foreground,
+                      fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                    ),
+                  ),
                 ),
-              ),
-            ),
-          ],
-        ],
+              ],
+            ],
+          );
+        },
       ),
     );
 
@@ -1050,7 +1134,9 @@ final class _HomeWavePage extends StatelessWidget {
             ),
           ),
         ),
-        const SliverToBoxAdapter(child: SizedBox(height: 56)),
+        const SliverToBoxAdapter(
+          child: SizedBox(height: _bottomPlayerBarScrollPadding),
+        ),
       ],
     );
   }
@@ -1203,7 +1289,9 @@ final class _MyMusicPage extends StatelessWidget {
             onSetCustomCover: onSetCustomCover,
             onRemoveCustomCover: onRemoveCustomCover,
           ),
-        const SliverToBoxAdapter(child: SizedBox(height: 56)),
+        const SliverToBoxAdapter(
+          child: SizedBox(height: _bottomPlayerBarScrollPadding),
+        ),
       ],
     );
   }
@@ -1276,7 +1364,9 @@ final class _PlaylistsPage extends StatelessWidget {
             ),
           ),
         ),
-        const SliverToBoxAdapter(child: SizedBox(height: 56)),
+        const SliverToBoxAdapter(
+          child: SizedBox(height: _bottomPlayerBarScrollPadding),
+        ),
       ],
     );
   }
@@ -1381,7 +1471,9 @@ final class _SettingsPage extends StatelessWidget {
             ),
           ),
         ),
-        const SliverToBoxAdapter(child: SizedBox(height: 56)),
+        const SliverToBoxAdapter(
+          child: SizedBox(height: _bottomPlayerBarScrollPadding),
+        ),
       ],
     );
   }
@@ -3939,157 +4031,184 @@ final class _BottomPlayerBarState extends State<_BottomPlayerBar> {
       borderRadius: const BorderRadius.vertical(
         top: Radius.circular(_cardRadius),
       ),
-      child: Material(
-        elevation: 18,
-        color: colorScheme.surfaceContainer,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(18, 12, 18, 14),
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final useWideLayout = constraints.maxWidth >= 720;
-              final sideWidth =
-                  (constraints.maxWidth * 0.30).clamp(220.0, 340.0).toDouble();
-              final summary = _NowPlayingSummary(
-                track: track,
-                queueCount: queueState.manualQueue.length,
-                playbackContext:
-                    queueState.activeSource == PlaybackSource.playlist ||
-                            queueState.activeSource == PlaybackSource.library
-                        ? queueState.playbackContext
-                        : null,
-              );
-              final progressRow = _BottomProgressRow(
-                progress: progress,
-                canSeek: canSeek,
-                onChanged: (value) {
-                  setState(() {
-                    _dragTrackKey = trackKey;
-                    _dragPosition = PlayerProgress.fromSliderValue(
-                      value,
-                      duration!,
-                    );
-                  });
-                },
-                onChangeEnd: (value) {
-                  final target = PlayerProgress.fromSliderValue(
-                    value,
-                    duration!,
+      child: BackdropFilter(
+        filter: ImageFilter.blur(
+          sigmaX: _bottomPlayerBarBlurSigma,
+          sigmaY: _bottomPlayerBarBlurSigma,
+        ),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: colorScheme.surfaceContainer.withValues(
+              alpha: _bottomPlayerBarBackgroundOpacity,
+            ),
+            border: Border(
+              top: BorderSide(
+                color: colorScheme.outlineVariant.withValues(alpha: 0.22),
+              ),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.28),
+                blurRadius: 24,
+                offset: const Offset(0, -10),
+              ),
+            ],
+          ),
+          child: Material(
+            type: MaterialType.transparency,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(18, 12, 18, 14),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final useWideLayout = constraints.maxWidth >= 720;
+                  final sideWidth = (constraints.maxWidth * 0.30)
+                      .clamp(220.0, 340.0)
+                      .toDouble();
+                  final summary = _NowPlayingSummary(
+                    track: track,
+                    queueCount: queueState.manualQueue.length,
+                    playbackContext:
+                        queueState.activeSource == PlaybackSource.playlist ||
+                                queueState.activeSource ==
+                                    PlaybackSource.library
+                            ? queueState.playbackContext
+                            : null,
                   );
-                  unawaited(widget.playerService.seek(target));
-                  setState(() {
-                    _dragPosition = null;
-                    _dragTrackKey = null;
-                  });
-                },
-              );
-              final controls = _BottomPlaybackButtons(
-                isPlaying: playerState.isPlaying,
-                canGoPrevious: canGoPrevious,
-                canGoNext: canGoNext,
-                repeatMode: queueState.repeatMode,
-                canUseRepeat: queueState.canUseRepeat,
-                canUseShuffle: queueState.canUseShuffle,
-                isShuffleEnabled: queueState.isPlaylistShuffleEnabled,
-                activeSource: queueState.activeSource,
-                onPlayPause: track == null
-                    ? null
-                    : () {
-                        unawaited(
-                          playerState.isPlaying
-                              ? widget.playerService.pause()
-                              : widget.playerService.play(),
+                  final progressRow = _BottomProgressRow(
+                    progress: progress,
+                    canSeek: canSeek,
+                    onChanged: (value) {
+                      setState(() {
+                        _dragTrackKey = trackKey;
+                        _dragPosition = PlayerProgress.fromSliderValue(
+                          value,
+                          duration!,
                         );
-                      },
-                onPrevious: canGoPrevious
-                    ? () {
-                        unawaited(widget.queueService.previous());
-                      }
-                    : null,
-                onNext: canGoNext
-                    ? () {
-                        unawaited(widget.queueService.next());
-                      }
-                    : null,
-                onRepeat: queueState.canUseRepeat
-                    ? () {
-                        widget.queueService.cycleRepeatMode();
-                      }
-                    : null,
-                onShuffle: queueState.canUseShuffle
-                    ? widget.queueService.togglePlaylistShuffle
-                    : null,
-              );
-              final rightActions = _BottomPlayerActions(
-                hasTrack: track != null,
-                isLiked: queueState.isCurrentTrackLiked,
-                isDisliked: queueState.isCurrentTrackDisliked,
-                onLike: () {
-                  unawaited(widget.queueService.likeCurrentTrack());
-                },
-                onDislike: () {
-                  unawaited(widget.queueService.dislikeCurrentTrack());
-                },
-                onOpenSettings: widget.onOpenSettings,
-              );
+                      });
+                    },
+                    onChangeEnd: (value) {
+                      final target = PlayerProgress.fromSliderValue(
+                        value,
+                        duration!,
+                      );
+                      unawaited(widget.playerService.seek(target));
+                      setState(() {
+                        _dragPosition = null;
+                        _dragTrackKey = null;
+                      });
+                    },
+                  );
+                  final controls = _BottomPlaybackButtons(
+                    isPlaying: playerState.isPlaying,
+                    canGoPrevious: canGoPrevious,
+                    canGoNext: canGoNext,
+                    repeatMode: queueState.repeatMode,
+                    canUseRepeat: queueState.canUseRepeat,
+                    canUseShuffle: queueState.canUseShuffle,
+                    isShuffleEnabled: queueState.isPlaylistShuffleEnabled,
+                    activeSource: queueState.activeSource,
+                    onPlayPause: track == null
+                        ? null
+                        : () {
+                            unawaited(
+                              playerState.isPlaying
+                                  ? widget.playerService.pause()
+                                  : widget.playerService.play(),
+                            );
+                          },
+                    onPrevious: canGoPrevious
+                        ? () {
+                            unawaited(widget.queueService.previous());
+                          }
+                        : null,
+                    onNext: canGoNext
+                        ? () {
+                            unawaited(widget.queueService.next());
+                          }
+                        : null,
+                    onRepeat: queueState.canUseRepeat
+                        ? () {
+                            widget.queueService.cycleRepeatMode();
+                          }
+                        : null,
+                    onShuffle: queueState.canUseShuffle
+                        ? widget.queueService.togglePlaylistShuffle
+                        : null,
+                  );
+                  final rightActions = _BottomPlayerActions(
+                    hasTrack: track != null,
+                    isLiked: queueState.isCurrentTrackLiked,
+                    isDisliked: queueState.isCurrentTrackDisliked,
+                    onLike: () {
+                      unawaited(widget.queueService.likeCurrentTrack());
+                    },
+                    onDislike: () {
+                      unawaited(widget.queueService.dislikeCurrentTrack());
+                    },
+                    onOpenSettings: widget.onOpenSettings,
+                  );
 
-              return Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (useWideLayout)
-                    Row(
-                      children: [
-                        SizedBox(width: sideWidth, child: summary),
-                        const SizedBox(width: 18),
-                        Expanded(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              controls,
-                              const SizedBox(height: 6),
-                              progressRow,
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 18),
-                        SizedBox(
-                          width: sideWidth,
-                          child: Align(
-                            alignment: Alignment.centerRight,
-                            child: rightActions,
+                  return Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (useWideLayout)
+                        Row(
+                          children: [
+                            SizedBox(width: sideWidth, child: summary),
+                            const SizedBox(width: 18),
+                            Expanded(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  controls,
+                                  const SizedBox(height: 6),
+                                  progressRow,
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 18),
+                            SizedBox(
+                              width: sideWidth,
+                              child: Align(
+                                alignment: Alignment.centerRight,
+                                child: rightActions,
+                              ),
+                            ),
+                          ],
+                        )
+                      else ...[
+                        summary,
+                        const SizedBox(height: 8),
+                        Center(child: controls),
+                        const SizedBox(height: 8),
+                        progressRow,
+                        const SizedBox(height: 6),
+                        Center(child: rightActions),
+                      ],
+                      if (isBusy) ...[
+                        const SizedBox(height: 8),
+                        const LinearProgressIndicator(),
+                      ],
+                      if (playerState.hasError ||
+                          queueState.lastError != null) ...[
+                        const SizedBox(height: 8),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            playerState.errorMessage ??
+                                queueState.lastError ??
+                                'Playback failed.',
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(color: colorScheme.error),
                           ),
                         ),
                       ],
-                    )
-                  else ...[
-                    summary,
-                    const SizedBox(height: 8),
-                    Center(child: controls),
-                    const SizedBox(height: 8),
-                    progressRow,
-                    const SizedBox(height: 6),
-                    Center(child: rightActions),
-                  ],
-                  if (isBusy) ...[
-                    const SizedBox(height: 8),
-                    const LinearProgressIndicator(),
-                  ],
-                  if (playerState.hasError || queueState.lastError != null) ...[
-                    const SizedBox(height: 8),
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        playerState.errorMessage ??
-                            queueState.lastError ??
-                            'Playback failed.',
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(color: colorScheme.error),
-                      ),
-                    ),
-                  ],
-                ],
-              );
-            },
+                    ],
+                  );
+                },
+              ),
+            ),
           ),
         ),
       ),

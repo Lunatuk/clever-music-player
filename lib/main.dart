@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 
@@ -14,8 +15,10 @@ import 'src/library/metadata_reader_service.dart';
 import 'src/player/just_audio_player_service.dart';
 import 'src/queue/playback_queue_service.dart';
 import 'src/recommendation/recommendation_service.dart';
+import 'src/smtc/smtc_service.dart';
+import 'src/smtc/smtc_windows_plugin_client.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   final database = AppDatabase.open();
@@ -43,6 +46,15 @@ void main() {
     playbackEvents: repositories.playbackEvents,
     recommendationService: recommendationService,
   );
+  final smtcService = Platform.isWindows
+      ? WindowsSmtcService(
+          playerService: playerService,
+          onNext: playbackQueue.next,
+          onPrevious: playbackQueue.previous,
+          client: SmtcWindowsPluginClient(),
+        )
+      : const NoopSmtcService();
+  await smtcService.initialize();
   final dependencies = AppDependencies(
     database: database,
     repositories: repositories,
@@ -54,6 +66,7 @@ void main() {
     ),
     playerService: playerService,
     playbackQueue: playbackQueue,
+    smtcService: smtcService,
   );
 
   runApp(
