@@ -100,13 +100,15 @@ final class LibraryScannerService {
     required this.metadataReader,
     this.artworkCache = const NoopArtworkCacheService(),
     this.listEntities = _defaultDirectoryEntityLister,
-  });
+    DateTime Function()? clock,
+  }) : _clock = clock ?? DateTime.now;
 
   final LibraryRepository libraryRepository;
   final TrackRepository trackRepository;
   final MetadataReaderService metadataReader;
   final ArtworkCacheService artworkCache;
   final DirectoryEntityLister listEntities;
+  final DateTime Function() _clock;
 
   Future<LibraryScanResult> scanFolder(String folderPath) async {
     final normalizedRootPath = p.normalize(Directory(folderPath).absolute.path);
@@ -129,7 +131,7 @@ final class LibraryScannerService {
       );
     }
 
-    final now = DateTime.now();
+    final now = _clock();
     final folder = await _ensureFolder(normalizedRootPath, now);
     final folderId = folder.id!;
     final knownTracks = await trackRepository.listTracksByLibraryFolder(
@@ -143,7 +145,12 @@ final class LibraryScannerService {
     final knownByFilePath = {
       for (final track in knownTracks) p.normalize(track.filePath): track,
     };
+    final knownById = {
+      for (final track in knownTracks)
+        if (track.id != null) track.id!: track,
+    };
     final seenKnownTrackIds = <int>{};
+    final unchangedTrackIds = <int>[];
 
     var scannedFiles = 0;
     var addedTracks = 0;
@@ -162,6 +169,18 @@ final class LibraryScannerService {
         scannedFiles++;
 
         try {
+          final fileStat = await entity.stat();
+          final normalizedFilePath = p.normalize(entity.absolute.path);
+          final existingByPath = knownByFilePath[normalizedFilePath];
+          final existingId = existingByPath?.id;
+          if (existingId != null &&
+              _isUnchangedFile(existingByPath!, fileStat)) {
+            updatedTracks++;
+            seenKnownTrackIds.add(existingId);
+            unchangedTrackIds.add(existingId);
+            continue;
+          }
+
           final metadata = await metadataReader.read(entity);
           final artwork = await _cacheArtwork(metadata.artwork);
           final track = _trackFromMetadata(
@@ -201,21 +220,20 @@ final class LibraryScannerService {
     }
 
     var missingTracks = 0;
+    await _markTracksSeen(unchangedTrackIds, knownById, now);
+
     if (completedDirectoryTraversal) {
+      final missingTrackIds = <int>[];
       for (final track in knownTracks) {
         final id = track.id;
         if (id == null || seenKnownTrackIds.contains(id) || track.isMissing) {
           continue;
         }
 
-        await trackRepository.upsertTrack(
-          track.copyWith(
-            isMissing: true,
-            updatedAt: now,
-          ),
-        );
+        missingTrackIds.add(id);
         missingTracks++;
       }
+      await _markTracksMissing(missingTrackIds, knownById, now);
     }
 
     await libraryRepository.upsertFolder(
@@ -233,6 +251,81 @@ final class LibraryScannerService {
       missingTracks: missingTracks,
       errors: errors,
     );
+  }
+
+  bool _isUnchangedFile(Track track, FileStat stat) {
+    final fileSizeBytes = track.fileSizeBytes;
+    final modifiedAt = track.modifiedAt;
+    return fileSizeBytes != null &&
+        modifiedAt != null &&
+        fileSizeBytes == stat.size &&
+        _sameUtcMillisecond(modifiedAt, stat.modified);
+  }
+
+  Future<void> _markTracksSeen(
+    List<int> trackIds,
+    Map<int, Track> knownById,
+    DateTime seenAt,
+  ) async {
+    if (trackIds.isEmpty) {
+      return;
+    }
+
+    final scanRepository = trackRepository is TrackScanRepository
+        ? trackRepository as TrackScanRepository
+        : null;
+    if (scanRepository != null) {
+      await scanRepository.markTracksSeen(trackIds: trackIds, seenAt: seenAt);
+      return;
+    }
+
+    for (final trackId in trackIds) {
+      final track = knownById[trackId];
+      if (track == null) {
+        continue;
+      }
+      await trackRepository.upsertTrack(
+        track.copyWith(
+          lastSeenAt: seenAt,
+          isMissing: false,
+          updatedAt: seenAt,
+        ),
+      );
+    }
+  }
+
+  Future<void> _markTracksMissing(
+    List<int> trackIds,
+    Map<int, Track> knownById,
+    DateTime updatedAt,
+  ) async {
+    if (trackIds.isEmpty) {
+      return;
+    }
+
+    final scanRepository = trackRepository is TrackScanRepository
+        ? trackRepository as TrackScanRepository
+        : null;
+    if (scanRepository != null) {
+      await scanRepository.markTracksMissing(
+        trackIds: trackIds,
+        updatedAt: updatedAt,
+      );
+      return;
+    }
+
+    for (final trackId in trackIds) {
+      final track = knownById[trackId];
+      if (track == null) {
+        continue;
+      }
+      await trackRepository.upsertTrack(
+        track.copyWith(
+          isMissing: true,
+          updatedAt: updatedAt,
+        ),
+      );
+    }
   }
 
   Future<LibraryFolder> _ensureFolder(String folderPath, DateTime now) async {
@@ -345,4 +438,9 @@ final class LibraryScannerService {
         lower == 'thumbs.db' ||
         lower == 'desktop.ini';
   }
+}
+
+bool _sameUtcMillisecond(DateTime left, DateTime right) {
+  return left.toUtc().millisecondsSinceEpoch ==
+      right.toUtc().millisecondsSinceEpoch;
 }

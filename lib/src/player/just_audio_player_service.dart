@@ -42,7 +42,7 @@ abstract interface class LocalAudioEngine {
 
   Duration? get duration;
 
-  Future<Duration?> setFilePath(String filePath);
+  Future<Duration?> setFilePath(String filePath, {bool preload = true});
 
   Future<void> play();
 
@@ -89,8 +89,8 @@ final class JustAudioEngine implements LocalAudioEngine {
   Duration? get duration => _player.duration;
 
   @override
-  Future<Duration?> setFilePath(String filePath) {
-    return _player.setFilePath(filePath);
+  Future<Duration?> setFilePath(String filePath, {bool preload = true}) {
+    return _player.setFilePath(filePath, preload: preload);
   }
 
   @override
@@ -516,7 +516,10 @@ final class JustAudioPlayerService implements PlayerService {
     }
 
     try {
-      final duration = await _audioEngine.setFilePath(normalizedPath);
+      final duration = await _audioEngine.setFilePath(
+        normalizedPath,
+        preload: false,
+      );
       return _LoadedAudio(duration: duration);
     } on Object catch (directError) {
       if (!_shouldUseWindowsCacheFallback(
@@ -553,7 +556,10 @@ final class JustAudioPlayerService implements PlayerService {
             ? '${strategyPrefix}_reused'
             : '${strategyPrefix}_copied',
       );
-      final duration = await _audioEngine.setFilePath(cached.filePath);
+      final duration = await _audioEngine.setFilePath(
+        cached.filePath,
+        preload: false,
+      );
       return _LoadedAudio(duration: duration);
     } on Object catch (cacheError) {
       final directDetails = directError == null

@@ -35,6 +35,21 @@ final class HomeScreen extends StatefulWidget {
 
 final class _HomeScreenState extends State<HomeScreen> {
   late final TextEditingController _searchController;
+  AppDependencies? _streamDependencies;
+  Stream<List<Track>>? _activeTracksStream;
+  Stream<List<Track>>? _indexedTracksStream;
+  Stream<List<LibraryFolder>>? _foldersStream;
+  Stream<PlayerState>? _pagePlayerStateStream;
+  Stream<Map<int, TrackUserState>>? _userStatesStream;
+  List<int> _userStateTrackIds = const [];
+  List<Track>? _visibleTracksInput;
+  Map<int, TrackUserState>? _visibleTracksUserStatesInput;
+  String? _visibleTracksSearchQueryInput;
+  LibraryTrackSortOption? _visibleTracksSortOptionInput;
+  bool? _visibleTracksShowMissingInput;
+  List<Track>? _cachedVisibleTracks;
+  List<Track>? _missingCountInput;
+  int? _cachedMissingCount;
   LibraryScanResult? _lastScanResult;
   Object? _lastError;
   int _selectedPageIndex = _wavePageIndex;
@@ -43,6 +58,7 @@ final class _HomeScreenState extends State<HomeScreen> {
   bool _showMissingTracks = false;
   int? _selectedPlaylistId;
   bool _isScanning = false;
+  bool _isResettingLearningState = false;
 
   @override
   void initState() {
@@ -59,6 +75,7 @@ final class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final dependencies = AppDependenciesScope.of(context);
+    _ensureStreams(dependencies);
 
     return Scaffold(
       bottomNavigationBar: SafeArea(
@@ -66,9 +83,7 @@ final class _HomeScreenState extends State<HomeScreen> {
         child: _BottomPlayerBar(
           playerService: dependencies.playerService,
           queueService: dependencies.playbackQueue,
-          tracksStream: dependencies.repositories.tracks.watchAllTracks(
-            includeMissing: true,
-          ),
+          tracksStream: _activeTracksStream!,
           onOpenSettings: () {
             setState(() {
               _selectedPageIndex = _settingsPageIndex;
@@ -77,41 +92,37 @@ final class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
       body: SafeArea(
-        child: StreamBuilder<PlayerState>(
-          stream: dependencies.playerService.stateStream,
-          initialData: dependencies.playerService.state,
-          builder: (context, playerSnapshot) {
-            final playerState = playerSnapshot.data ?? const PlayerState.idle();
+        child: StreamBuilder<List<Track>>(
+          stream: _activeTracksStream,
+          initialData: const [],
+          builder: (context, trackSnapshot) {
+            final activeTracks = trackSnapshot.data ?? const <Track>[];
+            final trackIds = _trackIds(activeTracks);
+            final userStatesStream =
+                _watchUserStatesFor(dependencies, trackIds);
 
-            return StreamBuilder<List<Track>>(
-              stream: dependencies.repositories.tracks.watchAllTracks(
-                includeMissing: true,
-              ),
-              builder: (context, trackSnapshot) {
-                final activeTracks = trackSnapshot.data ?? const <Track>[];
-                final trackIds =
-                    activeTracks.map((track) => track.id).whereType<int>();
+            return StreamBuilder<Map<int, TrackUserState>>(
+              stream: userStatesStream,
+              initialData: const {},
+              builder: (context, stateSnapshot) {
+                final userStates =
+                    stateSnapshot.data ?? const <int, TrackUserState>{};
 
-                return StreamBuilder<Map<int, TrackUserState>>(
-                  stream: dependencies.repositories.trackUserState
-                      .watchTrackStatesByTrackIds(trackIds),
-                  initialData: const {},
-                  builder: (context, stateSnapshot) {
-                    final userStates =
-                        stateSnapshot.data ?? const <int, TrackUserState>{};
-
-                    return StreamBuilder<List<Track>>(
-                      stream: dependencies.repositories.tracks.watchAllTracks(
-                        includeMissing: true,
-                        includeDisabledFolders: true,
-                      ),
+                return StreamBuilder<List<Track>>(
+                  stream: _indexedTracksStream,
+                  initialData: const [],
+                  builder: (context, indexedSnapshot) {
+                    return StreamBuilder<List<LibraryFolder>>(
+                      stream: _foldersStream,
                       initialData: const [],
-                      builder: (context, indexedSnapshot) {
-                        return StreamBuilder<List<LibraryFolder>>(
-                          stream: dependencies.repositories.libraryFolders
-                              .watchFolders(),
-                          initialData: const [],
-                          builder: (context, folderSnapshot) {
+                      builder: (context, folderSnapshot) {
+                        return StreamBuilder<PlayerState>(
+                          stream: _pagePlayerStateStream,
+                          initialData: dependencies.playerService.state,
+                          builder: (context, playerSnapshot) {
+                            final playerState =
+                                playerSnapshot.data ?? const PlayerState.idle();
+
                             return _NavigationShell(
                               selectedPageIndex: _selectedPageIndex,
                               onPageSelected: _selectPage,
@@ -143,6 +154,45 @@ final class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  void _ensureStreams(AppDependencies dependencies) {
+    if (identical(_streamDependencies, dependencies)) {
+      return;
+    }
+
+    _streamDependencies = dependencies;
+    _activeTracksStream = dependencies.repositories.tracks
+        .watchAllTracks(includeMissing: true)
+        .asBroadcastStream();
+    _indexedTracksStream = dependencies.repositories.tracks
+        .watchAllTracks(
+          includeMissing: true,
+          includeDisabledFolders: true,
+        )
+        .asBroadcastStream();
+    _foldersStream = dependencies.repositories.libraryFolders
+        .watchFolders()
+        .asBroadcastStream();
+    _pagePlayerStateStream = dependencies.playerService.stateStream
+        .distinct(_isSamePagePlayerState)
+        .asBroadcastStream();
+    _userStatesStream = null;
+    _userStateTrackIds = const [];
+    _clearVisibleTracksCache();
+  }
+
+  Stream<Map<int, TrackUserState>> _watchUserStatesFor(
+    AppDependencies dependencies,
+    List<int> trackIds,
+  ) {
+    if (_userStatesStream == null ||
+        !_intListsEqual(_userStateTrackIds, trackIds)) {
+      _userStateTrackIds = List.unmodifiable(trackIds);
+      _userStatesStream = dependencies.repositories.trackUserState
+          .watchTrackStatesByTrackIds(_userStateTrackIds);
+    }
+    return _userStatesStream!;
+  }
+
   Widget _buildHomeContent(
     BuildContext context,
     AppDependencies dependencies, {
@@ -154,17 +204,9 @@ final class _HomeScreenState extends State<HomeScreen> {
     required Object? trackLoadError,
     required Object? folderLoadError,
   }) {
-    final visibleTracks = buildVisibleLibraryTracks(
-      tracks: activeTracks,
-      searchQuery: _searchQuery,
-      showMissingTracks: _showMissingTracks,
-      sortOption: _sortOption,
-      userStates: userStates,
-    );
-    final missingCount = activeTracks.where((track) => track.isMissing).length;
-
-    return switch (_selectedPageIndex) {
-      _wavePageIndex => _HomeWavePage(
+    switch (_selectedPageIndex) {
+      case _wavePageIndex:
+        return _HomeWavePage(
           playerState: playerState,
           playerService: dependencies.playerService,
           queueService: dependencies.playbackQueue,
@@ -174,8 +216,14 @@ final class _HomeScreenState extends State<HomeScreen> {
           onPageSelected: _selectPage,
           onAddFolder: () => _addMusicFolder(dependencies),
           onRescanLibrary: () => _rescanLibrary(dependencies),
-        ),
-      _myMusicPageIndex => _MyMusicPage(
+        );
+      case _myMusicPageIndex:
+        final visibleTracks = _visibleTracksFor(
+          activeTracks: activeTracks,
+          userStates: userStates,
+        );
+        final missingCount = _missingCountFor(activeTracks);
+        return _MyMusicPage(
           playerState: playerState,
           queueService: dependencies.playbackQueue,
           visibleTracks: visibleTracks,
@@ -238,8 +286,9 @@ final class _HomeScreenState extends State<HomeScreen> {
           onRemoveCustomCover: (track) {
             unawaited(_removeTrackCustomCover(dependencies, track));
           },
-        ),
-      _playlistsPageIndex => _PlaylistsPage(
+        );
+      case _playlistsPageIndex:
+        return _PlaylistsPage(
           playerState: playerState,
           queueService: dependencies.playbackQueue,
           playlistRepository: dependencies.repositories.playlists,
@@ -253,13 +302,15 @@ final class _HomeScreenState extends State<HomeScreen> {
           onAddToQueue: (track) {
             unawaited(dependencies.playbackQueue.addToQueue(track));
           },
-        ),
-      _ => _SettingsPage(
+        );
+      default:
+        return _SettingsPage(
           folders: folders,
           folderLoadError: folderLoadError,
           scanResult: _lastScanResult,
           scanError: _lastError,
           isScanning: _isScanning,
+          isResettingLearningState: _isResettingLearningState,
           queueService: dependencies.playbackQueue,
           onAddFolder: () => _addMusicFolder(dependencies),
           onRescanLibrary: () => _rescanLibrary(dependencies),
@@ -272,8 +323,61 @@ final class _HomeScreenState extends State<HomeScreen> {
           onRemoveFolder: (folder) {
             unawaited(_confirmAndRemoveFolder(dependencies, folder));
           },
-        ),
-    };
+          onResetLearningState: () {
+            unawaited(_confirmAndResetLearningState(dependencies));
+          },
+        );
+    }
+  }
+
+  List<Track> _visibleTracksFor({
+    required List<Track> activeTracks,
+    required Map<int, TrackUserState> userStates,
+  }) {
+    if (identical(_visibleTracksInput, activeTracks) &&
+        identical(_visibleTracksUserStatesInput, userStates) &&
+        _visibleTracksSearchQueryInput == _searchQuery &&
+        _visibleTracksSortOptionInput == _sortOption &&
+        _visibleTracksShowMissingInput == _showMissingTracks) {
+      return _cachedVisibleTracks!;
+    }
+
+    final visibleTracks = buildVisibleLibraryTracks(
+      tracks: activeTracks,
+      searchQuery: _searchQuery,
+      showMissingTracks: _showMissingTracks,
+      sortOption: _sortOption,
+      userStates: userStates,
+    );
+    _visibleTracksInput = activeTracks;
+    _visibleTracksUserStatesInput = userStates;
+    _visibleTracksSearchQueryInput = _searchQuery;
+    _visibleTracksSortOptionInput = _sortOption;
+    _visibleTracksShowMissingInput = _showMissingTracks;
+    _cachedVisibleTracks = visibleTracks;
+    return visibleTracks;
+  }
+
+  int _missingCountFor(List<Track> activeTracks) {
+    if (identical(_missingCountInput, activeTracks) &&
+        _cachedMissingCount != null) {
+      return _cachedMissingCount!;
+    }
+    final missingCount = activeTracks.where((track) => track.isMissing).length;
+    _missingCountInput = activeTracks;
+    _cachedMissingCount = missingCount;
+    return missingCount;
+  }
+
+  void _clearVisibleTracksCache() {
+    _visibleTracksInput = null;
+    _visibleTracksUserStatesInput = null;
+    _visibleTracksSearchQueryInput = null;
+    _visibleTracksSortOptionInput = null;
+    _visibleTracksShowMissingInput = null;
+    _cachedVisibleTracks = null;
+    _missingCountInput = null;
+    _cachedMissingCount = null;
   }
 
   void _selectPage(int pageIndex) {
@@ -382,6 +486,70 @@ final class _HomeScreenState extends State<HomeScreen> {
       setState(() {
         _lastError = error;
       });
+    }
+  }
+
+  Future<void> _confirmAndResetLearningState(
+    AppDependencies dependencies,
+  ) async {
+    if (_isResettingLearningState) {
+      return;
+    }
+
+    final shouldReset = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Сбросить историю и рекомендации?'),
+          content: const Text(
+            'Будут сброшены история прослушивания, лайки, дизлайки, пропуски, '
+            'счетчики воспроизведений и веса рекомендаций.\n\n'
+            'Треки, плейлисты, папки, обложки и аудиофайлы останутся на месте.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Отмена'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Сбросить'),
+            ),
+          ],
+        );
+      },
+    );
+    if (shouldReset != true || !mounted) {
+      return;
+    }
+
+    setState(() {
+      _isResettingLearningState = true;
+    });
+
+    try {
+      await dependencies.repositories.resetLearningState();
+      dependencies.playbackQueue.clearLearningStateSnapshot();
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('История и рекомендации сброшены.')),
+      );
+    } on Object catch (error) {
+      if (!mounted) {
+        return;
+      }
+      _showErrorSnack(
+        context,
+        'Could not reset history and recommendations: $error',
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isResettingLearningState = false;
+        });
+      }
     }
   }
 
@@ -1121,12 +1289,14 @@ final class _SettingsPage extends StatelessWidget {
     required this.scanResult,
     required this.scanError,
     required this.isScanning,
+    required this.isResettingLearningState,
     required this.queueService,
     required this.onAddFolder,
     required this.onRescanLibrary,
     required this.onRescanFolder,
     required this.onToggleEnabled,
     required this.onRemoveFolder,
+    required this.onResetLearningState,
   });
 
   final List<LibraryFolder> folders;
@@ -1134,12 +1304,14 @@ final class _SettingsPage extends StatelessWidget {
   final LibraryScanResult? scanResult;
   final Object? scanError;
   final bool isScanning;
+  final bool isResettingLearningState;
   final PlaybackQueueService queueService;
   final VoidCallback onAddFolder;
   final VoidCallback onRescanLibrary;
   final ValueChanged<LibraryFolder> onRescanFolder;
   final ValueChanged<LibraryFolder> onToggleEnabled;
   final ValueChanged<LibraryFolder> onRemoveFolder;
+  final VoidCallback onResetLearningState;
 
   @override
   Widget build(BuildContext context) {
@@ -1179,6 +1351,14 @@ final class _SettingsPage extends StatelessWidget {
                     result: scanResult,
                     error: scanError,
                     isScanning: isScanning,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                _SettingsSection(
+                  title: 'Reset',
+                  child: _ResetActions(
+                    isResettingLearningState: isResettingLearningState,
+                    onResetLearningState: onResetLearningState,
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -1396,6 +1576,54 @@ final class _LibraryActions extends StatelessWidget {
             dimension: 20,
             child: CircularProgressIndicator(strokeWidth: 2),
           ),
+      ],
+    );
+  }
+}
+
+final class _ResetActions extends StatelessWidget {
+  const _ResetActions({
+    required this.isResettingLearningState,
+    required this.onResetLearningState,
+  });
+
+  final bool isResettingLearningState;
+  final VoidCallback onResetLearningState;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Сбрасывает только историю, лайки, дизлайки и локальные веса '
+          'рекомендаций. Музыка, папки и плейлисты не удаляются.',
+          style: textTheme.bodySmall?.copyWith(
+            color: colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            OutlinedButton.icon(
+              onPressed: isResettingLearningState ? null : onResetLearningState,
+              icon: const Icon(Icons.restart_alt_outlined),
+              label: const Text('Сбросить историю и рекомендации'),
+            ),
+            if (isResettingLearningState)
+              const SizedBox.square(
+                dimension: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+          ],
+        ),
+        // TODO: Add a stronger full library database reset flow separately.
       ],
     );
   }
@@ -3079,6 +3307,39 @@ bool _isSameTrack(Track track, Track? other) {
     return track.id == other.id;
   }
   return track.filePath == other.filePath;
+}
+
+bool _isSameNullableTrack(Track? left, Track? right) {
+  if (left == null || right == null) {
+    return left == right;
+  }
+  return _isSameTrack(left, right);
+}
+
+bool _isSamePagePlayerState(PlayerState left, PlayerState right) {
+  return _isSameNullableTrack(left.currentTrack, right.currentTrack) &&
+      left.isPlaying == right.isPlaying &&
+      left.status == right.status &&
+      left.errorMessage == right.errorMessage;
+}
+
+List<int> _trackIds(List<Track> tracks) {
+  return [
+    for (final track in tracks)
+      if (track.id != null) track.id!,
+  ];
+}
+
+bool _intListsEqual(List<int> left, List<int> right) {
+  if (left.length != right.length) {
+    return false;
+  }
+  for (var index = 0; index < left.length; index++) {
+    if (left[index] != right[index]) {
+      return false;
+    }
+  }
+  return true;
 }
 
 final class _WaveHomePanel extends StatelessWidget {

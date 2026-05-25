@@ -32,8 +32,31 @@ void main() {
       ),
     );
 
-    expect(find.byType(FallbackTrackArtwork), findsOneWidget);
-    expect(find.text('T'), findsOneWidget);
+    final image = tester.widget<Image>(find.byType(Image));
+    expect(image.errorBuilder, isNotNull);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('TrackArtwork requests thumbnail-sized file decoding',
+      (tester) async {
+    tester.view.devicePixelRatio = 2;
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      _TestApp(
+        child: TrackArtwork(
+          track: _track(
+            artworkPath: '/tmp/clever_music_thumbnail_artwork_test.png',
+          ),
+          size: 48,
+        ),
+      ),
+    );
+
+    final image = tester.widget<Image>(find.byType(Image));
+    final resizeImage = image.image as ResizeImage;
+    expect(resizeImage.width, 96);
+    expect(resizeImage.height, 96);
   });
 
   test('artwork candidates prefer custom artwork over embedded artwork', () {

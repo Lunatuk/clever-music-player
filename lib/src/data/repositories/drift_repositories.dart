@@ -7,12 +7,15 @@ import '../drift/drift_mappers.dart';
 
 final class DriftRepositories implements AppRepositories {
   DriftRepositories(AppDatabase database)
-      : libraryFolders = DriftLibraryRepository(database),
+      : _database = database,
+        libraryFolders = DriftLibraryRepository(database),
         tracks = DriftTrackRepository(database),
         playlists = DriftPlaylistRepository(database),
         playbackEvents = DriftPlaybackEventRepository(database),
         trackUserState = DriftTrackUserStateRepository(database),
         settings = DriftSettingsRepository(database);
+
+  final AppDatabase _database;
 
   @override
   final LibraryRepository libraryFolders;
@@ -31,6 +34,14 @@ final class DriftRepositories implements AppRepositories {
 
   @override
   final SettingsRepository settings;
+
+  @override
+  Future<void> resetLearningState() {
+    return _database.transaction(() async {
+      await _database.delete(_database.playbackEvents).go();
+      await _database.delete(_database.trackUserStates).go();
+    });
+  }
 }
 
 final class DriftLibraryRepository implements LibraryRepository {
@@ -102,7 +113,8 @@ final class DriftLibraryRepository implements LibraryRepository {
   }
 }
 
-final class DriftTrackRepository implements TrackRepository {
+final class DriftTrackRepository
+    implements TrackRepository, TrackScanRepository {
   const DriftTrackRepository(this._database);
 
   final AppDatabase _database;
@@ -331,6 +343,53 @@ final class DriftTrackRepository implements TrackRepository {
     });
   }
 
+  @override
+  Future<void> markTracksSeen({
+    required Iterable<int> trackIds,
+    required DateTime seenAt,
+  }) {
+    return _updateTrackScanState(
+      trackIds: trackIds,
+      companion: TracksCompanion(
+        lastSeenAt: Value(seenAt),
+        isMissing: const Value(false),
+        updatedAt: Value(seenAt),
+      ),
+    );
+  }
+
+  @override
+  Future<void> markTracksMissing({
+    required Iterable<int> trackIds,
+    required DateTime updatedAt,
+  }) {
+    return _updateTrackScanState(
+      trackIds: trackIds,
+      companion: TracksCompanion(
+        isMissing: const Value(true),
+        updatedAt: Value(updatedAt),
+      ),
+    );
+  }
+
+  Future<void> _updateTrackScanState({
+    required Iterable<int> trackIds,
+    required TracksCompanion companion,
+  }) async {
+    final ids = _uniqueTrackIds(trackIds);
+    if (ids.isEmpty) {
+      return;
+    }
+
+    await _database.transaction(() async {
+      for (final chunk in _chunks(ids, 500)) {
+        await (_database.update(_database.tracks)
+              ..where((table) => table.id.isIn(chunk)))
+            .write(companion);
+      }
+    });
+  }
+
   Future<Track?> _findExistingTrackForUpsert(Track track) async {
     if (track.id != null) {
       final byId = await findById(track.id!);
@@ -406,6 +465,17 @@ final class DriftTrackRepository implements TrackRepository {
     return rows
         .map((row) => trackFromRow(row.readTable(_database.tracks)))
         .toList();
+  }
+}
+
+List<int> _uniqueTrackIds(Iterable<int> trackIds) {
+  return trackIds.toSet().toList(growable: false);
+}
+
+Iterable<List<int>> _chunks(List<int> values, int size) sync* {
+  for (var start = 0; start < values.length; start += size) {
+    final end = start + size > values.length ? values.length : start + size;
+    yield values.sublist(start, end);
   }
 }
 

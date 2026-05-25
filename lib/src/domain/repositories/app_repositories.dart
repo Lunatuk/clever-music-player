@@ -17,4 +17,6 @@ abstract interface class AppRepositories {
   TrackUserStateRepository get trackUserState;
 
   SettingsRepository get settings;
+
+  Future<void> resetLearningState();
 }

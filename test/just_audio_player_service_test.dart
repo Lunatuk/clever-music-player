@@ -60,11 +60,25 @@ void main() {
     await Future<void>.delayed(Duration.zero);
 
     expect(service.state.status, PlayerPlaybackStatus.playing);
-    expect(service.state.duration, const Duration(minutes: 4));
+    expect(service.state.duration, const Duration(minutes: 3));
     expect(engine.playCalls, 1);
     expect(playbackEvents.events.single.type, PlaybackEventType.started);
     expect(userState.states[1]!.playCount, 1);
     expect(userState.states[1]!.lastPlayedAt, isNotNull);
+
+    await service.dispose();
+  });
+
+  test('playTrack disables source preload so playback starts immediately',
+      () async {
+    final engine = _FakeAudioEngine();
+    final service = _service(audioEngine: engine);
+
+    await service.playTrack(_track());
+
+    expect(engine.setFilePathPreloads, [false]);
+    expect(engine.playCalls, 1);
+    expect(service.state.status, PlayerPlaybackStatus.playing);
 
     await service.dispose();
   });
@@ -414,6 +428,8 @@ void main() {
 
     await service.playTrack(_track());
     await Future<void>.delayed(Duration.zero);
+    engine.emitDuration(const Duration(minutes: 2));
+    await Future<void>.delayed(Duration.zero);
     engine.emitState(
       const AudioEngineState(
         isPlaying: false,
@@ -498,6 +514,7 @@ final class _FakeAudioEngine implements LocalAudioEngine {
   Duration? Function(String filePath, int call)? setFilePathHandler;
   int setFilePathCalls = 0;
   final List<String> setFilePaths = [];
+  final List<bool> setFilePathPreloads = [];
   int playCalls = 0;
   int pauseCalls = 0;
   int stopCalls = 0;
@@ -532,9 +549,13 @@ final class _FakeAudioEngine implements LocalAudioEngine {
   }
 
   @override
-  Future<Duration?> setFilePath(String filePath) async {
+  Future<Duration?> setFilePath(
+    String filePath, {
+    bool preload = true,
+  }) async {
     setFilePathCalls += 1;
     setFilePaths.add(filePath);
+    setFilePathPreloads.add(preload);
     final handler = setFilePathHandler;
     if (handler != null) {
       return handler(filePath, setFilePathCalls);
@@ -542,6 +563,9 @@ final class _FakeAudioEngine implements LocalAudioEngine {
     final error = setFilePathError;
     if (error != null) {
       throw error;
+    }
+    if (!preload) {
+      return null;
     }
     return loadedDuration;
   }
