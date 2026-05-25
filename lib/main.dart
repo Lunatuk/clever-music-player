@@ -17,6 +17,9 @@ import 'src/queue/playback_queue_service.dart';
 import 'src/recommendation/recommendation_service.dart';
 import 'src/smtc/smtc_service.dart';
 import 'src/smtc/smtc_windows_plugin_client.dart';
+import 'src/system_media/macos_now_playing_client.dart';
+import 'src/system_media/macos_now_playing_service.dart';
+import 'src/system_media/system_media_controls_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -46,15 +49,25 @@ Future<void> main() async {
     playbackEvents: repositories.playbackEvents,
     recommendationService: recommendationService,
   );
-  final smtcService = Platform.isWindows
-      ? WindowsSmtcService(
-          playerService: playerService,
-          onNext: playbackQueue.next,
-          onPrevious: playbackQueue.previous,
-          client: SmtcWindowsPluginClient(),
-        )
-      : const NoopSmtcService();
-  await smtcService.initialize();
+  final SystemMediaControlsService systemMediaControlsService;
+  if (Platform.isWindows) {
+    systemMediaControlsService = WindowsSmtcService(
+      playerService: playerService,
+      onNext: playbackQueue.next,
+      onPrevious: playbackQueue.previous,
+      client: SmtcWindowsPluginClient(),
+    );
+  } else if (Platform.isMacOS) {
+    systemMediaControlsService = MacosNowPlayingService(
+      playerService: playerService,
+      onNext: playbackQueue.next,
+      onPrevious: playbackQueue.previous,
+      client: MethodChannelMacosNowPlayingClient(),
+    );
+  } else {
+    systemMediaControlsService = const NoopSystemMediaControlsService();
+  }
+  await systemMediaControlsService.initialize();
   final dependencies = AppDependencies(
     database: database,
     repositories: repositories,
@@ -66,7 +79,7 @@ Future<void> main() async {
     ),
     playerService: playerService,
     playbackQueue: playbackQueue,
-    smtcService: smtcService,
+    systemMediaControlsService: systemMediaControlsService,
   );
 
   runApp(

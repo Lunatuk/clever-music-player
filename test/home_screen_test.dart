@@ -15,7 +15,7 @@ import 'package:clever_music_player/src/player/player_state.dart';
 import 'package:clever_music_player/src/queue/playback_queue_service.dart';
 import 'package:clever_music_player/src/queue/queue_state.dart';
 import 'package:clever_music_player/src/recommendation/recommendation_service.dart';
-import 'package:clever_music_player/src/smtc/smtc_service.dart';
+import 'package:clever_music_player/src/system_media/system_media_controls_service.dart';
 import 'package:clever_music_player/src/ui/track_artwork.dart';
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
@@ -931,7 +931,7 @@ final class _HomeScreenFixture {
       customArtwork: customArtwork ?? _FakeCustomArtworkService(),
       playerService: player,
       playbackQueue: queue,
-      smtcService: const NoopSmtcService(),
+      systemMediaControlsService: const NoopSystemMediaControlsService(),
     );
     return _HomeScreenFixture._(
       dependencies: dependencies,

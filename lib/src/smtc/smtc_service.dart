@@ -6,13 +6,10 @@ import 'package:flutter/foundation.dart';
 import '../domain/models/track.dart';
 import '../player/player_service.dart';
 import '../player/player_state.dart';
+import '../system_media/system_media_controls_service.dart';
 import 'smtc_platform_client.dart';
 
-abstract interface class SmtcService {
-  Future<void> initialize();
-
-  Future<void> dispose();
-}
+abstract interface class SmtcService implements SystemMediaControlsService {}
 
 final class NoopSmtcService implements SmtcService {
   const NoopSmtcService();
