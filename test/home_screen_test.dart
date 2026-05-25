@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show PointerDeviceKind;
 
 import 'package:clever_music_player/src/app/clever_music_player_app.dart';
 import 'package:clever_music_player/src/app/dependency_scope.dart';
@@ -52,6 +53,88 @@ void main() {
     );
     expect(find.byIcon(Icons.play_circle_fill_rounded), findsOneWidget);
     expect(find.byTooltip('Stop'), findsNothing);
+  });
+
+  testWidgets('bottom player bar renders volume control and changes volume',
+      (tester) async {
+    await _setLargeSurface(tester);
+    final fixture = await _HomeScreenFixture.create();
+    _addFixtureTearDown(tester, fixture);
+
+    await fixture.pump(tester);
+
+    expect(
+      find.byKey(const ValueKey('bottom-player-volume-button')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('bottom-player-volume-slider')),
+      findsOneWidget,
+    );
+    expect(find.byIcon(Icons.volume_up_outlined), findsOneWidget);
+
+    final slider = tester.widget<Slider>(
+      find.byKey(const ValueKey('bottom-player-volume-slider')),
+    );
+    slider.onChanged!(0.35);
+    await tester.pump();
+
+    expect(fixture.player.setVolumeCalls.last, 0.35);
+
+    await tester.tap(find.byKey(const ValueKey('bottom-player-volume-button')));
+    await tester.pump();
+
+    expect(fixture.player.toggleMuteCalls, 1);
+  });
+
+  testWidgets('narrow bottom bar shows hover volume popup', (tester) async {
+    await _setNarrowSurface(tester);
+    final fixture = await _HomeScreenFixture.create();
+    _addFixtureTearDown(tester, fixture);
+
+    await fixture.pump(tester);
+
+    expect(
+      find.byKey(const ValueKey('bottom-player-volume-button')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('bottom-player-volume-slider')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('bottom-player-volume-popup-slider')),
+      findsNothing,
+    );
+
+    final gesture = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    addTearDown(gesture.removePointer);
+    await gesture.addPointer(
+      location: tester.getCenter(
+        find.byKey(const ValueKey('bottom-player-volume-button')),
+      ),
+    );
+    await tester.pump();
+
+    expect(
+      find.byKey(const ValueKey('bottom-player-volume-popup-slider')),
+      findsOneWidget,
+    );
+    final buttonRect = tester.getRect(
+      find.byKey(const ValueKey('bottom-player-volume-button')),
+    );
+    final popupRect = tester.getRect(
+      find.byKey(const ValueKey('bottom-player-volume-popup')),
+    );
+    expect(buttonRect.top - popupRect.bottom, closeTo(8, 1));
+
+    final slider = tester.widget<Slider>(
+      find.byKey(const ValueKey('bottom-player-volume-popup-slider')),
+    );
+    slider.onChanged!(0.6);
+    await tester.pump();
+
+    expect(fixture.player.setVolumeCalls.last, 0.6);
   });
 
   testWidgets('central launch icon stays start for non-Wave playback',
@@ -1634,6 +1717,8 @@ final class _FakePlayerService implements PlayerService {
   final StreamController<PlayerState> _controller =
       StreamController<PlayerState>.broadcast();
   PlayerState _state = const PlayerState.idle();
+  final List<double> setVolumeCalls = [];
+  int toggleMuteCalls = 0;
 
   @override
   PlayerState get state => _state;
@@ -1706,7 +1791,24 @@ final class _FakePlayerService implements PlayerService {
 
   @override
   Future<void> setVolume(double volume) async {
+    setVolumeCalls.add(volume);
     _emit(_state.copyWith(volume: volume));
+  }
+
+  @override
+  Future<void> increaseVolume() async {
+    await setVolume((_state.volume + 0.05).clamp(0.0, 1.0).toDouble());
+  }
+
+  @override
+  Future<void> decreaseVolume() async {
+    await setVolume((_state.volume - 0.05).clamp(0.0, 1.0).toDouble());
+  }
+
+  @override
+  Future<void> toggleMute() async {
+    toggleMuteCalls += 1;
+    await setVolume(_state.volume > 0 ? 0 : 1);
   }
 
   void emitPositionTick(Duration position) {

@@ -455,6 +455,94 @@ void main() {
 
     await service.dispose();
   });
+
+  test('setVolume clamps below zero and calls audio engine', () async {
+    final engine = _FakeAudioEngine();
+    final service = _service(audioEngine: engine);
+
+    await service.setVolume(-0.5);
+
+    expect(service.state.volume, 0);
+    expect(engine.setVolumes, [0]);
+
+    await service.dispose();
+  });
+
+  test('setVolume clamps above one and calls audio engine', () async {
+    final engine = _FakeAudioEngine();
+    final service = _service(audioEngine: engine);
+
+    await service.setVolume(1.5);
+
+    expect(service.state.volume, 1);
+    expect(engine.setVolumes, [1]);
+
+    await service.dispose();
+  });
+
+  test('toggleMute sets volume to zero without pausing playback', () async {
+    final engine = _FakeAudioEngine();
+    final service = _service(audioEngine: engine);
+    await service.playTrack(_track());
+    await Future<void>.delayed(Duration.zero);
+
+    await service.setVolume(0.7);
+    await service.toggleMute();
+
+    expect(service.state.volume, 0);
+    expect(service.state.isPlaying, isTrue);
+    expect(engine.pauseCalls, 0);
+    expect(engine.setVolumes.sublist(engine.setVolumes.length - 2), [0.7, 0]);
+
+    await service.dispose();
+  });
+
+  test('toggleMute restores previous non-zero volume', () async {
+    final engine = _FakeAudioEngine();
+    final service = _service(audioEngine: engine);
+
+    await service.setVolume(0.35);
+    await service.toggleMute();
+    await service.toggleMute();
+
+    expect(service.state.volume, 0.35);
+    expect(engine.setVolumes, [0.35, 0, 0.35]);
+
+    await service.dispose();
+  });
+
+  test('volume persists to settings', () async {
+    final engine = _FakeAudioEngine();
+    final settings = _FakeSettingsRepository();
+    final service = _service(
+      audioEngine: engine,
+      settings: settings,
+    );
+
+    await service.setVolume(0.4);
+
+    expect(await settings.readString('player.volume'), '0.4');
+    expect(await settings.readString('player.previousVolumeBeforeMute'), '0.4');
+
+    await service.dispose();
+  });
+
+  test('startup restores saved volume', () async {
+    final engine = _FakeAudioEngine();
+    final settings = _FakeSettingsRepository();
+    await settings.writeString('player.volume', '0.25');
+    final service = _service(
+      audioEngine: engine,
+      settings: settings,
+    );
+
+    await service.restoreSavedVolume();
+
+    expect(service.state.volume, 0.25);
+    expect(engine.setVolumes, [0.25]);
+
+    await service.dispose();
+  });
 }
 
 JustAudioPlayerService _service({
@@ -466,10 +554,12 @@ JustAudioPlayerService _service({
   Duration windowsSyntheticProgressGrace = const Duration(seconds: 2),
   _FakePlaybackEventRepository? playbackEvents,
   _FakeTrackUserStateRepository? trackUserState,
+  SettingsRepository? settings,
 }) {
   return JustAudioPlayerService(
     playbackEvents: playbackEvents ?? _FakePlaybackEventRepository(),
     trackUserState: trackUserState ?? _FakeTrackUserStateRepository(),
+    settings: settings,
     audioEngine: audioEngine,
     isWindows: isWindows ?? false,
     playbackCache: playbackCache,
@@ -523,6 +613,7 @@ final class _FakeAudioEngine implements LocalAudioEngine {
   int durationPolls = 0;
   int setVolumeCalls = 0;
   final List<Duration> seekPositions = [];
+  final List<double> setVolumes = [];
 
   @override
   Stream<AudioEngineState> get stateStream => _stateController.stream;
@@ -595,6 +686,7 @@ final class _FakeAudioEngine implements LocalAudioEngine {
   @override
   Future<void> setVolume(double volume) async {
     setVolumeCalls += 1;
+    setVolumes.add(volume);
   }
 
   @override
@@ -654,6 +746,30 @@ final class _FakePlaybackEventRepository implements PlaybackEventRepository {
     return Future.value(
       events.where((event) => event.trackId == trackId).toList(growable: false),
     );
+  }
+}
+
+final class _FakeSettingsRepository implements SettingsRepository {
+  final Map<String, AppSetting> _settings = {};
+
+  @override
+  Future<AppSetting?> read(String key) async => _settings[key];
+
+  @override
+  Future<String?> readString(String key) async => _settings[key]?.value;
+
+  @override
+  Future<void> writeString(String key, String value) async {
+    _settings[key] = AppSetting(
+      key: key,
+      value: value,
+      updatedAt: DateTime(2026),
+    );
+  }
+
+  @override
+  Future<void> delete(String key) async {
+    _settings.remove(key);
   }
 }
 
