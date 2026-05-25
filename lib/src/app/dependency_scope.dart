@@ -8,6 +8,7 @@ import '../library/library_scanner_service.dart';
 import '../player/player_service.dart';
 import '../queue/playback_queue_service.dart';
 import '../recommendation/recommendation_service.dart';
+import '../smtc/smtc_service.dart';
 
 final class AppDependencies {
   const AppDependencies({
@@ -19,6 +20,7 @@ final class AppDependencies {
     required this.customArtwork,
     required this.playerService,
     required this.playbackQueue,
+    required this.smtcService,
   });
 
   final AppDatabase database;
@@ -29,8 +31,10 @@ final class AppDependencies {
   final CustomArtworkService customArtwork;
   final PlayerService playerService;
   final PlaybackQueueService playbackQueue;
+  final SmtcService smtcService;
 
   Future<void> dispose() async {
+    await smtcService.dispose();
     await playbackQueue.dispose();
     await playerService.dispose();
     await database.close();

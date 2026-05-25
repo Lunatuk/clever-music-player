@@ -167,6 +167,20 @@ final class PlaybackQueueService {
 
   Stream<QueueState> get stateStream => _stateController.stream;
 
+  void clearLearningStateSnapshot() {
+    _currentTrackStateGeneration += 1;
+    _emit(
+      _state.copyWith(
+        currentTrackUserState: null,
+        lastRecommendationResult: null,
+        recommendationCandidates: const [],
+        repeatGuardMessage: null,
+        selectionPoolMessage: null,
+        lastError: null,
+      ),
+    );
+  }
+
   Future<void> playTrackManually(Track track) async {
     if (_isDisposed) {
       return;

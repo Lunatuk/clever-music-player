@@ -15,6 +15,7 @@ import 'package:clever_music_player/src/player/player_state.dart';
 import 'package:clever_music_player/src/queue/playback_queue_service.dart';
 import 'package:clever_music_player/src/queue/queue_state.dart';
 import 'package:clever_music_player/src/recommendation/recommendation_service.dart';
+import 'package:clever_music_player/src/smtc/smtc_service.dart';
 import 'package:clever_music_player/src/ui/track_artwork.dart';
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
@@ -29,6 +30,7 @@ void main() {
 
     await fixture.pump(tester);
 
+    expect(tester.widget<Scaffold>(find.byType(Scaffold)).extendBody, isTrue);
     expect(find.text('Пустить жидкого'), findsOneWidget);
     expect(find.text('Настроить'), findsOneWidget);
     expect(find.text('Добавить папку'), findsOneWidget);
@@ -208,6 +210,65 @@ void main() {
     expect(find.byType(TrackArtwork), findsNWidgets(2));
   });
 
+  testWidgets('My Music renders a large library lazily', (tester) async {
+    await _setLargeSurface(tester);
+    final fixture = await _HomeScreenFixture.create(
+      seedTracks: _largeLibraryTracks(600),
+    );
+    _addFixtureTearDown(tester, fixture);
+
+    await fixture.pump(tester);
+    await tester.tap(find.byKey(const ValueKey('nav-music')));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('Visible 600 / Indexed 600 / Missing 0 / Folders 1'),
+        findsOneWidget);
+    expect(find.text('Track 000'), findsOneWidget);
+    expect(find.text('Track 599'), findsNothing);
+    expect(find.byType(TrackArtwork).evaluate().length, lessThan(600));
+  });
+
+  testWidgets('player progress ticks do not recreate library streams',
+      (tester) async {
+    await _setLargeSurface(tester);
+    final fixture = await _HomeScreenFixture.create(
+      seedTracks: _largeLibraryTracks(50),
+    );
+    _addFixtureTearDown(tester, fixture);
+
+    await fixture.pump(tester);
+    await tester.tap(find.byKey(const ValueKey('nav-music')));
+    await tester.pumpAndSettle();
+    await fixture.player.playTrack(_largeLibraryTracks(1).single);
+    await tester.pumpAndSettle();
+
+    final trackRepository =
+        fixture.dependencies.repositories.tracks as _FakeTrackRepository;
+    final userStateRepository = fixture.dependencies.repositories.trackUserState
+        as _FakeTrackUserStateRepository;
+    final activeTrackStreamCreations =
+        trackRepository.activeTrackStreamCreations;
+    final indexedTrackStreamCreations =
+        trackRepository.indexedTrackStreamCreations;
+    final userStateStreamCreations =
+        userStateRepository.watchTrackStatesByTrackIdsCalls;
+
+    for (var second = 1; second <= 5; second++) {
+      fixture.player.emitPositionTick(Duration(seconds: second));
+      await tester.pump();
+    }
+
+    expect(
+        trackRepository.activeTrackStreamCreations, activeTrackStreamCreations);
+    expect(trackRepository.indexedTrackStreamCreations,
+        indexedTrackStreamCreations);
+    expect(userStateRepository.watchTrackStatesByTrackIdsCalls,
+        userStateStreamCreations);
+    expect(find.text('Visible 50 / Indexed 50 / Missing 0 / Folders 1'),
+        findsOneWidget);
+  });
+
   testWidgets('sidebar navigates primary pages and keeps player bar',
       (tester) async {
     await _setLargeSurface(tester);
@@ -240,6 +301,7 @@ void main() {
     expect(find.text('Пустить жидкого'), findsOneWidget);
     expect(find.byKey(const ValueKey('active-nav-wave')), findsOneWidget);
     expect(find.text('No track playing'), findsOneWidget);
+    expect(find.byTooltip('Stop'), findsNothing);
   });
 
   testWidgets('sidebar compacts on narrow windows without overflow',
@@ -258,6 +320,62 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(find.text('Создать плейлист'), findsOneWidget);
     expect(find.byKey(const ValueKey('active-nav-playlists')), findsOneWidget);
+  });
+
+  testWidgets('page transition keeps content and bottom player visible',
+      (tester) async {
+    await _setLargeSurface(tester);
+    final fixture = await _HomeScreenFixture.create(seedLibrary: true);
+    _addFixtureTearDown(tester, fixture);
+
+    await fixture.pump(tester);
+    expect(find.byType(AnimatedSwitcher), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('nav-music')));
+    await tester.pump(const Duration(milliseconds: 90));
+
+    expect(find.text('Track library'), findsOneWidget);
+    expect(find.text('No track playing'), findsOneWidget);
+    expect(find.byTooltip('Stop'), findsNothing);
+
+    await tester.pumpAndSettle();
+    expect(find.text('Track library'), findsOneWidget);
+  });
+
+  testWidgets('desktop sidebar collapses without losing active state',
+      (tester) async {
+    await _setLargeSurface(tester);
+    final fixture = await _HomeScreenFixture.create(seedLibrary: true);
+    _addFixtureTearDown(tester, fixture);
+
+    await fixture.pump(tester);
+
+    final waveLabelInNav = find.descendant(
+      of: find.byKey(const ValueKey('nav-wave')),
+      matching: find.text('Волна'),
+    );
+    expect(waveLabelInNav, findsOneWidget);
+    expect(find.byKey(const ValueKey('active-nav-wave')), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('sidebar-collapse-toggle')));
+    await tester.pumpAndSettle();
+
+    expect(waveLabelInNav, findsNothing);
+    expect(find.byKey(const ValueKey('active-nav-wave')), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('nav-music')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('active-nav-music')), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('sidebar-collapse-toggle')));
+    await tester.pumpAndSettle();
+
+    final musicLabelInNav = find.descendant(
+      of: find.byKey(const ValueKey('nav-music')),
+      matching: find.text('Моя музыка'),
+    );
+    expect(musicLabelInNav, findsOneWidget);
+    expect(find.byKey(const ValueKey('active-nav-music')), findsOneWidget);
   });
 
   testWidgets('Playlists page can create a playlist', (tester) async {
@@ -616,6 +734,95 @@ void main() {
     expect(find.text('No track playing'), findsOneWidget);
   });
 
+  testWidgets('settings reset learning state can be cancelled', (tester) async {
+    await _setLargeSurface(tester);
+    final fixture = await _HomeScreenFixture.create(seedLibrary: true);
+    _addFixtureTearDown(tester, fixture);
+    final repositories = fixture.dependencies.repositories;
+    await repositories.trackUserState.upsertState(
+      TrackUserState(
+        trackId: 1,
+        isFavorite: true,
+        rating: 5,
+        updatedAt: DateTime(2026, 5),
+      ),
+    );
+    await repositories.playbackEvents.addEvent(
+      PlaybackEvent(
+        trackId: 1,
+        type: PlaybackEventType.started,
+        occurredAt: DateTime(2026, 5),
+      ),
+    );
+
+    await fixture.pump(tester);
+    await tester.tap(find.byTooltip('Settings'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Сбросить историю и рекомендации'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Сбросить историю и рекомендации?'), findsOneWidget);
+    expect(
+      find.textContaining('Треки, плейлисты, папки, обложки и аудиофайлы'),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.text('Отмена'));
+    await tester.pumpAndSettle();
+
+    final state = await repositories.trackUserState.findByTrackId(1);
+    expect(state?.isFavorite, isTrue);
+    expect(await repositories.playbackEvents.recentEvents(), isNotEmpty);
+  });
+
+  testWidgets('settings reset learning state clears visible feedback',
+      (tester) async {
+    await _setLargeSurface(tester);
+    final fixture = await _HomeScreenFixture.create(seedLibrary: true);
+    _addFixtureTearDown(tester, fixture);
+    final repositories = fixture.dependencies.repositories;
+    await repositories.trackUserState.upsertState(
+      TrackUserState(
+        trackId: 1,
+        isFavorite: true,
+        rating: 5,
+        updatedAt: DateTime(2026, 5),
+      ),
+    );
+    await repositories.playbackEvents.addEvent(
+      PlaybackEvent(
+        trackId: 1,
+        type: PlaybackEventType.started,
+        occurredAt: DateTime(2026, 5),
+      ),
+    );
+
+    await fixture.pump(tester);
+    await tester.tap(find.byKey(const ValueKey('nav-music')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Test Track'), findsOneWidget);
+    expect(find.byTooltip('Unlike'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Settings'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Сбросить историю и рекомендации'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Сбросить').last);
+    await tester.pumpAndSettle();
+
+    expect(await repositories.trackUserState.findByTrackId(1), isNull);
+    expect(await repositories.playbackEvents.recentEvents(), isEmpty);
+    expect(find.text('История и рекомендации сброшены.'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('nav-music')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Test Track'), findsOneWidget);
+    expect(find.byTooltip('Unlike'), findsNothing);
+    expect(find.byTooltip('Like'), findsAtLeastNWidgets(1));
+  });
+
   testWidgets('wave mode dialog updates selected mode', (tester) async {
     await _setLargeSurface(tester);
     final fixture = await _HomeScreenFixture.create();
@@ -724,6 +931,7 @@ final class _HomeScreenFixture {
       customArtwork: customArtwork ?? _FakeCustomArtworkService(),
       playerService: player,
       playbackQueue: queue,
+      smtcService: const NoopSmtcService(),
     );
     return _HomeScreenFixture._(
       dependencies: dependencies,
@@ -743,6 +951,10 @@ final class _HomeScreenFixture {
   }
 
   Future<void> dispose() async {
+    final repositories = dependencies.repositories;
+    if (repositories is _FakeAppRepositories) {
+      await repositories.dispose();
+    }
     await dependencies.dispose();
   }
 }
@@ -773,6 +985,17 @@ final class _FakeAppRepositories implements AppRepositories {
 
   @override
   final SettingsRepository settings;
+
+  @override
+  Future<void> resetLearningState() async {
+    (playbackEvents as _FakePlaybackEventRepository).clear();
+    (trackUserState as _FakeTrackUserStateRepository).clear();
+  }
+
+  Future<void> dispose() async {
+    await (tracks as _FakeTrackRepository).dispose();
+    await (trackUserState as _FakeTrackUserStateRepository).dispose();
+  }
 }
 
 final class _FakeLibraryRepository implements LibraryRepository {
@@ -845,6 +1068,10 @@ final class _FakeTrackRepository implements TrackRepository {
   _FakeTrackRepository(List<Track> tracks) : _tracks = [...tracks];
 
   final List<Track> _tracks;
+  final StreamController<void> _controller = StreamController<void>.broadcast();
+  int watchAllTracksCalls = 0;
+  int activeTrackStreamCreations = 0;
+  int indexedTrackStreamCreations = 0;
 
   @override
   Future<int> upsertTrack(Track track) async {
@@ -856,11 +1083,13 @@ final class _FakeTrackRepository implements TrackRepository {
     if (existingIndex >= 0) {
       final id = _tracks[existingIndex].id ?? track.id ?? existingIndex + 1;
       _tracks[existingIndex] = track.copyWith(id: id);
+      _emit();
       return id;
     }
 
     final id = track.id ?? _tracks.length + 1;
     _tracks.add(track.copyWith(id: id));
+    _emit();
     return id;
   }
 
@@ -885,6 +1114,7 @@ final class _FakeTrackRepository implements TrackRepository {
       customArtworkMimeType: mimeType,
       updatedAt: updatedAt,
     );
+    _emit();
   }
 
   @override
@@ -902,6 +1132,7 @@ final class _FakeTrackRepository implements TrackRepository {
       customArtworkMimeType: null,
       updatedAt: updatedAt,
     );
+    _emit();
   }
 
   @override
@@ -962,8 +1193,18 @@ final class _FakeTrackRepository implements TrackRepository {
   Stream<List<Track>> watchAllTracks({
     bool includeMissing = false,
     bool includeDisabledFolders = false,
-  }) {
-    return Stream.value(_visibleTracks(includeMissing: includeMissing));
+  }) async* {
+    watchAllTracksCalls += 1;
+    if (includeMissing && !includeDisabledFolders) {
+      activeTrackStreamCreations += 1;
+    }
+    if (includeMissing && includeDisabledFolders) {
+      indexedTrackStreamCreations += 1;
+    }
+    yield _visibleTracks(includeMissing: includeMissing);
+    await for (final _ in _controller.stream) {
+      yield _visibleTracks(includeMissing: includeMissing);
+    }
   }
 
   @override
@@ -979,17 +1220,29 @@ final class _FakeTrackRepository implements TrackRepository {
   @override
   Future<void> deleteTracksByLibraryFolder(int libraryFolderId) async {
     _tracks.removeWhere((track) => track.libraryFolderId == libraryFolderId);
+    _emit();
   }
 
   @override
   Future<void> deleteTrack(int id) async {
     _tracks.removeWhere((track) => track.id == id);
+    _emit();
   }
 
   List<Track> _visibleTracks({required bool includeMissing}) {
     return _tracks
         .where((track) => includeMissing || !track.isMissing)
         .toList(growable: false);
+  }
+
+  void _emit() {
+    if (!_controller.isClosed) {
+      _controller.add(null);
+    }
+  }
+
+  Future<void> dispose() async {
+    await _controller.close();
   }
 }
 
@@ -1174,10 +1427,13 @@ final class _FakePlaylistRepository implements PlaylistRepository {
 
 final class _FakeTrackUserStateRepository implements TrackUserStateRepository {
   final Map<int, TrackUserState> _states = {};
+  final StreamController<void> _controller = StreamController<void>.broadcast();
+  int watchTrackStatesByTrackIdsCalls = 0;
 
   @override
   Future<void> upsertState(TrackUserState state) async {
     _states[state.trackId] = state;
+    _emit();
   }
 
   @override
@@ -1194,23 +1450,51 @@ final class _FakeTrackUserStateRepository implements TrackUserStateRepository {
   }
 
   @override
-  Stream<TrackUserState?> watchTrackState(int trackId) {
-    return Stream.value(_states[trackId]);
+  Stream<TrackUserState?> watchTrackState(int trackId) async* {
+    yield _states[trackId];
+    await for (final _ in _controller.stream) {
+      yield _states[trackId];
+    }
   }
 
   @override
   Stream<Map<int, TrackUserState>> watchTrackStatesByTrackIds(
     Iterable<int> trackIds,
-  ) {
-    return Stream.value({
-      for (final id in trackIds)
-        if (_states[id] != null) id: _states[id]!,
-    });
+  ) async* {
+    watchTrackStatesByTrackIdsCalls += 1;
+    final ids = trackIds.toSet().toList(growable: false);
+    Map<int, TrackUserState> snapshot() {
+      return {
+        for (final id in ids)
+          if (_states[id] != null) id: _states[id]!,
+      };
+    }
+
+    yield snapshot();
+    await for (final _ in _controller.stream) {
+      yield snapshot();
+    }
   }
 
   @override
   Future<void> deleteState(int trackId) async {
     _states.remove(trackId);
+    _emit();
+  }
+
+  void clear() {
+    _states.clear();
+    _emit();
+  }
+
+  Future<void> dispose() {
+    return _controller.close();
+  }
+
+  void _emit() {
+    if (!_controller.isClosed) {
+      _controller.add(null);
+    }
   }
 }
 
@@ -1239,6 +1523,10 @@ final class _FakePlaybackEventRepository implements PlaybackEventRepository {
         .reversed
         .take(limit)
         .toList(growable: false);
+  }
+
+  void clear() {
+    _events.clear();
   }
 }
 
@@ -1304,6 +1592,17 @@ Track _testTrack({
     addedAt: now,
     updatedAt: now,
   );
+}
+
+List<Track> _largeLibraryTracks(int count) {
+  return List.generate(count, (index) {
+    final title = 'Track ${index.toString().padLeft(3, '0')}';
+    return _testTrack(
+      id: index + 1,
+      title: title,
+      artist: 'Artist ${index % 17}',
+    );
+  }, growable: false);
 }
 
 final class _FakeCustomArtworkService implements CustomArtworkService {
@@ -1408,6 +1707,10 @@ final class _FakePlayerService implements PlayerService {
   @override
   Future<void> setVolume(double volume) async {
     _emit(_state.copyWith(volume: volume));
+  }
+
+  void emitPositionTick(Duration position) {
+    _emit(_state.copyWith(position: position));
   }
 
   @override

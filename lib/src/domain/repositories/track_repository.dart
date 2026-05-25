@@ -50,3 +50,15 @@ abstract interface class TrackRepository {
 
   Future<void> deleteTrack(int id);
 }
+
+abstract interface class TrackScanRepository {
+  Future<void> markTracksSeen({
+    required Iterable<int> trackIds,
+    required DateTime seenAt,
+  });
+
+  Future<void> markTracksMissing({
+    required Iterable<int> trackIds,
+    required DateTime updatedAt,
+  });
+}
