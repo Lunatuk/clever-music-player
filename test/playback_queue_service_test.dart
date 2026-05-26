@@ -143,8 +143,8 @@ void main() {
     expect(result.candidates.map((item) => item.track.id), [1, 2]);
     expect(
       result.message,
-      'Negative score cutoff active: showing candidates within 10.0 points '
-      'of best available score.',
+      'Ограничение отрицательных баллов активно: показаны кандидаты '
+      'в пределах 10.0 баллов от лучшего доступного.',
     );
   });
 
@@ -284,7 +284,7 @@ void main() {
     await queue.addToQueue(missing);
 
     expect(queue.state.manualQueue, isEmpty);
-    expect(queue.state.lastError, contains('Missing tracks'));
+    expect(queue.state.lastError, contains('Отсутствующие треки'));
     expect(player.playedTracks, isEmpty);
 
     await queue.dispose();
@@ -1020,7 +1020,7 @@ void main() {
 
     expect(player.playedTracks, isEmpty);
     expect(queue.state.playbackContext.source, PlaybackSource.none);
-    expect(queue.state.lastError, contains('No playable tracks'));
+    expect(queue.state.lastError, contains('нет треков для воспроизведения'));
 
     await queue.dispose();
     await player.dispose();
@@ -1765,8 +1765,8 @@ void main() {
     expect(queue.state.lastRecommendationResult?.track.id, isNot(4));
     expect(
       queue.state.selectionPoolMessage,
-      'Negative score cutoff active: showing candidates within 10.0 points '
-      'of best available score.',
+      'Ограничение отрицательных баллов активно: показаны кандидаты '
+      'в пределах 10.0 баллов от лучшего доступного.',
     );
 
     await queue.dispose();
@@ -1860,7 +1860,7 @@ void main() {
       queue.state.recommendationCandidates.map((result) => result.track.id),
       isNot(contains(anyOf(1, 2, 3))),
     );
-    expect(queue.state.repeatGuardMessage, contains('Recent repeat guard'));
+    expect(queue.state.repeatGuardMessage, contains('Защита от повторов'));
 
     await queue.dispose();
     await player.dispose();
@@ -2776,7 +2776,7 @@ void main() {
     await queue.playSmartNext();
 
     expect(player.playedTracks, isEmpty);
-    expect(queue.state.lastError, contains('No playable tracks'));
+    expect(queue.state.lastError, contains('нет треков'));
 
     await queue.dispose();
     await player.dispose();
@@ -3097,6 +3097,21 @@ final class _FakePlayerService implements PlayerService {
   @override
   Future<void> setVolume(double volume) async {
     emit(_state.copyWith(volume: volume));
+  }
+
+  @override
+  Future<void> increaseVolume() async {
+    await setVolume((_state.volume + 0.05).clamp(0.0, 1.0).toDouble());
+  }
+
+  @override
+  Future<void> decreaseVolume() async {
+    await setVolume((_state.volume - 0.05).clamp(0.0, 1.0).toDouble());
+  }
+
+  @override
+  Future<void> toggleMute() async {
+    await setVolume(_state.volume > 0 ? 0 : 1);
   }
 
   @override

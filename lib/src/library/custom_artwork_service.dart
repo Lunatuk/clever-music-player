@@ -18,7 +18,7 @@ final class FilePickerCustomArtworkService implements CustomArtworkService {
   @override
   Future<CachedArtwork?> pickCustomArtwork() async {
     final result = await FilePicker.platform.pickFiles(
-      dialogTitle: 'Choose cover image',
+      dialogTitle: 'Выберите изображение обложки',
       type: FileType.custom,
       allowedExtensions: const ['png', 'jpg', 'jpeg', 'webp'],
       allowMultiple: false,

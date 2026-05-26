@@ -27,3 +27,16 @@ dart run build_runner build
 flutter analyze
 flutter test
 ```
+
+Windows SMTC support uses `smtc_windows`, which builds through
+`flutter_rust_bridge`/cargokit. Install `rustup` and make sure `rustup` and
+`cargo` are available on PATH before building the Windows app. If cargokit
+cannot find Flutter from a plain shell, set `FLUTTER_ROOT` to the Flutter SDK
+directory. The cargokit build scripts are also sensitive to non-ASCII project
+paths, so build from an ASCII-only checkout or junction path if the project is
+under a localized folder name.
+
+Windows builds intentionally use the local `third_party/just_audio_windows`
+override. The patch disables the WinRT MediaPlayer's built-in system media
+session so the app-owned `smtc_windows` session is the only source of Windows
+media metadata and next/previous command handling.

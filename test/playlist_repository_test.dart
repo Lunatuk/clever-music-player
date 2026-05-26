@@ -514,7 +514,7 @@ void main() {
     expect(entries.map((entry) => entry.isPlayable), [false, false]);
     expect(
       entries.map((entry) => entry.unavailableReason),
-      ['Missing', 'Folder disabled'],
+      ['Отсутствует', 'Папка отключена'],
     );
   });
 

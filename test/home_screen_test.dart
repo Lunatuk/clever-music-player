@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show PointerDeviceKind;
 
 import 'package:clever_music_player/src/app/clever_music_player_app.dart';
 import 'package:clever_music_player/src/app/dependency_scope.dart';
@@ -15,6 +16,7 @@ import 'package:clever_music_player/src/player/player_state.dart';
 import 'package:clever_music_player/src/queue/playback_queue_service.dart';
 import 'package:clever_music_player/src/queue/queue_state.dart';
 import 'package:clever_music_player/src/recommendation/recommendation_service.dart';
+import 'package:clever_music_player/src/smtc/smtc_service.dart';
 import 'package:clever_music_player/src/ui/track_artwork.dart';
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
@@ -29,10 +31,11 @@ void main() {
 
     await fixture.pump(tester);
 
-    expect(find.text('Пустить жидкого'), findsOneWidget);
+    expect(tester.widget<Scaffold>(find.byType(Scaffold)).extendBody, isTrue);
+    expect(find.text('Запустить волну'), findsOneWidget);
     expect(find.text('Настроить'), findsOneWidget);
-    expect(find.text('Добавить папку'), findsOneWidget);
-    expect(find.text('Еще раз'), findsOneWidget);
+    expect(find.text('Добавить папку с музыкой'), findsOneWidget);
+    expect(find.text('Пересканировать'), findsOneWidget);
     expect(find.text('Волна'), findsOneWidget);
     expect(find.text('Моя музыка'), findsAtLeastNWidgets(2));
     expect(find.text('Плейлисты'), findsOneWidget);
@@ -40,7 +43,7 @@ void main() {
     expect(find.text('Clever'), findsNothing);
     expect(find.byTooltip('Открыть Моя музыка'), findsNothing);
     expect(find.byKey(const ValueKey('active-nav-wave')), findsOneWidget);
-    expect(find.text('No track playing'), findsOneWidget);
+    expect(find.text('Трек не играет'), findsOneWidget);
     expect(find.byType(TrackArtwork), findsOneWidget);
     expect(find.text('Liquid Wave'), findsNothing);
     expect(find.text('Local-first music flow'), findsNothing);
@@ -50,6 +53,88 @@ void main() {
     );
     expect(find.byIcon(Icons.play_circle_fill_rounded), findsOneWidget);
     expect(find.byTooltip('Stop'), findsNothing);
+  });
+
+  testWidgets('bottom player bar renders volume control and changes volume',
+      (tester) async {
+    await _setLargeSurface(tester);
+    final fixture = await _HomeScreenFixture.create();
+    _addFixtureTearDown(tester, fixture);
+
+    await fixture.pump(tester);
+
+    expect(
+      find.byKey(const ValueKey('bottom-player-volume-button')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('bottom-player-volume-slider')),
+      findsOneWidget,
+    );
+    expect(find.byIcon(Icons.volume_up_outlined), findsOneWidget);
+
+    final slider = tester.widget<Slider>(
+      find.byKey(const ValueKey('bottom-player-volume-slider')),
+    );
+    slider.onChanged!(0.35);
+    await tester.pump();
+
+    expect(fixture.player.setVolumeCalls.last, 0.35);
+
+    await tester.tap(find.byKey(const ValueKey('bottom-player-volume-button')));
+    await tester.pump();
+
+    expect(fixture.player.toggleMuteCalls, 1);
+  });
+
+  testWidgets('narrow bottom bar shows hover volume popup', (tester) async {
+    await _setNarrowSurface(tester);
+    final fixture = await _HomeScreenFixture.create();
+    _addFixtureTearDown(tester, fixture);
+
+    await fixture.pump(tester);
+
+    expect(
+      find.byKey(const ValueKey('bottom-player-volume-button')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('bottom-player-volume-slider')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('bottom-player-volume-popup-slider')),
+      findsNothing,
+    );
+
+    final gesture = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    addTearDown(gesture.removePointer);
+    await gesture.addPointer(
+      location: tester.getCenter(
+        find.byKey(const ValueKey('bottom-player-volume-button')),
+      ),
+    );
+    await tester.pump();
+
+    expect(
+      find.byKey(const ValueKey('bottom-player-volume-popup-slider')),
+      findsOneWidget,
+    );
+    final buttonRect = tester.getRect(
+      find.byKey(const ValueKey('bottom-player-volume-button')),
+    );
+    final popupRect = tester.getRect(
+      find.byKey(const ValueKey('bottom-player-volume-popup')),
+    );
+    expect(buttonRect.top - popupRect.bottom, closeTo(8, 1));
+
+    final slider = tester.widget<Slider>(
+      find.byKey(const ValueKey('bottom-player-volume-popup-slider')),
+    );
+    slider.onChanged!(0.6);
+    await tester.pump();
+
+    expect(fixture.player.setVolumeCalls.last, 0.6);
   });
 
   testWidgets('central launch icon stays start for non-Wave playback',
@@ -63,7 +148,7 @@ void main() {
 
     expect(find.byIcon(Icons.play_circle_fill_rounded), findsOneWidget);
     expect(find.byIcon(Icons.pause_circle_filled_rounded), findsNothing);
-    expect(find.textContaining('Wave on'), findsNothing);
+    expect(find.textContaining('Волна играет'), findsNothing);
     expect(find.text('Test Track - Test Artist'), findsNothing);
   });
 
@@ -98,10 +183,10 @@ void main() {
     await fixture.pump(tester);
 
     expect(fixture.queue.state.isWaveCurrentSource, isFalse);
-    expect(find.textContaining('Wave on'), findsNothing);
+    expect(find.textContaining('Волна играет'), findsNothing);
     expect(find.text('Playlist Track - Test Artist'), findsNothing);
 
-    await tester.tap(find.text('Пустить жидкого'));
+    await tester.tap(find.text('Запустить волну'));
     await tester.pumpAndSettle();
     await _waitUntil(() => fixture.queue.state.isWaveCurrentSource);
     await tester.pumpAndSettle();
@@ -109,7 +194,7 @@ void main() {
     expect(fixture.queue.state.isWaveCurrentSource, isTrue);
     expect(fixture.queue.state.playbackContext.source, PlaybackSource.none);
     expect(fixture.queue.state.lastRecommendationResult, isNotNull);
-    expect(find.textContaining('Wave on'), findsOneWidget);
+    expect(find.textContaining('Волна играет'), findsOneWidget);
     expect(find.byIcon(Icons.pause_circle_filled_rounded), findsOneWidget);
   });
 
@@ -133,7 +218,7 @@ void main() {
     expect(fixture.queue.state.activeSource, PlaybackSource.singleTrack);
     expect(fixture.queue.state.isWaveCurrentSource, isFalse);
 
-    await tester.tap(find.text('Пустить жидкого'));
+    await tester.tap(find.text('Запустить волну'));
     await tester.pumpAndSettle();
     await _waitUntil(() => fixture.queue.state.isWaveCurrentSource);
     await tester.pumpAndSettle();
@@ -159,7 +244,7 @@ void main() {
     expect(fixture.queue.state.isWaveCurrentSource, isTrue);
     expect(fixture.player.isPlaying, isTrue);
 
-    await tester.tap(find.text('Пустить жидкого'));
+    await tester.tap(find.text('Запустить волну'));
     await tester.pumpAndSettle();
 
     expect(fixture.queue.state.isWaveCurrentSource, isTrue);
@@ -184,7 +269,7 @@ void main() {
     expect(fixture.queue.state.isWaveCurrentSource, isTrue);
     expect(fixture.player.isPlaying, isFalse);
 
-    await tester.tap(find.text('Пустить жидкого'));
+    await tester.tap(find.text('Запустить волну'));
     await tester.pumpAndSettle();
 
     expect(fixture.queue.state.isWaveCurrentSource, isTrue);
@@ -202,10 +287,77 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('nav-music')));
     await tester.pumpAndSettle();
 
-    expect(find.text('Track library'), findsOneWidget);
+    expect(find.text('Библиотека треков'), findsOneWidget);
     expect(find.text('Test Track'), findsOneWidget);
-    expect(find.text('No track playing'), findsOneWidget);
+    expect(find.text('Трек не играет'), findsOneWidget);
     expect(find.byType(TrackArtwork), findsNWidgets(2));
+  });
+
+  testWidgets('My Music renders a large library lazily', (tester) async {
+    await _setLargeSurface(tester);
+    final fixture = await _HomeScreenFixture.create(
+      seedTracks: _largeLibraryTracks(600),
+    );
+    _addFixtureTearDown(tester, fixture);
+
+    await fixture.pump(tester);
+    await tester.tap(find.byKey(const ValueKey('nav-music')));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(
+        find.text(
+          'Видимых: 600 / Проиндексировано: 600 / '
+          'Отсутствует: 0 / Папок: 1',
+        ),
+        findsOneWidget);
+    expect(find.text('Track 000'), findsOneWidget);
+    expect(find.text('Track 599'), findsNothing);
+    expect(find.byType(TrackArtwork).evaluate().length, lessThan(600));
+  });
+
+  testWidgets('player progress ticks do not recreate library streams',
+      (tester) async {
+    await _setLargeSurface(tester);
+    final fixture = await _HomeScreenFixture.create(
+      seedTracks: _largeLibraryTracks(50),
+    );
+    _addFixtureTearDown(tester, fixture);
+
+    await fixture.pump(tester);
+    await tester.tap(find.byKey(const ValueKey('nav-music')));
+    await tester.pumpAndSettle();
+    await fixture.player.playTrack(_largeLibraryTracks(1).single);
+    await tester.pumpAndSettle();
+
+    final trackRepository =
+        fixture.dependencies.repositories.tracks as _FakeTrackRepository;
+    final userStateRepository = fixture.dependencies.repositories.trackUserState
+        as _FakeTrackUserStateRepository;
+    final activeTrackStreamCreations =
+        trackRepository.activeTrackStreamCreations;
+    final indexedTrackStreamCreations =
+        trackRepository.indexedTrackStreamCreations;
+    final userStateStreamCreations =
+        userStateRepository.watchTrackStatesByTrackIdsCalls;
+
+    for (var second = 1; second <= 5; second++) {
+      fixture.player.emitPositionTick(Duration(seconds: second));
+      await tester.pump();
+    }
+
+    expect(
+        trackRepository.activeTrackStreamCreations, activeTrackStreamCreations);
+    expect(trackRepository.indexedTrackStreamCreations,
+        indexedTrackStreamCreations);
+    expect(userStateRepository.watchTrackStatesByTrackIdsCalls,
+        userStateStreamCreations);
+    expect(
+        find.text(
+          'Видимых: 50 / Проиндексировано: 50 / '
+          'Отсутствует: 0 / Папок: 1',
+        ),
+        findsOneWidget);
   });
 
   testWidgets('sidebar navigates primary pages and keeps player bar',
@@ -218,28 +370,29 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('nav-music')));
     await tester.pumpAndSettle();
-    expect(find.text('Track library'), findsOneWidget);
+    expect(find.text('Библиотека треков'), findsOneWidget);
     expect(find.byKey(const ValueKey('active-nav-music')), findsOneWidget);
-    expect(find.text('No track playing'), findsOneWidget);
+    expect(find.text('Трек не играет'), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('nav-playlists')));
     await tester.pumpAndSettle();
     expect(find.text('Создать плейлист'), findsOneWidget);
     expect(find.byKey(const ValueKey('active-nav-playlists')), findsOneWidget);
-    expect(find.text('No track playing'), findsOneWidget);
+    expect(find.text('Трек не играет'), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('nav-settings')));
     await tester.pumpAndSettle();
-    expect(find.text('Library folders'), findsOneWidget);
+    expect(find.text('Папки библиотеки'), findsOneWidget);
     expect(find.text('Почему выбран трек'), findsOneWidget);
     expect(find.byKey(const ValueKey('active-nav-settings')), findsOneWidget);
-    expect(find.text('No track playing'), findsOneWidget);
+    expect(find.text('Трек не играет'), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('nav-wave')));
     await tester.pumpAndSettle();
-    expect(find.text('Пустить жидкого'), findsOneWidget);
+    expect(find.text('Запустить волну'), findsOneWidget);
     expect(find.byKey(const ValueKey('active-nav-wave')), findsOneWidget);
-    expect(find.text('No track playing'), findsOneWidget);
+    expect(find.text('Трек не играет'), findsOneWidget);
+    expect(find.byTooltip('Stop'), findsNothing);
   });
 
   testWidgets('sidebar compacts on narrow windows without overflow',
@@ -260,6 +413,62 @@ void main() {
     expect(find.byKey(const ValueKey('active-nav-playlists')), findsOneWidget);
   });
 
+  testWidgets('page transition keeps content and bottom player visible',
+      (tester) async {
+    await _setLargeSurface(tester);
+    final fixture = await _HomeScreenFixture.create(seedLibrary: true);
+    _addFixtureTearDown(tester, fixture);
+
+    await fixture.pump(tester);
+    expect(find.byType(AnimatedSwitcher), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('nav-music')));
+    await tester.pump(const Duration(milliseconds: 90));
+
+    expect(find.text('Библиотека треков'), findsOneWidget);
+    expect(find.text('Трек не играет'), findsOneWidget);
+    expect(find.byTooltip('Stop'), findsNothing);
+
+    await tester.pumpAndSettle();
+    expect(find.text('Библиотека треков'), findsOneWidget);
+  });
+
+  testWidgets('desktop sidebar collapses without losing active state',
+      (tester) async {
+    await _setLargeSurface(tester);
+    final fixture = await _HomeScreenFixture.create(seedLibrary: true);
+    _addFixtureTearDown(tester, fixture);
+
+    await fixture.pump(tester);
+
+    final waveLabelInNav = find.descendant(
+      of: find.byKey(const ValueKey('nav-wave')),
+      matching: find.text('Волна'),
+    );
+    expect(waveLabelInNav, findsOneWidget);
+    expect(find.byKey(const ValueKey('active-nav-wave')), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('sidebar-collapse-toggle')));
+    await tester.pumpAndSettle();
+
+    expect(waveLabelInNav, findsNothing);
+    expect(find.byKey(const ValueKey('active-nav-wave')), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('nav-music')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('active-nav-music')), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('sidebar-collapse-toggle')));
+    await tester.pumpAndSettle();
+
+    final musicLabelInNav = find.descendant(
+      of: find.byKey(const ValueKey('nav-music')),
+      matching: find.text('Моя музыка'),
+    );
+    expect(musicLabelInNav, findsOneWidget);
+    expect(find.byKey(const ValueKey('active-nav-music')), findsOneWidget);
+  });
+
   testWidgets('Playlists page can create a playlist', (tester) async {
     await _setLargeSurface(tester);
     final fixture = await _HomeScreenFixture.create(seedLibrary: true);
@@ -272,11 +481,11 @@ void main() {
     await tester.tap(find.text('Создать плейлист'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).first, 'Road Mix');
-    await tester.tap(find.text('Create'));
+    await tester.tap(find.text('Создать'));
     await tester.pumpAndSettle();
 
     expect(find.text('Road Mix'), findsOneWidget);
-    expect(find.textContaining('0 tracks'), findsOneWidget);
+    expect(find.textContaining('0 треков'), findsOneWidget);
     expect(find.byKey(const ValueKey('active-nav-playlists')), findsOneWidget);
   });
 
@@ -293,7 +502,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('nav-music')));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byTooltip('Add to playlist'));
+    await tester.tap(find.byTooltip('Добавить в плейлист'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Road Mix'));
     await tester.pumpAndSettle();
@@ -325,9 +534,9 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('nav-music')));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byTooltip('Track actions'));
+    await tester.tap(find.byTooltip('Действия с треком'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Set cover'));
+    await tester.tap(find.text('Установить обложку'));
     await tester.pumpAndSettle();
 
     final coveredTrack =
@@ -340,9 +549,9 @@ void main() {
     await fixture.pump(tester);
     await tester.tap(find.byKey(const ValueKey('nav-music')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Track actions'));
+    await tester.tap(find.byTooltip('Действия с треком'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Remove custom cover'));
+    await tester.tap(find.text('Удалить пользовательскую обложку'));
     await tester.pumpAndSettle();
 
     final updatedTrack =
@@ -366,12 +575,13 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('nav-music')));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byTooltip('Track actions'));
+    await tester.tap(find.byTooltip('Действия с треком'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Set cover'));
+    await tester.tap(find.text('Установить обложку'));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('Could not set cover'), findsOneWidget);
+    expect(
+        find.textContaining('Не удалось установить обложку'), findsOneWidget);
     final track = await fixture.dependencies.repositories.tracks.findById(1);
     expect(track?.customArtworkPath, isNull);
   });
@@ -401,17 +611,17 @@ void main() {
     await tester.tap(find.text('Road Mix'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Back to playlists'), findsOneWidget);
+    expect(find.text('К плейлистам'), findsOneWidget);
     expect(find.byKey(const ValueKey('active-nav-playlists')), findsOneWidget);
 
-    await tester.tap(find.text('Add tracks'));
+    await tester.tap(find.text('Добавить треки'));
     await tester.pumpAndSettle();
 
     expect(find.text('Test Track'), findsWidgets);
     expect(find.text('Second Track'), findsOneWidget);
-    expect(find.widgetWithText(TextButton, 'Added'), findsOneWidget);
+    expect(find.widgetWithText(TextButton, 'Добавлен'), findsOneWidget);
 
-    await tester.tap(find.widgetWithText(TextButton, 'Add'));
+    await tester.tap(find.widgetWithText(TextButton, 'Добавить'));
     await tester.pumpAndSettle();
 
     final entries = await fixture.dependencies.repositories.playlists
@@ -419,7 +629,7 @@ void main() {
         .first;
 
     expect(entries.map((entry) => entry.trackId), [1, 2]);
-    expect(find.widgetWithText(TextButton, 'Added'), findsNWidgets(2));
+    expect(find.widgetWithText(TextButton, 'Добавлен'), findsNWidgets(2));
   });
 
   testWidgets('playlist detail exposes reorder and preserves row actions',
@@ -451,13 +661,13 @@ void main() {
     await tester.tap(find.text('Road Mix'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Back to playlists'), findsOneWidget);
+    expect(find.text('К плейлистам'), findsOneWidget);
     expect(find.byKey(const ValueKey('active-nav-playlists')), findsOneWidget);
     expect(find.byType(ReorderableListView), findsOneWidget);
-    expect(find.byTooltip('Reorder track'), findsNWidgets(2));
-    expect(find.byTooltip('Add to queue'), findsNWidgets(2));
-    expect(find.byTooltip('Remove from playlist'), findsNWidgets(2));
-    expect(find.byTooltip('Play'), findsAtLeastNWidgets(2));
+    expect(find.byTooltip('Изменить порядок трека'), findsNWidgets(2));
+    expect(find.byTooltip('Добавить в очередь'), findsNWidgets(2));
+    expect(find.byTooltip('Удалить из плейлиста'), findsNWidgets(2));
+    expect(find.byTooltip('Воспроизвести'), findsAtLeastNWidgets(2));
 
     await tester.drag(
       find.byIcon(Icons.drag_handle_outlined).first,
@@ -504,9 +714,9 @@ void main() {
       2,
       1,
     ]);
-    expect(find.text('Playing from: All Tracks'), findsOneWidget);
-    expect(find.byTooltip('No repeat'), findsOneWidget);
-    expect(find.byTooltip('Shuffle playlist'), findsNothing);
+    expect(find.text('Играет из: Все треки'), findsOneWidget);
+    expect(find.byTooltip('Без повтора'), findsOneWidget);
+    expect(find.byTooltip('Перемешать плейлист'), findsNothing);
   });
 
   testWidgets('library repeat control cycles without showing shuffle',
@@ -529,14 +739,14 @@ void main() {
     );
     await fixture.pump(tester);
 
-    expect(find.byTooltip('No repeat'), findsOneWidget);
-    expect(find.byTooltip('Shuffle playlist'), findsNothing);
+    expect(find.byTooltip('Без повтора'), findsOneWidget);
+    expect(find.byTooltip('Перемешать плейлист'), findsNothing);
 
-    await tester.tap(find.byTooltip('No repeat'));
+    await tester.tap(find.byTooltip('Без повтора'));
     await tester.pumpAndSettle();
 
     expect(fixture.queue.state.repeatMode, PlaybackRepeatMode.playlist);
-    expect(find.byTooltip('Repeat library'), findsOneWidget);
+    expect(find.byTooltip('Повторять библиотеку'), findsOneWidget);
   });
 
   testWidgets('playlist bottom controls expose repeat and shuffle',
@@ -573,10 +783,10 @@ void main() {
     );
     await fixture.pump(tester);
 
-    expect(find.byTooltip('No repeat'), findsOneWidget);
-    expect(find.byTooltip('Shuffle playlist'), findsOneWidget);
+    expect(find.byTooltip('Без повтора'), findsOneWidget);
+    expect(find.byTooltip('Перемешать плейлист'), findsOneWidget);
 
-    await tester.tap(find.byTooltip('Shuffle playlist'));
+    await tester.tap(find.byTooltip('Перемешать плейлист'));
     await tester.pumpAndSettle();
 
     expect(fixture.queue.state.isPlaylistShuffleEnabled, isTrue);
@@ -596,8 +806,8 @@ void main() {
     await fixture.pump(tester);
 
     expect(fixture.queue.state.activeSource, PlaybackSource.wave);
-    expect(find.byTooltip('No repeat'), findsNothing);
-    expect(find.byTooltip('Shuffle playlist'), findsNothing);
+    expect(find.byTooltip('Без повтора'), findsNothing);
+    expect(find.byTooltip('Перемешать плейлист'), findsNothing);
   });
 
   testWidgets('settings gear opens library folders and recommendation debug',
@@ -607,13 +817,133 @@ void main() {
     _addFixtureTearDown(tester, fixture);
 
     await fixture.pump(tester);
-    await tester.tap(find.byTooltip('Settings'));
+    await tester.tap(find.byTooltip('Настройки'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Library folders'), findsOneWidget);
+    expect(find.text('Папки библиотеки'), findsOneWidget);
     expect(find.text('Почему выбран трек'), findsOneWidget);
     expect(find.byKey(const ValueKey('active-nav-settings')), findsOneWidget);
-    expect(find.text('No track playing'), findsOneWidget);
+    expect(find.text('Трек не играет'), findsOneWidget);
+  });
+
+  testWidgets('recommendation debug shows Russian reasons and candidate labels',
+      (tester) async {
+    await _setLargeSurface(tester);
+    final fixture = await _HomeScreenFixture.create(
+      seedTracks: [
+        _testTrack(id: 1, title: 'First Track', artist: 'First Artist'),
+        _testTrack(id: 2, title: 'Second Track', artist: 'Second Artist'),
+      ],
+    );
+    _addFixtureTearDown(tester, fixture);
+
+    await fixture.queue.playSmartNext();
+    await fixture.pump(tester);
+    await tester.tap(find.byTooltip('Настройки'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Почему выбран трек'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('балл'), findsWidgets);
+    expect(find.textContaining('кандидатов:'), findsOneWidget);
+    expect(
+      find.textContaining(
+        'У трека есть метаданные, их можно учитывать при подборе.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Кандидаты'), findsOneWidget);
+    expect(find.textContaining('вес'), findsWidgets);
+    expect(find.textContaining('(выбран)'), findsOneWidget);
+  });
+
+  testWidgets('settings reset learning state can be cancelled', (tester) async {
+    await _setLargeSurface(tester);
+    final fixture = await _HomeScreenFixture.create(seedLibrary: true);
+    _addFixtureTearDown(tester, fixture);
+    final repositories = fixture.dependencies.repositories;
+    await repositories.trackUserState.upsertState(
+      TrackUserState(
+        trackId: 1,
+        isFavorite: true,
+        rating: 5,
+        updatedAt: DateTime(2026, 5),
+      ),
+    );
+    await repositories.playbackEvents.addEvent(
+      PlaybackEvent(
+        trackId: 1,
+        type: PlaybackEventType.started,
+        occurredAt: DateTime(2026, 5),
+      ),
+    );
+
+    await fixture.pump(tester);
+    await tester.tap(find.byTooltip('Настройки'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Сбросить историю и рекомендации'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Сбросить историю и рекомендации?'), findsOneWidget);
+    expect(
+      find.textContaining('Треки, плейлисты, папки, обложки и аудиофайлы'),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.text('Отмена'));
+    await tester.pumpAndSettle();
+
+    final state = await repositories.trackUserState.findByTrackId(1);
+    expect(state?.isFavorite, isTrue);
+    expect(await repositories.playbackEvents.recentEvents(), isNotEmpty);
+  });
+
+  testWidgets('settings reset learning state clears visible feedback',
+      (tester) async {
+    await _setLargeSurface(tester);
+    final fixture = await _HomeScreenFixture.create(seedLibrary: true);
+    _addFixtureTearDown(tester, fixture);
+    final repositories = fixture.dependencies.repositories;
+    await repositories.trackUserState.upsertState(
+      TrackUserState(
+        trackId: 1,
+        isFavorite: true,
+        rating: 5,
+        updatedAt: DateTime(2026, 5),
+      ),
+    );
+    await repositories.playbackEvents.addEvent(
+      PlaybackEvent(
+        trackId: 1,
+        type: PlaybackEventType.started,
+        occurredAt: DateTime(2026, 5),
+      ),
+    );
+
+    await fixture.pump(tester);
+    await tester.tap(find.byKey(const ValueKey('nav-music')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Test Track'), findsOneWidget);
+    expect(find.byTooltip('Убрать лайк'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Настройки'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Сбросить историю и рекомендации'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Сбросить').last);
+    await tester.pumpAndSettle();
+
+    expect(await repositories.trackUserState.findByTrackId(1), isNull);
+    expect(await repositories.playbackEvents.recentEvents(), isEmpty);
+    expect(find.text('История и рекомендации сброшены.'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('nav-music')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Test Track'), findsOneWidget);
+    expect(find.byTooltip('Убрать лайк'), findsNothing);
+    expect(find.byTooltip('Лайк'), findsAtLeastNWidgets(1));
   });
 
   testWidgets('wave mode dialog updates selected mode', (tester) async {
@@ -625,13 +955,13 @@ void main() {
     await tester.tap(find.text('Настроить'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Текущий режим: Balanced'), findsOneWidget);
+    expect(find.text('Текущий режим: Сбалансированный'), findsOneWidget);
 
-    await tester.tap(find.text('Discovery'));
+    await tester.tap(find.text('Открытия'));
     await tester.pumpAndSettle();
 
     expect(fixture.queue.state.selectedWaveMode, WaveMode.discovery);
-    expect(find.text('Текущий режим: Discovery'), findsOneWidget);
+    expect(find.text('Текущий режим: Открытия'), findsOneWidget);
   });
 }
 
@@ -724,6 +1054,7 @@ final class _HomeScreenFixture {
       customArtwork: customArtwork ?? _FakeCustomArtworkService(),
       playerService: player,
       playbackQueue: queue,
+      smtcService: const NoopSmtcService(),
     );
     return _HomeScreenFixture._(
       dependencies: dependencies,
@@ -743,6 +1074,10 @@ final class _HomeScreenFixture {
   }
 
   Future<void> dispose() async {
+    final repositories = dependencies.repositories;
+    if (repositories is _FakeAppRepositories) {
+      await repositories.dispose();
+    }
     await dependencies.dispose();
   }
 }
@@ -773,6 +1108,17 @@ final class _FakeAppRepositories implements AppRepositories {
 
   @override
   final SettingsRepository settings;
+
+  @override
+  Future<void> resetLearningState() async {
+    (playbackEvents as _FakePlaybackEventRepository).clear();
+    (trackUserState as _FakeTrackUserStateRepository).clear();
+  }
+
+  Future<void> dispose() async {
+    await (tracks as _FakeTrackRepository).dispose();
+    await (trackUserState as _FakeTrackUserStateRepository).dispose();
+  }
 }
 
 final class _FakeLibraryRepository implements LibraryRepository {
@@ -845,6 +1191,10 @@ final class _FakeTrackRepository implements TrackRepository {
   _FakeTrackRepository(List<Track> tracks) : _tracks = [...tracks];
 
   final List<Track> _tracks;
+  final StreamController<void> _controller = StreamController<void>.broadcast();
+  int watchAllTracksCalls = 0;
+  int activeTrackStreamCreations = 0;
+  int indexedTrackStreamCreations = 0;
 
   @override
   Future<int> upsertTrack(Track track) async {
@@ -856,11 +1206,13 @@ final class _FakeTrackRepository implements TrackRepository {
     if (existingIndex >= 0) {
       final id = _tracks[existingIndex].id ?? track.id ?? existingIndex + 1;
       _tracks[existingIndex] = track.copyWith(id: id);
+      _emit();
       return id;
     }
 
     final id = track.id ?? _tracks.length + 1;
     _tracks.add(track.copyWith(id: id));
+    _emit();
     return id;
   }
 
@@ -885,6 +1237,7 @@ final class _FakeTrackRepository implements TrackRepository {
       customArtworkMimeType: mimeType,
       updatedAt: updatedAt,
     );
+    _emit();
   }
 
   @override
@@ -902,6 +1255,7 @@ final class _FakeTrackRepository implements TrackRepository {
       customArtworkMimeType: null,
       updatedAt: updatedAt,
     );
+    _emit();
   }
 
   @override
@@ -962,8 +1316,18 @@ final class _FakeTrackRepository implements TrackRepository {
   Stream<List<Track>> watchAllTracks({
     bool includeMissing = false,
     bool includeDisabledFolders = false,
-  }) {
-    return Stream.value(_visibleTracks(includeMissing: includeMissing));
+  }) async* {
+    watchAllTracksCalls += 1;
+    if (includeMissing && !includeDisabledFolders) {
+      activeTrackStreamCreations += 1;
+    }
+    if (includeMissing && includeDisabledFolders) {
+      indexedTrackStreamCreations += 1;
+    }
+    yield _visibleTracks(includeMissing: includeMissing);
+    await for (final _ in _controller.stream) {
+      yield _visibleTracks(includeMissing: includeMissing);
+    }
   }
 
   @override
@@ -979,17 +1343,29 @@ final class _FakeTrackRepository implements TrackRepository {
   @override
   Future<void> deleteTracksByLibraryFolder(int libraryFolderId) async {
     _tracks.removeWhere((track) => track.libraryFolderId == libraryFolderId);
+    _emit();
   }
 
   @override
   Future<void> deleteTrack(int id) async {
     _tracks.removeWhere((track) => track.id == id);
+    _emit();
   }
 
   List<Track> _visibleTracks({required bool includeMissing}) {
     return _tracks
         .where((track) => includeMissing || !track.isMissing)
         .toList(growable: false);
+  }
+
+  void _emit() {
+    if (!_controller.isClosed) {
+      _controller.add(null);
+    }
+  }
+
+  Future<void> dispose() async {
+    await _controller.close();
   }
 }
 
@@ -1077,7 +1453,7 @@ final class _FakePlaylistRepository implements PlaylistRepository {
             _entries.where((entry) => entry.playlistId == playlistId).length,
         addedAt: DateTime(2026, 5),
         track: track,
-        unavailableReason: track.isMissing ? 'Missing' : null,
+        unavailableReason: track.isMissing ? 'Отсутствует' : null,
       ),
     );
     _emit();
@@ -1174,10 +1550,13 @@ final class _FakePlaylistRepository implements PlaylistRepository {
 
 final class _FakeTrackUserStateRepository implements TrackUserStateRepository {
   final Map<int, TrackUserState> _states = {};
+  final StreamController<void> _controller = StreamController<void>.broadcast();
+  int watchTrackStatesByTrackIdsCalls = 0;
 
   @override
   Future<void> upsertState(TrackUserState state) async {
     _states[state.trackId] = state;
+    _emit();
   }
 
   @override
@@ -1194,23 +1573,51 @@ final class _FakeTrackUserStateRepository implements TrackUserStateRepository {
   }
 
   @override
-  Stream<TrackUserState?> watchTrackState(int trackId) {
-    return Stream.value(_states[trackId]);
+  Stream<TrackUserState?> watchTrackState(int trackId) async* {
+    yield _states[trackId];
+    await for (final _ in _controller.stream) {
+      yield _states[trackId];
+    }
   }
 
   @override
   Stream<Map<int, TrackUserState>> watchTrackStatesByTrackIds(
     Iterable<int> trackIds,
-  ) {
-    return Stream.value({
-      for (final id in trackIds)
-        if (_states[id] != null) id: _states[id]!,
-    });
+  ) async* {
+    watchTrackStatesByTrackIdsCalls += 1;
+    final ids = trackIds.toSet().toList(growable: false);
+    Map<int, TrackUserState> snapshot() {
+      return {
+        for (final id in ids)
+          if (_states[id] != null) id: _states[id]!,
+      };
+    }
+
+    yield snapshot();
+    await for (final _ in _controller.stream) {
+      yield snapshot();
+    }
   }
 
   @override
   Future<void> deleteState(int trackId) async {
     _states.remove(trackId);
+    _emit();
+  }
+
+  void clear() {
+    _states.clear();
+    _emit();
+  }
+
+  Future<void> dispose() {
+    return _controller.close();
+  }
+
+  void _emit() {
+    if (!_controller.isClosed) {
+      _controller.add(null);
+    }
   }
 }
 
@@ -1239,6 +1646,10 @@ final class _FakePlaybackEventRepository implements PlaybackEventRepository {
         .reversed
         .take(limit)
         .toList(growable: false);
+  }
+
+  void clear() {
+    _events.clear();
   }
 }
 
@@ -1306,6 +1717,17 @@ Track _testTrack({
   );
 }
 
+List<Track> _largeLibraryTracks(int count) {
+  return List.generate(count, (index) {
+    final title = 'Track ${index.toString().padLeft(3, '0')}';
+    return _testTrack(
+      id: index + 1,
+      title: title,
+      artist: 'Artist ${index % 17}',
+    );
+  }, growable: false);
+}
+
 final class _FakeCustomArtworkService implements CustomArtworkService {
   _FakeCustomArtworkService({this.artwork, this.error});
 
@@ -1335,6 +1757,8 @@ final class _FakePlayerService implements PlayerService {
   final StreamController<PlayerState> _controller =
       StreamController<PlayerState>.broadcast();
   PlayerState _state = const PlayerState.idle();
+  final List<double> setVolumeCalls = [];
+  int toggleMuteCalls = 0;
 
   @override
   PlayerState get state => _state;
@@ -1407,7 +1831,28 @@ final class _FakePlayerService implements PlayerService {
 
   @override
   Future<void> setVolume(double volume) async {
+    setVolumeCalls.add(volume);
     _emit(_state.copyWith(volume: volume));
+  }
+
+  @override
+  Future<void> increaseVolume() async {
+    await setVolume((_state.volume + 0.05).clamp(0.0, 1.0).toDouble());
+  }
+
+  @override
+  Future<void> decreaseVolume() async {
+    await setVolume((_state.volume - 0.05).clamp(0.0, 1.0).toDouble());
+  }
+
+  @override
+  Future<void> toggleMute() async {
+    toggleMuteCalls += 1;
+    await setVolume(_state.volume > 0 ? 0 : 1);
+  }
+
+  void emitPositionTick(Duration position) {
+    _emit(_state.copyWith(position: position));
   }
 
   @override

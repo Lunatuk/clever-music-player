@@ -71,7 +71,7 @@ final class _TrackMetadataEditDialogState
     final trackId = widget.track.id;
 
     return AlertDialog(
-      title: const Text('Edit metadata'),
+      title: const Text('Редактировать метаданные'),
       content: SizedBox(
         width: 480,
         child: Form(
@@ -83,38 +83,39 @@ final class _TrackMetadataEditDialogState
                 TextFormField(
                   key: const Key('metadataTitleField'),
                   controller: _titleController,
-                  decoration: const InputDecoration(labelText: 'Title'),
+                  decoration: const InputDecoration(labelText: 'Название'),
                   textInputAction: TextInputAction.next,
                   validator: validateManualMetadataTitle,
                 ),
                 TextFormField(
                   key: const Key('metadataArtistField'),
                   controller: _artistController,
-                  decoration: const InputDecoration(labelText: 'Artist'),
+                  decoration: const InputDecoration(labelText: 'Исполнитель'),
                   textInputAction: TextInputAction.next,
                 ),
                 TextFormField(
                   key: const Key('metadataAlbumField'),
                   controller: _albumController,
-                  decoration: const InputDecoration(labelText: 'Album'),
+                  decoration: const InputDecoration(labelText: 'Альбом'),
                   textInputAction: TextInputAction.next,
                 ),
                 TextFormField(
                   key: const Key('metadataAlbumArtistField'),
                   controller: _albumArtistController,
-                  decoration: const InputDecoration(labelText: 'Album artist'),
+                  decoration:
+                      const InputDecoration(labelText: 'Исполнитель альбома'),
                   textInputAction: TextInputAction.next,
                 ),
                 TextFormField(
                   key: const Key('metadataGenreField'),
                   controller: _genreController,
-                  decoration: const InputDecoration(labelText: 'Genre'),
+                  decoration: const InputDecoration(labelText: 'Жанр'),
                   textInputAction: TextInputAction.next,
                 ),
                 TextFormField(
                   key: const Key('metadataYearField'),
                   controller: _yearController,
-                  decoration: const InputDecoration(labelText: 'Year'),
+                  decoration: const InputDecoration(labelText: 'Год'),
                   keyboardType: TextInputType.number,
                   textInputAction: TextInputAction.next,
                   validator: validateOptionalMetadataYear,
@@ -122,23 +123,23 @@ final class _TrackMetadataEditDialogState
                 TextFormField(
                   key: const Key('metadataTrackNumberField'),
                   controller: _trackNumberController,
-                  decoration: const InputDecoration(labelText: 'Track number'),
+                  decoration: const InputDecoration(labelText: 'Номер трека'),
                   keyboardType: TextInputType.number,
                   textInputAction: TextInputAction.next,
                   validator: (value) => validateOptionalPositiveMetadataInteger(
                     value,
-                    'Track number',
+                    'Номер трека',
                   ),
                 ),
                 TextFormField(
                   key: const Key('metadataDiscNumberField'),
                   controller: _discNumberController,
-                  decoration: const InputDecoration(labelText: 'Disc number'),
+                  decoration: const InputDecoration(labelText: 'Номер диска'),
                   keyboardType: TextInputType.number,
                   textInputAction: TextInputAction.done,
                   validator: (value) => validateOptionalPositiveMetadataInteger(
                     value,
-                    'Disc number',
+                    'Номер диска',
                   ),
                   onFieldSubmitted: (_) => _save(trackId),
                 ),
@@ -150,11 +151,11 @@ final class _TrackMetadataEditDialogState
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+          child: const Text('Отмена'),
         ),
         FilledButton(
           onPressed: trackId == null ? null : () => _save(trackId),
-          child: const Text('Save'),
+          child: const Text('Сохранить'),
         ),
       ],
     );

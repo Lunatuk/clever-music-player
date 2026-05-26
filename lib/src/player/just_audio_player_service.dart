@@ -38,7 +38,11 @@ abstract interface class LocalAudioEngine {
 
   Stream<Object> get errorStream;
 
-  Future<Duration?> setFilePath(String filePath);
+  Duration get position;
+
+  Duration? get duration;
+
+  Future<Duration?> setFilePath(String filePath, {bool preload = true});
 
   Future<void> play();
 
@@ -79,8 +83,14 @@ final class JustAudioEngine implements LocalAudioEngine {
   Stream<Object> get errorStream => _player.errorStream;
 
   @override
-  Future<Duration?> setFilePath(String filePath) {
-    return _player.setFilePath(filePath);
+  Duration get position => _player.position;
+
+  @override
+  Duration? get duration => _player.duration;
+
+  @override
+  Future<Duration?> setFilePath(String filePath, {bool preload = true}) {
+    return _player.setFilePath(filePath, preload: preload);
   }
 
   @override
@@ -128,19 +138,36 @@ final class JustAudioEngine implements LocalAudioEngine {
   }
 }
 
+const _defaultWindowsProgressRecoveryInterval = Duration(milliseconds: 250);
+const _defaultWindowsSyntheticProgressGrace = Duration(seconds: 2);
+const _volumeSettingKey = 'player.volume';
+const _previousVolumeBeforeMuteSettingKey = 'player.previousVolumeBeforeMute';
+const _defaultVolume = 1.0;
+const _volumeStep = 0.05;
+
 final class JustAudioPlayerService implements PlayerService {
   JustAudioPlayerService({
     required PlaybackEventRepository playbackEvents,
     required TrackUserStateRepository trackUserState,
+    SettingsRepository? settings,
     LocalAudioEngine? audioEngine,
     bool Function(String filePath)? fileExists,
     bool? isWindows,
     PlaybackCache? playbackCache,
-  })  : _playbackEvents = playbackEvents,
+    @visibleForTesting Duration windowsProgressRecoveryInterval =
+        _defaultWindowsProgressRecoveryInterval,
+    @visibleForTesting Duration windowsSyntheticProgressGrace =
+        _defaultWindowsSyntheticProgressGrace,
+  })  : assert(windowsProgressRecoveryInterval > Duration.zero),
+        assert(windowsSyntheticProgressGrace >= Duration.zero),
+        _playbackEvents = playbackEvents,
         _trackUserState = trackUserState,
+        _settings = settings,
         _audioEngine = audioEngine ?? JustAudioEngine(),
         _isWindows = isWindows ?? Platform.isWindows,
         _playbackCache = playbackCache ?? WindowsPlaybackCache(),
+        _windowsProgressRecoveryInterval = windowsProgressRecoveryInterval,
+        _windowsSyntheticProgressGrace = windowsSyntheticProgressGrace,
         _fileExists =
             fileExists ?? ((filePath) => File(filePath).existsSync()) {
     _subscriptions
@@ -152,9 +179,12 @@ final class JustAudioPlayerService implements PlayerService {
 
   final PlaybackEventRepository _playbackEvents;
   final TrackUserStateRepository _trackUserState;
+  final SettingsRepository? _settings;
   final LocalAudioEngine _audioEngine;
   final bool _isWindows;
   final PlaybackCache _playbackCache;
+  final Duration _windowsProgressRecoveryInterval;
+  final Duration _windowsSyntheticProgressGrace;
   final bool Function(String filePath) _fileExists;
   final StreamController<PlayerState> _stateController =
       StreamController<PlayerState>.broadcast();
@@ -166,6 +196,12 @@ final class JustAudioPlayerService implements PlayerService {
   int _positionEventsSinceLoad = 0;
   int _durationEventsSinceLoad = 0;
   Timer? _positionDiagnosticsTimer;
+  Timer? _windowsProgressRecoveryTimer;
+  DateTime? _lastWindowsRealProgressAt;
+  DateTime? _windowsSyntheticAnchorTime;
+  Duration _windowsSyntheticAnchorPosition = Duration.zero;
+  Duration? _lastWindowsPolledPosition;
+  double _previousVolumeBeforeMute = _defaultVolume;
 
   @override
   PlayerState get state => _state;
@@ -195,6 +231,7 @@ final class JustAudioPlayerService implements PlayerService {
     }
 
     _resetPlaybackDiagnostics();
+    _resetWindowsProgressRecovery();
     _didRecordCompletion = false;
     final normalizedPath = _normalizedAbsolutePath(track.filePath);
     _emit(
@@ -216,7 +253,7 @@ final class JustAudioPlayerService implements PlayerService {
 
     if (!_fileExists(normalizedPath)) {
       await _stopAfterFailure(
-        'File not found: ${track.filePath} (resolved: $normalizedPath)',
+        'Файл не найден: ${track.filePath} (путь: $normalizedPath)',
       );
       return;
     }
@@ -239,12 +276,14 @@ final class JustAudioPlayerService implements PlayerService {
           errorMessage: null,
         ),
       );
+      _startWindowsProgressRecovery(anchorPosition: Duration.zero);
       _scheduleWindowsPositionDiagnostics(track);
       unawaited(_recordPlaybackStarted(track));
       _playInBackground();
     } on Object catch (error) {
       await _stopAfterFailure(
-        'Could not play "${track.displayTitle}": ${_describeError(error)}',
+        'Не удалось воспроизвести "${track.displayTitle}": '
+        '${_describeError(error)}',
       );
     }
   }
@@ -256,7 +295,7 @@ final class JustAudioPlayerService implements PlayerService {
       _emit(
         _state.copyWith(
           status: PlayerPlaybackStatus.error,
-          errorMessage: 'Select a track to play.',
+          errorMessage: 'Выберите трек для воспроизведения.',
         ),
       );
       return;
@@ -267,6 +306,7 @@ final class JustAudioPlayerService implements PlayerService {
         _didRecordCompletion = false;
         await _audioEngine.seek(Duration.zero);
         _emit(_state.copyWith(position: Duration.zero));
+        _resetWindowsProgressRecovery();
         unawaited(_recordPlaybackStarted(track));
       } else if (_state.status == PlayerPlaybackStatus.paused) {
         unawaited(_recordEvent(track, PlaybackEventType.resumed));
@@ -279,9 +319,11 @@ final class JustAudioPlayerService implements PlayerService {
           errorMessage: null,
         ),
       );
+      _startWindowsProgressRecovery(anchorPosition: _state.position);
       _playInBackground();
     } on Object catch (error) {
-      _emitPlaybackError('Playback failed: ${_describeError(error)}');
+      _emitPlaybackError(
+          'Воспроизведение не удалось: ${_describeError(error)}');
     }
   }
 
@@ -294,6 +336,7 @@ final class JustAudioPlayerService implements PlayerService {
 
     try {
       await _audioEngine.pause();
+      _resetWindowsProgressRecovery();
       _emit(
         _state.copyWith(
           isPlaying: false,
@@ -303,7 +346,10 @@ final class JustAudioPlayerService implements PlayerService {
       );
       unawaited(_recordEvent(track, PlaybackEventType.paused));
     } on Object catch (error) {
-      _emitPlaybackError('Could not pause playback: ${_describeError(error)}');
+      _emitPlaybackError(
+        'Не удалось поставить воспроизведение на паузу: '
+        '${_describeError(error)}',
+      );
     }
   }
 
@@ -315,6 +361,7 @@ final class JustAudioPlayerService implements PlayerService {
 
     try {
       await _audioEngine.stop();
+      _resetWindowsProgressRecovery();
       _didRecordCompletion = false;
       _emit(
         PlayerState(
@@ -323,7 +370,9 @@ final class JustAudioPlayerService implements PlayerService {
         ),
       );
     } on Object catch (error) {
-      _emitPlaybackError('Could not stop playback: ${_describeError(error)}');
+      _emitPlaybackError(
+        'Не удалось остановить воспроизведение: ${_describeError(error)}',
+      );
     }
   }
 
@@ -337,31 +386,84 @@ final class JustAudioPlayerService implements PlayerService {
     final target = _clampPosition(position, _state.duration);
     try {
       await _audioEngine.seek(target);
+      _resetWindowsProgressRecovery();
       _emit(
         _state.copyWith(
           position: target,
           errorMessage: null,
         ),
       );
+      _startWindowsProgressRecovery(anchorPosition: target);
     } on Object catch (error) {
-      _emitPlaybackError('Could not seek: ${_describeError(error)}');
+      _emitPlaybackError(
+        'Не удалось перейти к позиции: ${_describeError(error)}',
+      );
     }
   }
 
   @override
   Future<void> setVolume(double volume) async {
-    final normalizedVolume = volume.clamp(0.0, 1.0).toDouble();
+    final normalizedVolume = _normalizeVolume(volume);
     try {
       await _audioEngine.setVolume(normalizedVolume);
+      if (normalizedVolume > 0) {
+        _previousVolumeBeforeMute = normalizedVolume;
+      }
       _emit(
         _state.copyWith(
           volume: normalizedVolume,
           errorMessage: null,
         ),
       );
+      await _persistVolume(normalizedVolume);
     } on Object catch (error) {
-      _emitPlaybackError('Could not set volume: ${_describeError(error)}');
+      _emitPlaybackError(
+        'Не удалось изменить громкость: ${_describeError(error)}',
+      );
     }
+  }
+
+  @override
+  Future<void> increaseVolume() {
+    return setVolume(_state.volume + _volumeStep);
+  }
+
+  @override
+  Future<void> decreaseVolume() {
+    return setVolume(_state.volume - _volumeStep);
+  }
+
+  @override
+  Future<void> toggleMute() async {
+    if (_state.volume > 0) {
+      _previousVolumeBeforeMute = _state.volume;
+      await _persistPreviousVolumeBeforeMute(_previousVolumeBeforeMute);
+      await setVolume(0);
+      return;
+    }
+
+    await setVolume(_volumeToRestoreAfterMute());
+  }
+
+  Future<void> restoreSavedVolume() async {
+    final settings = _settings;
+    if (settings == null || _isDisposed) {
+      return;
+    }
+
+    final savedPreviousVolume = _parseVolume(
+        await settings.readString(_previousVolumeBeforeMuteSettingKey));
+    if (savedPreviousVolume != null && savedPreviousVolume > 0) {
+      _previousVolumeBeforeMute = savedPreviousVolume;
+    }
+
+    final savedVolume =
+        _parseVolume(await settings.readString(_volumeSettingKey));
+    if (savedVolume == null) {
+      return;
+    }
+
+    await setVolume(savedVolume);
   }
 
   @override
@@ -371,6 +473,7 @@ final class JustAudioPlayerService implements PlayerService {
     }
 
     _positionDiagnosticsTimer?.cancel();
+    _resetWindowsProgressRecovery();
     _isDisposed = true;
     for (final subscription in _subscriptions) {
       await subscription.cancel();
@@ -412,6 +515,14 @@ final class JustAudioPlayerService implements PlayerService {
       ),
     );
 
+    if (completed) {
+      _resetWindowsProgressRecovery();
+    } else if (_shouldRunWindowsProgressRecovery) {
+      _startWindowsProgressRecovery(anchorPosition: _state.position);
+    } else if (status != PlayerPlaybackStatus.playing) {
+      _resetWindowsProgressRecovery();
+    }
+
     final track = _state.currentTrack;
     if (completed && track != null && !_didRecordCompletion) {
       _didRecordCompletion = true;
@@ -426,7 +537,11 @@ final class JustAudioPlayerService implements PlayerService {
 
     _positionEventsSinceLoad += 1;
     _debugLogPositionEvent(position);
+    final previousPosition = _state.position;
     _emit(_state.copyWith(position: position));
+    if (_isWindows && position != previousPosition) {
+      _recordWindowsRealProgress(position);
+    }
   }
 
   void _handleDuration(Duration? duration) {
@@ -449,7 +564,8 @@ final class JustAudioPlayerService implements PlayerService {
     _debugLogAudioError(error);
     unawaited(
       _stopAfterFailure(
-        'Could not play "${track.displayTitle}": ${_describeError(error)}',
+        'Не удалось воспроизвести "${track.displayTitle}": '
+        '${_describeError(error)}',
       ),
     );
   }
@@ -467,7 +583,10 @@ final class JustAudioPlayerService implements PlayerService {
     }
 
     try {
-      final duration = await _audioEngine.setFilePath(normalizedPath);
+      final duration = await _audioEngine.setFilePath(
+        normalizedPath,
+        preload: false,
+      );
       return _LoadedAudio(duration: duration);
     } on Object catch (directError) {
       if (!_shouldUseWindowsCacheFallback(
@@ -504,17 +623,20 @@ final class JustAudioPlayerService implements PlayerService {
             ? '${strategyPrefix}_reused'
             : '${strategyPrefix}_copied',
       );
-      final duration = await _audioEngine.setFilePath(cached.filePath);
+      final duration = await _audioEngine.setFilePath(
+        cached.filePath,
+        preload: false,
+      );
       return _LoadedAudio(duration: duration);
     } on Object catch (cacheError) {
       final directDetails = directError == null
-          ? 'Direct load skipped for Windows non-ASCII path.'
-          : 'Direct load error: ${_describeError(directError)}.';
+          ? 'Прямая загрузка пропущена для Windows-пути с не-ASCII символами.'
+          : 'Ошибка прямой загрузки: ${_describeError(directError)}.';
       throw PlaybackLoadException(
-        'Windows Unicode path fallback failed. '
+        'Не удалось загрузить путь Windows с Unicode. '
         '$directDetails '
-        'Cache fallback error: ${_describeError(cacheError)}. '
-        'Source path: $normalizedPath',
+        'Ошибка кэша: ${_describeError(cacheError)}. '
+        'Исходный путь: $normalizedPath',
       );
     }
   }
@@ -527,7 +649,8 @@ final class JustAudioPlayerService implements PlayerService {
     try {
       await _audioEngine.play();
     } on Object catch (error) {
-      _emitPlaybackError('Playback failed: ${_describeError(error)}');
+      _emitPlaybackError(
+          'Воспроизведение не удалось: ${_describeError(error)}');
     }
   }
 
@@ -538,6 +661,7 @@ final class JustAudioPlayerService implements PlayerService {
       // Keep the user-facing error focused on the original playback failure.
     }
 
+    _resetWindowsProgressRecovery();
     _didRecordCompletion = false;
     _emit(
       PlayerState(
@@ -549,6 +673,7 @@ final class JustAudioPlayerService implements PlayerService {
   }
 
   void _emitPlaybackError(String message) {
+    _resetWindowsProgressRecovery();
     _emit(
       _state.copyWith(
         isPlaying: false,
@@ -565,6 +690,115 @@ final class JustAudioPlayerService implements PlayerService {
 
     _state = state;
     _stateController.add(state);
+  }
+
+  bool get _shouldRunWindowsProgressRecovery {
+    return _isWindows &&
+        !_isDisposed &&
+        _state.currentTrack != null &&
+        _state.isPlaying &&
+        _state.status == PlayerPlaybackStatus.playing;
+  }
+
+  void _startWindowsProgressRecovery({Duration? anchorPosition}) {
+    if (!_shouldRunWindowsProgressRecovery) {
+      return;
+    }
+    if (_windowsProgressRecoveryTimer != null) {
+      return;
+    }
+
+    _recordWindowsRealProgress(anchorPosition ?? _state.position);
+    _windowsProgressRecoveryTimer = Timer.periodic(
+      _windowsProgressRecoveryInterval,
+      (_) => _recoverWindowsProgress(),
+    );
+  }
+
+  void _recoverWindowsProgress() {
+    if (!_shouldRunWindowsProgressRecovery) {
+      _resetWindowsProgressRecovery();
+      return;
+    }
+
+    _recoverWindowsDuration();
+    final polledPosition = _clampPosition(
+      _audioEngine.position,
+      _state.duration,
+    );
+    final lastPolledPosition = _lastWindowsPolledPosition;
+    _lastWindowsPolledPosition = polledPosition;
+
+    if (polledPosition > Duration.zero &&
+        (lastPolledPosition == null || polledPosition > lastPolledPosition)) {
+      _recordWindowsRealProgress(polledPosition);
+      if (polledPosition != _state.position) {
+        _emit(_state.copyWith(position: polledPosition));
+      }
+      return;
+    }
+
+    _emitSyntheticWindowsProgressIfNeeded();
+  }
+
+  void _recoverWindowsDuration() {
+    final polledDuration = _audioEngine.duration;
+    if (polledDuration == null || polledDuration <= Duration.zero) {
+      return;
+    }
+    if (polledDuration == _state.duration) {
+      return;
+    }
+
+    _emit(_state.copyWith(duration: polledDuration));
+  }
+
+  void _emitSyntheticWindowsProgressIfNeeded() {
+    final duration = _state.duration;
+    if (duration == null || duration <= Duration.zero) {
+      return;
+    }
+
+    final now = DateTime.now();
+    final lastRealProgressAt = _lastWindowsRealProgressAt;
+    final anchorTime = _windowsSyntheticAnchorTime;
+    if (lastRealProgressAt == null || anchorTime == null) {
+      _recordWindowsRealProgress(_state.position);
+      return;
+    }
+    if (now.difference(lastRealProgressAt) < _windowsSyntheticProgressGrace) {
+      return;
+    }
+
+    final syntheticPosition = _clampPosition(
+      _windowsSyntheticAnchorPosition + now.difference(anchorTime),
+      duration,
+    );
+    if (syntheticPosition > _state.position) {
+      _emit(_state.copyWith(position: syntheticPosition));
+    }
+  }
+
+  void _recordWindowsRealProgress(Duration position) {
+    if (!_isWindows) {
+      return;
+    }
+
+    final now = DateTime.now();
+    final anchorPosition = _clampPosition(position, _state.duration);
+    _lastWindowsRealProgressAt = now;
+    _windowsSyntheticAnchorTime = now;
+    _windowsSyntheticAnchorPosition = anchorPosition;
+    _lastWindowsPolledPosition = anchorPosition;
+  }
+
+  void _resetWindowsProgressRecovery() {
+    _windowsProgressRecoveryTimer?.cancel();
+    _windowsProgressRecoveryTimer = null;
+    _lastWindowsRealProgressAt = null;
+    _windowsSyntheticAnchorTime = null;
+    _windowsSyntheticAnchorPosition = Duration.zero;
+    _lastWindowsPolledPosition = null;
   }
 
   Future<void> _recordPlaybackStarted(Track track) async {
@@ -657,8 +891,8 @@ final class JustAudioPlayerService implements PlayerService {
     } on Object catch (error) {
       _emit(
         _state.copyWith(
-          errorMessage:
-              'Playback history was not saved: ${_describeError(error)}',
+          errorMessage: 'История воспроизведения не была сохранена: '
+              '${_describeError(error)}',
         ),
       );
     }
@@ -705,6 +939,61 @@ final class JustAudioPlayerService implements PlayerService {
       return backendDuration;
     }
     return track?.duration ?? backendDuration;
+  }
+
+  double _volumeToRestoreAfterMute() {
+    final previousVolume = _previousVolumeBeforeMute;
+    if (previousVolume > 0) {
+      return previousVolume;
+    }
+    return _defaultVolume;
+  }
+
+  double _normalizeVolume(double volume) {
+    if (volume.isNaN) {
+      return _defaultVolume;
+    }
+    if (volume == double.infinity) {
+      return 1;
+    }
+    if (volume == double.negativeInfinity) {
+      return 0;
+    }
+    return volume.clamp(0.0, 1.0).toDouble();
+  }
+
+  double? _parseVolume(String? value) {
+    final parsed = double.tryParse(value ?? '');
+    return parsed == null ? null : _normalizeVolume(parsed);
+  }
+
+  Future<void> _persistVolume(double volume) async {
+    await _writeSettingSafely(_volumeSettingKey, volume.toString());
+    if (volume > 0) {
+      await _persistPreviousVolumeBeforeMute(volume);
+    }
+  }
+
+  Future<void> _persistPreviousVolumeBeforeMute(double volume) {
+    return _writeSettingSafely(
+      _previousVolumeBeforeMuteSettingKey,
+      _normalizeVolume(volume).toString(),
+    );
+  }
+
+  Future<void> _writeSettingSafely(String key, String value) async {
+    final settings = _settings;
+    if (settings == null) {
+      return;
+    }
+
+    try {
+      await settings.writeString(key, value);
+    } on Object catch (error) {
+      if (kDebugMode) {
+        debugPrint('JustAudioPlayerService settings write failed: $error');
+      }
+    }
   }
 
   String _normalizedAbsolutePath(String filePath) {
@@ -873,7 +1162,7 @@ final class JustAudioPlayerService implements PlayerService {
       if (message != null && message.isNotEmpty) {
         return message;
       }
-      return 'Audio player error ${error.code}';
+      return 'Ошибка аудиоплеера ${error.code}';
     }
     if (error is PlaybackLoadException || error is PlaybackCacheException) {
       return error.toString();

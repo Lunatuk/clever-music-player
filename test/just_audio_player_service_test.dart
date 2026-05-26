@@ -21,7 +21,7 @@ void main() {
 
     expect(service.state.status, PlayerPlaybackStatus.error);
     expect(service.state.currentTrack, isNull);
-    expect(service.state.errorMessage, contains('File not found'));
+    expect(service.state.errorMessage, contains('Файл не найден'));
     expect(engine.setFilePathCalls, 0);
     expect(engine.playCalls, 0);
 
@@ -38,7 +38,13 @@ void main() {
 
     expect(service.state.status, PlayerPlaybackStatus.error);
     expect(service.state.currentTrack, isNull);
-    expect(service.state.errorMessage, contains('Could not play'));
+    expect(
+      service.state.errorMessage,
+      allOf(
+        contains('Не удалось воспроизвести "Song"'),
+        contains('unsupported format'),
+      ),
+    );
     expect(engine.setFilePathCalls, 1);
     expect(engine.playCalls, 0);
 
@@ -60,11 +66,25 @@ void main() {
     await Future<void>.delayed(Duration.zero);
 
     expect(service.state.status, PlayerPlaybackStatus.playing);
-    expect(service.state.duration, const Duration(minutes: 4));
+    expect(service.state.duration, const Duration(minutes: 3));
     expect(engine.playCalls, 1);
     expect(playbackEvents.events.single.type, PlaybackEventType.started);
     expect(userState.states[1]!.playCount, 1);
     expect(userState.states[1]!.lastPlayedAt, isNotNull);
+
+    await service.dispose();
+  });
+
+  test('playTrack disables source preload so playback starts immediately',
+      () async {
+    final engine = _FakeAudioEngine();
+    final service = _service(audioEngine: engine);
+
+    await service.playTrack(_track());
+
+    expect(engine.setFilePathPreloads, [false]);
+    expect(engine.playCalls, 1);
+    expect(service.state.status, PlayerPlaybackStatus.playing);
 
     await service.dispose();
   });
@@ -176,7 +196,7 @@ void main() {
     await service.playTrack(_track(filePath: r'D:\МУЗЫКА\missing.mp3'));
 
     expect(service.state.status, PlayerPlaybackStatus.error);
-    expect(service.state.errorMessage, contains('File not found'));
+    expect(service.state.errorMessage, contains('Файл не найден'));
     expect(engine.setFilePathCalls, 0);
     expect(cache.calls, 0);
 
@@ -210,7 +230,7 @@ void main() {
     expect(
       service.state.errorMessage,
       allOf(
-        contains('Windows Unicode path fallback failed'),
+        contains('Не удалось загрузить путь Windows с Unicode'),
         contains('cache copy failed'),
       ),
     );
@@ -242,6 +262,112 @@ void main() {
     await Future<void>.delayed(Duration.zero);
 
     expect(service.state.duration, const Duration(minutes: 4));
+
+    await service.dispose();
+  });
+
+  test('Windows recovery uses polled position before synthetic progress',
+      () async {
+    final engine = _FakeAudioEngine();
+    final service = _service(
+      audioEngine: engine,
+      isWindows: true,
+      windowsProgressRecoveryInterval: const Duration(milliseconds: 5),
+      windowsSyntheticProgressGrace: const Duration(seconds: 1),
+    );
+
+    await service.playTrack(_track(filePath: r'C:\music\song.flac'));
+    engine.polledPosition = const Duration(seconds: 20);
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+
+    expect(engine.positionPolls, greaterThan(0));
+    expect(service.state.position, const Duration(seconds: 20));
+
+    await service.dispose();
+  });
+
+  test('Windows synthetic progress starts only after polling stalls', () async {
+    final engine = _FakeAudioEngine();
+    final service = _service(
+      audioEngine: engine,
+      isWindows: true,
+      windowsProgressRecoveryInterval: const Duration(milliseconds: 5),
+      windowsSyntheticProgressGrace: const Duration(milliseconds: 20),
+    );
+
+    await service.playTrack(_track(filePath: r'C:\music\song.flac'));
+    await Future<void>.delayed(const Duration(milliseconds: 12));
+    expect(service.state.position, Duration.zero);
+
+    await Future<void>.delayed(const Duration(milliseconds: 35));
+    expect(service.state.position, greaterThan(Duration.zero));
+    expect(service.state.position, lessThan(const Duration(minutes: 3)));
+
+    await service.dispose();
+  });
+
+  test('non-Windows playback does not use progress recovery polling', () async {
+    final engine = _FakeAudioEngine()
+      ..polledPosition = const Duration(seconds: 20);
+    final service = _service(
+      audioEngine: engine,
+      isWindows: false,
+      windowsProgressRecoveryInterval: const Duration(milliseconds: 5),
+      windowsSyntheticProgressGrace: const Duration(milliseconds: 10),
+    );
+
+    await service.playTrack(_track());
+    await Future<void>.delayed(const Duration(milliseconds: 25));
+
+    expect(engine.positionPolls, 0);
+    expect(engine.durationPolls, 0);
+    expect(service.state.position, Duration.zero);
+
+    await service.dispose();
+  });
+
+  test('Windows recovery uses polled duration when load and stream omit it',
+      () async {
+    final engine = _FakeAudioEngine()
+      ..loadedDuration = null
+      ..polledDuration = const Duration(minutes: 5);
+    final service = _service(
+      audioEngine: engine,
+      isWindows: true,
+      windowsProgressRecoveryInterval: const Duration(milliseconds: 5),
+      windowsSyntheticProgressGrace: const Duration(seconds: 1),
+    );
+
+    await service.playTrack(
+      _track(filePath: r'C:\music\song.flac', duration: null),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+
+    expect(engine.durationPolls, greaterThan(0));
+    expect(service.state.duration, const Duration(minutes: 5));
+
+    await service.dispose();
+  });
+
+  test('seek clamps to Windows recovered duration', () async {
+    final engine = _FakeAudioEngine()
+      ..loadedDuration = null
+      ..polledDuration = const Duration(minutes: 2);
+    final service = _service(
+      audioEngine: engine,
+      isWindows: true,
+      windowsProgressRecoveryInterval: const Duration(milliseconds: 5),
+      windowsSyntheticProgressGrace: const Duration(seconds: 1),
+    );
+
+    await service.playTrack(
+      _track(filePath: r'C:\music\song.flac', duration: null),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    await service.seek(const Duration(minutes: 3));
+
+    expect(engine.seekPositions, [const Duration(minutes: 2)]);
+    expect(service.state.position, const Duration(minutes: 2));
 
     await service.dispose();
   });
@@ -308,6 +434,8 @@ void main() {
 
     await service.playTrack(_track());
     await Future<void>.delayed(Duration.zero);
+    engine.emitDuration(const Duration(minutes: 2));
+    await Future<void>.delayed(Duration.zero);
     engine.emitState(
       const AudioEngineState(
         isPlaying: false,
@@ -333,6 +461,94 @@ void main() {
 
     await service.dispose();
   });
+
+  test('setVolume clamps below zero and calls audio engine', () async {
+    final engine = _FakeAudioEngine();
+    final service = _service(audioEngine: engine);
+
+    await service.setVolume(-0.5);
+
+    expect(service.state.volume, 0);
+    expect(engine.setVolumes, [0]);
+
+    await service.dispose();
+  });
+
+  test('setVolume clamps above one and calls audio engine', () async {
+    final engine = _FakeAudioEngine();
+    final service = _service(audioEngine: engine);
+
+    await service.setVolume(1.5);
+
+    expect(service.state.volume, 1);
+    expect(engine.setVolumes, [1]);
+
+    await service.dispose();
+  });
+
+  test('toggleMute sets volume to zero without pausing playback', () async {
+    final engine = _FakeAudioEngine();
+    final service = _service(audioEngine: engine);
+    await service.playTrack(_track());
+    await Future<void>.delayed(Duration.zero);
+
+    await service.setVolume(0.7);
+    await service.toggleMute();
+
+    expect(service.state.volume, 0);
+    expect(service.state.isPlaying, isTrue);
+    expect(engine.pauseCalls, 0);
+    expect(engine.setVolumes.sublist(engine.setVolumes.length - 2), [0.7, 0]);
+
+    await service.dispose();
+  });
+
+  test('toggleMute restores previous non-zero volume', () async {
+    final engine = _FakeAudioEngine();
+    final service = _service(audioEngine: engine);
+
+    await service.setVolume(0.35);
+    await service.toggleMute();
+    await service.toggleMute();
+
+    expect(service.state.volume, 0.35);
+    expect(engine.setVolumes, [0.35, 0, 0.35]);
+
+    await service.dispose();
+  });
+
+  test('volume persists to settings', () async {
+    final engine = _FakeAudioEngine();
+    final settings = _FakeSettingsRepository();
+    final service = _service(
+      audioEngine: engine,
+      settings: settings,
+    );
+
+    await service.setVolume(0.4);
+
+    expect(await settings.readString('player.volume'), '0.4');
+    expect(await settings.readString('player.previousVolumeBeforeMute'), '0.4');
+
+    await service.dispose();
+  });
+
+  test('startup restores saved volume', () async {
+    final engine = _FakeAudioEngine();
+    final settings = _FakeSettingsRepository();
+    await settings.writeString('player.volume', '0.25');
+    final service = _service(
+      audioEngine: engine,
+      settings: settings,
+    );
+
+    await service.restoreSavedVolume();
+
+    expect(service.state.volume, 0.25);
+    expect(engine.setVolumes, [0.25]);
+
+    await service.dispose();
+  });
 }
 
 JustAudioPlayerService _service({
@@ -340,22 +556,29 @@ JustAudioPlayerService _service({
   bool Function(String filePath)? fileExists,
   bool? isWindows,
   PlaybackCache? playbackCache,
+  Duration windowsProgressRecoveryInterval = const Duration(milliseconds: 250),
+  Duration windowsSyntheticProgressGrace = const Duration(seconds: 2),
   _FakePlaybackEventRepository? playbackEvents,
   _FakeTrackUserStateRepository? trackUserState,
+  SettingsRepository? settings,
 }) {
   return JustAudioPlayerService(
     playbackEvents: playbackEvents ?? _FakePlaybackEventRepository(),
     trackUserState: trackUserState ?? _FakeTrackUserStateRepository(),
+    settings: settings,
     audioEngine: audioEngine,
     isWindows: isWindows ?? false,
     playbackCache: playbackCache,
     fileExists: fileExists ?? (_) => true,
+    windowsProgressRecoveryInterval: windowsProgressRecoveryInterval,
+    windowsSyntheticProgressGrace: windowsSyntheticProgressGrace,
   );
 }
 
 Track _track({
   String filePath = '/music/song.flac',
   String? stableId,
+  Duration? duration = const Duration(minutes: 3),
 }) {
   final now = DateTime(2026);
   return Track(
@@ -364,7 +587,7 @@ Track _track({
     filePath: filePath,
     title: 'Song',
     artist: 'Artist',
-    duration: const Duration(minutes: 3),
+    duration: duration,
     addedAt: now,
     updatedAt: now,
   );
@@ -381,15 +604,22 @@ final class _FakeAudioEngine implements LocalAudioEngine {
       StreamController<Object>.broadcast();
 
   Duration? loadedDuration = const Duration(minutes: 3);
+  Duration polledPosition = Duration.zero;
+  Duration? polledDuration;
   Object? setFilePathError;
   Duration? Function(String filePath, int call)? setFilePathHandler;
   int setFilePathCalls = 0;
   final List<String> setFilePaths = [];
+  final List<bool> setFilePathPreloads = [];
   int playCalls = 0;
   int pauseCalls = 0;
   int stopCalls = 0;
   int seekCalls = 0;
+  int positionPolls = 0;
+  int durationPolls = 0;
   int setVolumeCalls = 0;
+  final List<Duration> seekPositions = [];
+  final List<double> setVolumes = [];
 
   @override
   Stream<AudioEngineState> get stateStream => _stateController.stream;
@@ -404,9 +634,25 @@ final class _FakeAudioEngine implements LocalAudioEngine {
   Stream<Object> get errorStream => _errorController.stream;
 
   @override
-  Future<Duration?> setFilePath(String filePath) async {
+  Duration get position {
+    positionPolls += 1;
+    return polledPosition;
+  }
+
+  @override
+  Duration? get duration {
+    durationPolls += 1;
+    return polledDuration ?? loadedDuration;
+  }
+
+  @override
+  Future<Duration?> setFilePath(
+    String filePath, {
+    bool preload = true,
+  }) async {
     setFilePathCalls += 1;
     setFilePaths.add(filePath);
+    setFilePathPreloads.add(preload);
     final handler = setFilePathHandler;
     if (handler != null) {
       return handler(filePath, setFilePathCalls);
@@ -414,6 +660,9 @@ final class _FakeAudioEngine implements LocalAudioEngine {
     final error = setFilePathError;
     if (error != null) {
       throw error;
+    }
+    if (!preload) {
+      return null;
     }
     return loadedDuration;
   }
@@ -436,11 +685,14 @@ final class _FakeAudioEngine implements LocalAudioEngine {
   @override
   Future<void> seek(Duration position) async {
     seekCalls += 1;
+    seekPositions.add(position);
+    polledPosition = position;
   }
 
   @override
   Future<void> setVolume(double volume) async {
     setVolumeCalls += 1;
+    setVolumes.add(volume);
   }
 
   @override
@@ -457,6 +709,10 @@ final class _FakeAudioEngine implements LocalAudioEngine {
 
   void emitDuration(Duration? duration) {
     _durationController.add(duration);
+  }
+
+  void emitPosition(Duration position) {
+    _positionController.add(position);
   }
 
   void emitError(Object error) {
@@ -496,6 +752,30 @@ final class _FakePlaybackEventRepository implements PlaybackEventRepository {
     return Future.value(
       events.where((event) => event.trackId == trackId).toList(growable: false),
     );
+  }
+}
+
+final class _FakeSettingsRepository implements SettingsRepository {
+  final Map<String, AppSetting> _settings = {};
+
+  @override
+  Future<AppSetting?> read(String key) async => _settings[key];
+
+  @override
+  Future<String?> readString(String key) async => _settings[key]?.value;
+
+  @override
+  Future<void> writeString(String key, String value) async {
+    _settings[key] = AppSetting(
+      key: key,
+      value: value,
+      updatedAt: DateTime(2026),
+    );
+  }
+
+  @override
+  Future<void> delete(String key) async {
+    _settings.remove(key);
   }
 }
 

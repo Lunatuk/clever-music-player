@@ -103,6 +103,153 @@ void main() {
     expect(tracks.where((track) => !track.isMissing), hasLength(1));
   });
 
+  test('unchanged rescan skips metadata and artwork reads', () async {
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'clever_music_unchanged_rescan_test_',
+    );
+    addTearDown(() => tempDirectory.delete(recursive: true));
+
+    final modifiedAt = DateTime(2026);
+    final file = File(p.join(tempDirectory.path, 'unchanged.mp3'));
+    await _writeAudioFile(file, [1, 2, 3], modifiedAt);
+
+    final database = AppDatabase(NativeDatabase.memory());
+    addTearDown(database.close);
+    final repositories = DriftRepositories(database);
+    final reader = _CountingMetadataReader(
+      title: 'Unchanged',
+      modifiedAt: modifiedAt,
+      artwork: _pngArtwork([1, 2, 3, 4]),
+    );
+    final artworkCache = _CountingArtworkCacheService();
+    var now = DateTime(2026, 1, 1);
+    final scanner = LibraryScannerService(
+      libraryRepository: repositories.libraryFolders,
+      trackRepository: repositories.tracks,
+      metadataReader: reader,
+      artworkCache: artworkCache,
+      clock: () => now,
+    );
+
+    await scanner.scanFolder(tempDirectory.path);
+    now = DateTime(2026, 1, 2);
+    final result = await scanner.scanFolder(tempDirectory.path);
+
+    expect(result.addedTracks, 0);
+    expect(result.updatedTracks, 1);
+    expect(result.missingTracks, 0);
+    expect(reader.readCount, 1);
+    expect(artworkCache.saveEmbeddedArtworkCalls, 1);
+
+    final track = (await repositories.tracks.listTracks(limit: 10)).single;
+    expect(track.title, 'Unchanged');
+    expect(track.lastSeenAt, now);
+    expect(track.isMissing, isFalse);
+  });
+
+  test('manual metadata survives optimized unchanged rescan', () async {
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'clever_music_manual_unchanged_rescan_test_',
+    );
+    addTearDown(() => tempDirectory.delete(recursive: true));
+
+    final modifiedAt = DateTime(2026);
+    final file = File(p.join(tempDirectory.path, 'manual.mp3'));
+    await _writeAudioFile(file, [1, 2, 3], modifiedAt);
+
+    final database = AppDatabase(NativeDatabase.memory());
+    addTearDown(database.close);
+    final repositories = DriftRepositories(database);
+    final reader = _CountingMetadataReader(
+      title: 'Scanned Title',
+      artist: 'Scanned Artist',
+      modifiedAt: modifiedAt,
+    );
+    var now = DateTime(2026, 1, 1);
+    final scanner = LibraryScannerService(
+      libraryRepository: repositories.libraryFolders,
+      trackRepository: repositories.tracks,
+      metadataReader: reader,
+      clock: () => now,
+    );
+
+    await scanner.scanFolder(tempDirectory.path);
+    final firstTrack = (await repositories.tracks.listTracks(limit: 10)).single;
+    await repositories.tracks.updateTrackMetadata(
+      TrackMetadataUpdate(
+        trackId: firstTrack.id!,
+        title: 'Manual Title',
+        artist: 'Manual Artist',
+        album: 'Manual Album',
+        albumArtist: null,
+        genre: null,
+        year: null,
+        trackNumber: null,
+        discNumber: null,
+        updatedAt: DateTime(2026, 1, 2),
+      ),
+    );
+
+    now = DateTime(2026, 1, 3);
+    await scanner.scanFolder(tempDirectory.path);
+
+    expect(reader.readCount, 1);
+    final track = (await repositories.tracks.listTracks(limit: 10)).single;
+    expect(track.title, 'Manual Title');
+    expect(track.artist, 'Manual Artist');
+    expect(track.album, 'Manual Album');
+    expect(track.metadataSource, MetadataSource.manual);
+    expect(track.lastSeenAt, now);
+  });
+
+  test('custom artwork survives optimized unchanged rescan', () async {
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'clever_music_custom_artwork_unchanged_rescan_test_',
+    );
+    addTearDown(() => tempDirectory.delete(recursive: true));
+
+    final modifiedAt = DateTime(2026);
+    final file = File(p.join(tempDirectory.path, 'custom.mp3'));
+    await _writeAudioFile(file, [1, 2, 3], modifiedAt);
+
+    final database = AppDatabase(NativeDatabase.memory());
+    addTearDown(database.close);
+    final repositories = DriftRepositories(database);
+    final reader = _CountingMetadataReader(
+      title: 'Covered',
+      modifiedAt: modifiedAt,
+      artwork: _pngArtwork([1, 2, 3, 4]),
+    );
+    final artworkCache = _CountingArtworkCacheService();
+    final scanner = LibraryScannerService(
+      libraryRepository: repositories.libraryFolders,
+      trackRepository: repositories.tracks,
+      metadataReader: reader,
+      artworkCache: artworkCache,
+    );
+
+    await scanner.scanFolder(tempDirectory.path);
+    final firstTrack = (await repositories.tracks.listTracks(limit: 10)).single;
+    await repositories.tracks.updateCustomArtwork(
+      trackId: firstTrack.id!,
+      path: '/app/custom_artwork/custom.png',
+      hash: 'custom-hash',
+      mimeType: 'image/png',
+      updatedAt: DateTime(2026, 2),
+    );
+
+    await scanner.scanFolder(tempDirectory.path);
+
+    expect(reader.readCount, 1);
+    expect(artworkCache.saveEmbeddedArtworkCalls, 1);
+    final track = (await repositories.tracks.listTracks(limit: 10)).single;
+    expect(track.customArtworkPath, '/app/custom_artwork/custom.png');
+    expect(track.customArtworkHash, 'custom-hash');
+    expect(track.customArtworkMimeType, 'image/png');
+    expect(track.artworkPath, firstTrack.artworkPath);
+    expect(track.artworkHash, firstTrack.artworkHash);
+  });
+
   test('scanner does not mark tracks missing when traversal fails', () async {
     final tempDirectory = await Directory.systemTemp.createTemp(
       'clever_music_traversal_error_test_',
@@ -173,7 +320,7 @@ void main() {
     final result = await scanner.scanFolder(missingFolderPath);
 
     expect(result.errors, hasLength(1));
-    expect(result.errors.single.message, 'Folder does not exist.');
+    expect(result.errors.single.message, 'Папка не существует.');
     expect(result.missingTracks, 0);
 
     final tracks = await repositories.tracks.listTracksByLibraryFolder(
@@ -191,7 +338,9 @@ void main() {
     addTearDown(() => tempDirectory.delete(recursive: true));
 
     final file = File(p.join(tempDirectory.path, 'scars.mp3'));
-    await file.writeAsBytes([1, 2, 3]);
+    final initialModifiedAt = DateTime(2026);
+    final rescannedModifiedAt = DateTime(2026, 2);
+    await _writeAudioFile(file, [1, 2, 3], initialModifiedAt);
 
     final database = AppDatabase(NativeDatabase.memory());
     addTearDown(database.close);
@@ -200,6 +349,8 @@ void main() {
       _audioMetadata(
         file,
         title: 'scars',
+        fileSizeBytes: 3,
+        modifiedAt: initialModifiedAt,
         metadataSource: MetadataSource.fallback,
         metadataConfidence: 0.2,
       ),
@@ -208,6 +359,8 @@ void main() {
         title: 'Scars',
         artist: 'Known Artist',
         album: 'Known Album',
+        fileSizeBytes: 4,
+        modifiedAt: rescannedModifiedAt,
         metadataSource: MetadataSource.embeddedTags,
         metadataConfidence: 0.95,
       ),
@@ -236,10 +389,12 @@ void main() {
       ),
     );
 
+    await _writeAudioFile(file, [1, 2, 3, 4], rescannedModifiedAt);
     final result = await scanner.scanFolder(tempDirectory.path);
 
     expect(result.addedTracks, 0);
     expect(result.updatedTracks, 1);
+    expect(reader.readCount, 2);
 
     final tracks = await repositories.tracks.listTracks(limit: 10);
     expect(tracks, hasLength(1));
@@ -336,7 +491,9 @@ void main() {
     addTearDown(() => tempDirectory.delete(recursive: true));
 
     final file = File(p.join(tempDirectory.path, 'preserve.mp3'));
-    await file.writeAsBytes([1, 2, 3]);
+    final initialModifiedAt = DateTime(2026);
+    final rescannedModifiedAt = DateTime(2026, 2);
+    await _writeAudioFile(file, [1, 2, 3], initialModifiedAt);
     final artworkDirectory = Directory(p.join(tempDirectory.path, 'artwork'));
     final database = AppDatabase(NativeDatabase.memory());
     addTearDown(database.close);
@@ -345,6 +502,8 @@ void main() {
       _audioMetadata(
         file,
         title: 'Covered',
+        fileSizeBytes: 3,
+        modifiedAt: initialModifiedAt,
         metadataSource: MetadataSource.embeddedTags,
         metadataConfidence: 0.95,
         artwork: _pngArtwork([1, 1, 1, 1]),
@@ -352,6 +511,8 @@ void main() {
       _audioMetadata(
         file,
         title: 'Rescanned',
+        fileSizeBytes: 4,
+        modifiedAt: rescannedModifiedAt,
         metadataSource: MetadataSource.fallback,
         metadataConfidence: 0.2,
       ),
@@ -368,6 +529,7 @@ void main() {
     await scanner.scanFolder(tempDirectory.path);
     final firstTrack = (await repositories.tracks.listTracks(limit: 10)).single;
 
+    await _writeAudioFile(file, [1, 2, 3, 4], rescannedModifiedAt);
     await scanner.scanFolder(tempDirectory.path);
 
     final updatedTrack =
@@ -385,7 +547,9 @@ void main() {
     addTearDown(() => tempDirectory.delete(recursive: true));
 
     final file = File(p.join(tempDirectory.path, 'update.mp3'));
-    await file.writeAsBytes([1, 2, 3]);
+    final initialModifiedAt = DateTime(2026);
+    final rescannedModifiedAt = DateTime(2026, 2);
+    await _writeAudioFile(file, [1, 2, 3], initialModifiedAt);
     final artworkDirectory = Directory(p.join(tempDirectory.path, 'artwork'));
     final database = AppDatabase(NativeDatabase.memory());
     addTearDown(database.close);
@@ -394,6 +558,8 @@ void main() {
       _audioMetadata(
         file,
         title: 'Covered',
+        fileSizeBytes: 3,
+        modifiedAt: initialModifiedAt,
         metadataSource: MetadataSource.embeddedTags,
         metadataConfidence: 0.95,
         artwork: _pngArtwork([1, 1, 1, 1]),
@@ -401,6 +567,8 @@ void main() {
       _audioMetadata(
         file,
         title: 'Covered',
+        fileSizeBytes: 4,
+        modifiedAt: rescannedModifiedAt,
         metadataSource: MetadataSource.embeddedTags,
         metadataConfidence: 0.95,
         artwork: _pngArtwork([2, 2, 2, 2]),
@@ -418,6 +586,7 @@ void main() {
     await scanner.scanFolder(tempDirectory.path);
     final firstTrack = (await repositories.tracks.listTracks(limit: 10)).single;
 
+    await _writeAudioFile(file, [1, 2, 3, 4], rescannedModifiedAt);
     await scanner.scanFolder(tempDirectory.path);
 
     final updatedTrack =
@@ -435,7 +604,9 @@ void main() {
     addTearDown(() => tempDirectory.delete(recursive: true));
 
     final file = File(p.join(tempDirectory.path, 'custom.mp3'));
-    await file.writeAsBytes([1, 2, 3]);
+    final initialModifiedAt = DateTime(2026);
+    final rescannedModifiedAt = DateTime(2026, 2);
+    await _writeAudioFile(file, [1, 2, 3], initialModifiedAt);
     final artworkDirectory = Directory(p.join(tempDirectory.path, 'artwork'));
     final database = AppDatabase(NativeDatabase.memory());
     addTearDown(database.close);
@@ -444,6 +615,8 @@ void main() {
       _audioMetadata(
         file,
         title: 'Covered',
+        fileSizeBytes: 3,
+        modifiedAt: initialModifiedAt,
         metadataSource: MetadataSource.embeddedTags,
         metadataConfidence: 0.95,
         artwork: _pngArtwork([1, 1, 1, 1]),
@@ -451,6 +624,8 @@ void main() {
       _audioMetadata(
         file,
         title: 'Covered',
+        fileSizeBytes: 4,
+        modifiedAt: rescannedModifiedAt,
         metadataSource: MetadataSource.embeddedTags,
         metadataConfidence: 0.95,
         artwork: _pngArtwork([2, 2, 2, 2]),
@@ -475,6 +650,7 @@ void main() {
       updatedAt: DateTime(2026, 5),
     );
 
+    await _writeAudioFile(file, [1, 2, 3, 4], rescannedModifiedAt);
     await scanner.scanFolder(tempDirectory.path);
 
     final updatedTrack =
@@ -676,6 +852,15 @@ Future<void> _seedKnownTrack(
   );
 }
 
+Future<void> _writeAudioFile(
+  File file,
+  List<int> bytes,
+  DateTime modifiedAt,
+) async {
+  await file.writeAsBytes(bytes, flush: true);
+  await file.setLastModified(modifiedAt);
+}
+
 AudioMetadata _audioMetadata(
   File file, {
   required String title,
@@ -737,12 +922,66 @@ final class _SequenceMetadataReader implements MetadataReaderService {
 
   final List<AudioMetadata> _metadata;
   var _index = 0;
+  var readCount = 0;
 
   @override
   Future<AudioMetadata> read(File file) async {
+    readCount++;
     final metadata = _metadata[_index];
     _index = (_index + 1).clamp(0, _metadata.length - 1).toInt();
     return metadata;
+  }
+}
+
+final class _CountingMetadataReader implements MetadataReaderService {
+  _CountingMetadataReader({
+    required this.title,
+    required this.modifiedAt,
+    this.artist,
+    this.artwork,
+  });
+
+  final String title;
+  final String? artist;
+  final DateTime modifiedAt;
+  final EmbeddedArtwork? artwork;
+  var readCount = 0;
+
+  @override
+  Future<AudioMetadata> read(File file) async {
+    readCount++;
+    return _audioMetadata(
+      file,
+      title: title,
+      artist: artist,
+      fileSizeBytes: file.lengthSync(),
+      modifiedAt: modifiedAt,
+      metadataSource: MetadataSource.embeddedTags,
+      metadataConfidence: 0.95,
+      artwork: artwork,
+    );
+  }
+}
+
+final class _CountingArtworkCacheService implements ArtworkCacheService {
+  int saveEmbeddedArtworkCalls = 0;
+
+  @override
+  Future<CachedArtwork?> saveEmbeddedArtwork(EmbeddedArtwork? artwork) async {
+    saveEmbeddedArtworkCalls++;
+    if (artwork == null) {
+      return null;
+    }
+    return CachedArtwork(
+      path: '/app/artwork/$saveEmbeddedArtworkCalls.png',
+      hash: 'hash-$saveEmbeddedArtworkCalls',
+      mimeType: artwork.mimeType,
+    );
+  }
+
+  @override
+  Future<CachedArtwork> saveCustomArtworkFile(File imageFile) {
+    throw StateError('custom artwork storage failed');
   }
 }
 

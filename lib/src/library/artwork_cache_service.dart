@@ -35,7 +35,7 @@ final class NoopArtworkCacheService implements ArtworkCacheService {
 
   @override
   Future<CachedArtwork> saveCustomArtworkFile(File imageFile) {
-    throw UnsupportedError('Custom artwork storage is not configured.');
+    throw UnsupportedError('Хранилище пользовательских обложек не настроено.');
   }
 }
 
@@ -73,19 +73,19 @@ final class AppSupportArtworkCacheService implements ArtworkCacheService {
   @override
   Future<CachedArtwork> saveCustomArtworkFile(File imageFile) async {
     if (!await imageFile.exists()) {
-      throw StateError('Selected cover file does not exist.');
+      throw StateError('Выбранный файл обложки не существует.');
     }
 
     final bytes = await imageFile.readAsBytes();
     if (bytes.isEmpty) {
-      throw FormatException('Selected cover file is empty.');
+      throw FormatException('Выбранный файл обложки пуст.');
     }
 
     final mimeType = _supportedCustomMimeType(bytes);
     if (mimeType == null) {
       throw FormatException(
-        'Selected cover file is not a supported image. '
-        'Choose a PNG, JPEG, or WebP file.',
+        'Выбранный файл обложки не является поддерживаемым изображением. '
+        'Выберите PNG, JPEG или WebP.',
       );
     }
 

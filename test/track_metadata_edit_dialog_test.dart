@@ -15,6 +15,17 @@ void main() {
     await tester.tap(find.text('Open'));
     await tester.pumpAndSettle();
 
+    expect(find.text('Редактировать метаданные'), findsOneWidget);
+    expect(find.text('Название'), findsOneWidget);
+    expect(find.text('Исполнитель'), findsOneWidget);
+    expect(find.text('Альбом'), findsOneWidget);
+    expect(find.text('Исполнитель альбома'), findsOneWidget);
+    expect(find.text('Жанр'), findsOneWidget);
+    expect(find.text('Год'), findsOneWidget);
+    expect(find.text('Номер трека'), findsOneWidget);
+    expect(find.text('Номер диска'), findsOneWidget);
+    expect(find.text('Отмена'), findsOneWidget);
+    expect(find.text('Сохранить'), findsOneWidget);
     expect(find.text('Current Title'), findsOneWidget);
     expect(find.text('Current Artist'), findsOneWidget);
     expect(find.text('Current Album'), findsOneWidget);
@@ -37,10 +48,10 @@ void main() {
     await tester.pumpAndSettle();
     await tester.enterText(
         find.byKey(const Key('metadataYearField')), 'twenty');
-    await tester.tap(find.text('Save'));
+    await tester.tap(find.text('Сохранить'));
     await tester.pump();
 
-    expect(find.text('Enter a valid year.'), findsOneWidget);
+    expect(find.text('Введите корректный год.'), findsOneWidget);
   });
 
   testWidgets('edit metadata dialog returns trimmed update', (tester) async {
@@ -74,7 +85,7 @@ void main() {
       find.byKey(const Key('metadataDiscNumberField')),
       '1',
     );
-    await tester.tap(find.text('Save'));
+    await tester.tap(find.text('Сохранить'));
     await tester.pumpAndSettle();
 
     expect(saved?.trackId, 1);

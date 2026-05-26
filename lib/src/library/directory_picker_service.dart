@@ -10,7 +10,7 @@ final class FilePickerDirectoryPickerService implements DirectoryPickerService {
   @override
   Future<String?> pickMusicFolder() {
     return FilePicker.platform.getDirectoryPath(
-      dialogTitle: 'Choose music folder',
+      dialogTitle: 'Выберите папку с музыкой',
       lockParentWindow: true,
     );
   }

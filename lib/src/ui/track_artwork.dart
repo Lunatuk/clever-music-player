@@ -66,17 +66,16 @@ final class _ArtworkFile extends StatelessWidget {
     if (artworkPath == null || artworkPath.isEmpty) {
       return fallback;
     }
-    final artworkFile = File(artworkPath);
-    if (!artworkFile.existsSync()) {
-      return fallback;
-    }
+    final cacheDimension = _thumbnailCacheDimension(context, size);
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(borderRadius),
       child: SizedBox.square(
         dimension: size,
         child: Image.file(
-          artworkFile,
+          File(artworkPath),
+          cacheWidth: cacheDimension,
+          cacheHeight: cacheDimension,
           fit: BoxFit.cover,
           filterQuality: FilterQuality.medium,
           errorBuilder: (context, error, stackTrace) => fallback,
@@ -84,6 +83,11 @@ final class _ArtworkFile extends StatelessWidget {
       ),
     );
   }
+}
+
+int _thumbnailCacheDimension(BuildContext context, double size) {
+  final scaledSize = size * MediaQuery.of(context).devicePixelRatio;
+  return scaledSize.ceil().clamp(1, 4096).toInt();
 }
 
 final class FallbackTrackArtwork extends StatelessWidget {
@@ -242,7 +246,7 @@ String _artworkLetter(Track? track) {
   if (artist != null && artist.isNotEmpty) {
     return String.fromCharCode(artist.runes.first).toUpperCase();
   }
-  return 'M';
+  return 'М';
 }
 
 int _stableHash(String value) {

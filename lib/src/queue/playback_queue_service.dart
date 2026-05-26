@@ -59,9 +59,9 @@ WeightedSelectionPoolResult buildWeightedSelectionPoolResult(
   return WeightedSelectionPoolResult(
     candidates: source.take(limit).toList(growable: false),
     message: cutoffApplied
-        ? 'Negative score cutoff active: showing candidates within '
-            '${negativeScoreTolerance.toStringAsFixed(1)} points of best '
-            'available score.'
+        ? 'Ограничение отрицательных баллов активно: показаны кандидаты '
+            'в пределах ${negativeScoreTolerance.toStringAsFixed(1)} баллов '
+            'от лучшего доступного.'
         : null,
   );
 }
@@ -166,6 +166,20 @@ final class PlaybackQueueService {
   QueueState get state => _state;
 
   Stream<QueueState> get stateStream => _stateController.stream;
+
+  void clearLearningStateSnapshot() {
+    _currentTrackStateGeneration += 1;
+    _emit(
+      _state.copyWith(
+        currentTrackUserState: null,
+        lastRecommendationResult: null,
+        recommendationCandidates: const [],
+        repeatGuardMessage: null,
+        selectionPoolMessage: null,
+        lastError: null,
+      ),
+    );
+  }
 
   Future<void> playTrackManually(Track track) async {
     if (_isDisposed) {
@@ -317,7 +331,7 @@ final class PlaybackQueueService {
     if (playableTrack == null) {
       _emit(
         _state.copyWith(
-          lastError: 'Missing tracks cannot be added to the queue.',
+          lastError: 'Отсутствующие треки нельзя добавить в очередь.',
         ),
       );
       return;
@@ -486,7 +500,7 @@ final class PlaybackQueueService {
   Future<void> likeCurrentTrack() async {
     final track = _playerService.currentTrack ?? _state.currentTrack;
     if (track == null) {
-      _emit(_state.copyWith(lastError: 'Select a track to like.'));
+      _emit(_state.copyWith(lastError: 'Выберите трек, чтобы поставить лайк.'));
       return;
     }
 
@@ -496,7 +510,11 @@ final class PlaybackQueueService {
   Future<void> dislikeCurrentTrack() async {
     final track = _playerService.currentTrack ?? _state.currentTrack;
     if (track == null) {
-      _emit(_state.copyWith(lastError: 'Select a track to dislike.'));
+      _emit(
+        _state.copyWith(
+          lastError: 'Выберите трек, чтобы поставить дизлайк.',
+        ),
+      );
       return;
     }
 
@@ -518,7 +536,7 @@ final class PlaybackQueueService {
           updatedAt: now,
         );
       },
-      failurePrefix: 'Like was not saved',
+      failurePrefix: 'Лайк не был сохранён',
     );
   }
 
@@ -537,7 +555,7 @@ final class PlaybackQueueService {
           updatedAt: now,
         );
       },
-      failurePrefix: 'Dislike was not saved',
+      failurePrefix: 'Дизлайк не был сохранён',
     );
   }
 
@@ -588,7 +606,7 @@ final class PlaybackQueueService {
       _emit(
         _state.copyWith(
           lastError:
-              'Could not advance to the next track: ${_describeError(error)}',
+              'Не удалось перейти к следующему треку: ${_describeError(error)}',
         ),
       );
     } finally {
@@ -676,7 +694,8 @@ final class PlaybackQueueService {
             recommendationCandidates: const [],
             repeatGuardMessage: null,
             selectionPoolMessage: null,
-            lastError: 'No playable tracks are available in the library.',
+            lastError:
+                'В библиотеке нет треков, доступных для воспроизведения.',
           ),
         );
         return;
@@ -704,7 +723,7 @@ final class PlaybackQueueService {
             recommendationCandidates: const [],
             repeatGuardMessage: null,
             selectionPoolMessage: null,
-            lastError: 'No tracks match the current wave settings.',
+            lastError: 'Нет треков, подходящих под текущие настройки волны.',
           ),
         );
         return;
@@ -743,7 +762,7 @@ final class PlaybackQueueService {
       _emit(
         _state.copyWith(
           lastError:
-              'Could not choose the next track: ${_describeError(error)}',
+              'Не удалось выбрать следующий трек: ${_describeError(error)}',
         ),
       );
     }
@@ -775,7 +794,7 @@ final class PlaybackQueueService {
     if (playableTracks.isEmpty) {
       _emit(
         _state.copyWith(
-          lastError: 'No playable tracks are available in this playlist.',
+          lastError: 'В этом плейлисте нет треков для воспроизведения.',
         ),
       );
       return null;
@@ -783,7 +802,7 @@ final class PlaybackQueueService {
     if (startIndex < 0) {
       _emit(
         _state.copyWith(
-          lastError: 'This playlist track is not available for playback.',
+          lastError: 'Этот трек плейлиста недоступен для воспроизведения.',
         ),
       );
       return null;
@@ -823,7 +842,7 @@ final class PlaybackQueueService {
     if (playableTracks.isEmpty) {
       _emit(
         _state.copyWith(
-          lastError: 'No playable tracks are available in this library view.',
+          lastError: 'В этом виде библиотеки нет треков для воспроизведения.',
         ),
       );
       return null;
@@ -831,7 +850,7 @@ final class PlaybackQueueService {
     if (startIndex < 0) {
       _emit(
         _state.copyWith(
-          lastError: 'This library track is not available for playback.',
+          lastError: 'Этот трек библиотеки недоступен для воспроизведения.',
         ),
       );
       return null;
@@ -1207,7 +1226,8 @@ final class PlaybackQueueService {
     } on Object catch (error) {
       _emit(
         _state.copyWith(
-          lastError: 'Skip history was not saved: ${_describeError(error)}',
+          lastError:
+              'История пропусков не была сохранена: ${_describeError(error)}',
         ),
       );
     }
@@ -1316,7 +1336,9 @@ final class PlaybackQueueService {
 
     final trackId = track.id;
     if (trackId == null) {
-      _emit(_state.copyWith(lastError: 'Track feedback was not saved.'));
+      _emit(
+        _state.copyWith(lastError: 'Оценка трека не была сохранена.'),
+      );
       return;
     }
 
@@ -1371,7 +1393,7 @@ final class PlaybackQueueService {
       }
       _emit(
         _state.copyWith(
-          lastError: 'Track feedback was not loaded: ${_describeError(error)}',
+          lastError: 'Оценка трека не была загружена: ${_describeError(error)}',
         ),
       );
     }
@@ -1431,7 +1453,8 @@ final class _RepeatGuardResult {
     if (filteredCount <= 0) {
       return null;
     }
-    return 'Recent repeat guard active: $filteredCount candidate(s) avoided.';
+    return 'Защита от повторов активна: исключено кандидатов: '
+        '$filteredCount.';
   }
 }
 
