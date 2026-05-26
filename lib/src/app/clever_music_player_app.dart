@@ -32,7 +32,7 @@ final class CleverMusicPlayerApp extends StatelessWidget {
     );
 
     return MaterialApp(
-      title: 'Clever Music Player',
+      title: 'Умный музыкальный плеер',
       debugShowCheckedModeBanner: false,
       themeMode: ThemeMode.dark,
       scrollBehavior: const _DesktopScrollBehavior(),

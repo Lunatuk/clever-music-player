@@ -24,7 +24,7 @@ TrackMetadataUpdate buildManualTrackMetadataUpdate({
 
   final trackNumberError = validateOptionalPositiveMetadataInteger(
     trackNumber,
-    'Track number',
+    'Номер трека',
   );
   if (trackNumberError != null) {
     throw FormatException(trackNumberError);
@@ -32,7 +32,7 @@ TrackMetadataUpdate buildManualTrackMetadataUpdate({
 
   final discNumberError = validateOptionalPositiveMetadataInteger(
     discNumber,
-    'Disc number',
+    'Номер диска',
   );
   if (discNumberError != null) {
     throw FormatException(discNumberError);
@@ -55,7 +55,7 @@ TrackMetadataUpdate buildManualTrackMetadataUpdate({
 String? validateManualMetadataTitle(String? value) {
   final trimmed = value?.trim();
   if (trimmed == null || trimmed.isEmpty) {
-    return 'Title is required.';
+    return 'Название обязательно.';
   }
   return null;
 }
@@ -65,7 +65,7 @@ String? validateOptionalMetadataYear(String? value) {
   if (trimmed == null || trimmed.isEmpty) {
     return null;
   }
-  return int.tryParse(trimmed) == null ? 'Enter a valid year.' : null;
+  return int.tryParse(trimmed) == null ? 'Введите корректный год.' : null;
 }
 
 String? validateOptionalPositiveMetadataInteger(
@@ -79,7 +79,7 @@ String? validateOptionalPositiveMetadataInteger(
 
   final parsed = int.tryParse(trimmed);
   if (parsed == null || parsed <= 0) {
-    return '$fieldLabel must be a positive integer.';
+    return '$fieldLabel должен быть положительным целым числом.';
   }
   return null;
 }

@@ -53,7 +53,7 @@ void main() {
       results.first.reasons
           .firstWhere((reason) => reason.code == 'rating')
           .message,
-      'Manual rating contributes to the score.',
+      'Ручная оценка влияет на итоговый балл.',
     );
   });
 

@@ -74,8 +74,8 @@ final class LibraryScanResult {
   bool get hasErrors => errors.isNotEmpty;
 
   String get summary {
-    return 'Scanned $scannedFiles files, added $addedTracks, '
-        'updated $updatedTracks, missing $missingTracks.';
+    return 'Просканировано файлов: $scannedFiles, добавлено: $addedTracks, '
+        'обновлено: $updatedTracks, отсутствует: $missingTracks.';
   }
 
   static LibraryScanResult combine(Iterable<LibraryScanResult> results) {
@@ -125,7 +125,7 @@ final class LibraryScannerService {
         errors: [
           LibraryScanError(
             path: normalizedRootPath,
-            message: 'Folder does not exist.',
+            message: 'Папка не существует.',
           ),
         ],
       );

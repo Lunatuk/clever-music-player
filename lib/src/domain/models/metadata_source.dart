@@ -11,11 +11,11 @@ enum MetadataSource {
 
   String get displayLabel {
     return switch (this) {
-      MetadataSource.embeddedTags => 'tags',
-      MetadataSource.filename => 'filename',
-      MetadataSource.fallback => 'fallback',
-      MetadataSource.manual => 'manual',
-      MetadataSource.acousticFingerprint => 'fingerprint',
+      MetadataSource.embeddedTags => 'теги',
+      MetadataSource.filename => 'имя файла',
+      MetadataSource.fallback => 'резерв',
+      MetadataSource.manual => 'вручную',
+      MetadataSource.acousticFingerprint => 'отпечаток',
     };
   }
 

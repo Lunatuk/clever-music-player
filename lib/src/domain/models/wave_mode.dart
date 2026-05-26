@@ -14,11 +14,11 @@ enum WaveMode {
       };
 
   String get label => switch (this) {
-        WaveMode.balanced => 'Balanced',
-        WaveMode.discovery => 'Discovery',
-        WaveMode.focus => 'Focus',
-        WaveMode.favorites => 'Favorites',
-        WaveMode.deepCuts => 'Deep cuts',
+        WaveMode.balanced => 'Сбалансированный',
+        WaveMode.discovery => 'Открытия',
+        WaveMode.focus => 'Фокус',
+        WaveMode.favorites => 'Любимое',
+        WaveMode.deepCuts => 'Редкое',
       };
 
   static WaveMode fromStorageKey(String? value) {

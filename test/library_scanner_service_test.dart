@@ -320,7 +320,7 @@ void main() {
     final result = await scanner.scanFolder(missingFolderPath);
 
     expect(result.errors, hasLength(1));
-    expect(result.errors.single.message, 'Folder does not exist.');
+    expect(result.errors.single.message, 'Папка не существует.');
     expect(result.missingTracks, 0);
 
     final tracks = await repositories.tracks.listTracksByLibraryFolder(

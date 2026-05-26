@@ -124,7 +124,8 @@ MergedMetadata mergeMetadata({
   final filenameTitle = _usefulText(filenameMetadata.title);
   final filenameArtist = _usefulText(filenameMetadata.artist);
   final filenameAlbum = _usefulText(filenameMetadata.album);
-  final fallbackTitle = _usefulText(fallbackMetadata.title) ?? 'Unknown Track';
+  final fallbackTitle =
+      _usefulText(fallbackMetadata.title) ?? 'Неизвестный трек';
 
   final title = tagTitle ?? filenameTitle ?? fallbackTitle;
   final artist = tagArtist ?? filenameArtist;

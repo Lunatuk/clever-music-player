@@ -12,7 +12,7 @@ void main() {
       metadataConfidence: 0.95,
     );
 
-    expect(buildTrackMetadataSubtitle(track), 'Artist · MP3 · tags 0.95');
+    expect(buildTrackMetadataSubtitle(track), 'Artist · MP3 · теги 0.95');
   });
 
   test('subtitle labels fallback metadata without inventing an artist', () {
@@ -25,7 +25,7 @@ void main() {
 
     expect(
       buildTrackMetadataSubtitle(track),
-      'Unknown artist · MP3 · fallback 0.20',
+      'Неизвестный исполнитель · MP3 · резерв 0.20',
     );
     expect(track.artist, isNull);
   });

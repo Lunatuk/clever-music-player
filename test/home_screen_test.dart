@@ -32,10 +32,10 @@ void main() {
     await fixture.pump(tester);
 
     expect(tester.widget<Scaffold>(find.byType(Scaffold)).extendBody, isTrue);
-    expect(find.text('Пустить жидкого'), findsOneWidget);
+    expect(find.text('Запустить волну'), findsOneWidget);
     expect(find.text('Настроить'), findsOneWidget);
-    expect(find.text('Добавить папку'), findsOneWidget);
-    expect(find.text('Еще раз'), findsOneWidget);
+    expect(find.text('Добавить папку с музыкой'), findsOneWidget);
+    expect(find.text('Пересканировать'), findsOneWidget);
     expect(find.text('Волна'), findsOneWidget);
     expect(find.text('Моя музыка'), findsAtLeastNWidgets(2));
     expect(find.text('Плейлисты'), findsOneWidget);
@@ -43,7 +43,7 @@ void main() {
     expect(find.text('Clever'), findsNothing);
     expect(find.byTooltip('Открыть Моя музыка'), findsNothing);
     expect(find.byKey(const ValueKey('active-nav-wave')), findsOneWidget);
-    expect(find.text('No track playing'), findsOneWidget);
+    expect(find.text('Трек не играет'), findsOneWidget);
     expect(find.byType(TrackArtwork), findsOneWidget);
     expect(find.text('Liquid Wave'), findsNothing);
     expect(find.text('Local-first music flow'), findsNothing);
@@ -148,7 +148,7 @@ void main() {
 
     expect(find.byIcon(Icons.play_circle_fill_rounded), findsOneWidget);
     expect(find.byIcon(Icons.pause_circle_filled_rounded), findsNothing);
-    expect(find.textContaining('Wave on'), findsNothing);
+    expect(find.textContaining('Волна играет'), findsNothing);
     expect(find.text('Test Track - Test Artist'), findsNothing);
   });
 
@@ -183,10 +183,10 @@ void main() {
     await fixture.pump(tester);
 
     expect(fixture.queue.state.isWaveCurrentSource, isFalse);
-    expect(find.textContaining('Wave on'), findsNothing);
+    expect(find.textContaining('Волна играет'), findsNothing);
     expect(find.text('Playlist Track - Test Artist'), findsNothing);
 
-    await tester.tap(find.text('Пустить жидкого'));
+    await tester.tap(find.text('Запустить волну'));
     await tester.pumpAndSettle();
     await _waitUntil(() => fixture.queue.state.isWaveCurrentSource);
     await tester.pumpAndSettle();
@@ -194,7 +194,7 @@ void main() {
     expect(fixture.queue.state.isWaveCurrentSource, isTrue);
     expect(fixture.queue.state.playbackContext.source, PlaybackSource.none);
     expect(fixture.queue.state.lastRecommendationResult, isNotNull);
-    expect(find.textContaining('Wave on'), findsOneWidget);
+    expect(find.textContaining('Волна играет'), findsOneWidget);
     expect(find.byIcon(Icons.pause_circle_filled_rounded), findsOneWidget);
   });
 
@@ -218,7 +218,7 @@ void main() {
     expect(fixture.queue.state.activeSource, PlaybackSource.singleTrack);
     expect(fixture.queue.state.isWaveCurrentSource, isFalse);
 
-    await tester.tap(find.text('Пустить жидкого'));
+    await tester.tap(find.text('Запустить волну'));
     await tester.pumpAndSettle();
     await _waitUntil(() => fixture.queue.state.isWaveCurrentSource);
     await tester.pumpAndSettle();
@@ -244,7 +244,7 @@ void main() {
     expect(fixture.queue.state.isWaveCurrentSource, isTrue);
     expect(fixture.player.isPlaying, isTrue);
 
-    await tester.tap(find.text('Пустить жидкого'));
+    await tester.tap(find.text('Запустить волну'));
     await tester.pumpAndSettle();
 
     expect(fixture.queue.state.isWaveCurrentSource, isTrue);
@@ -269,7 +269,7 @@ void main() {
     expect(fixture.queue.state.isWaveCurrentSource, isTrue);
     expect(fixture.player.isPlaying, isFalse);
 
-    await tester.tap(find.text('Пустить жидкого'));
+    await tester.tap(find.text('Запустить волну'));
     await tester.pumpAndSettle();
 
     expect(fixture.queue.state.isWaveCurrentSource, isTrue);
@@ -287,9 +287,9 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('nav-music')));
     await tester.pumpAndSettle();
 
-    expect(find.text('Track library'), findsOneWidget);
+    expect(find.text('Библиотека треков'), findsOneWidget);
     expect(find.text('Test Track'), findsOneWidget);
-    expect(find.text('No track playing'), findsOneWidget);
+    expect(find.text('Трек не играет'), findsOneWidget);
     expect(find.byType(TrackArtwork), findsNWidgets(2));
   });
 
@@ -305,7 +305,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
-    expect(find.text('Visible 600 / Indexed 600 / Missing 0 / Folders 1'),
+    expect(
+        find.text(
+          'Видимых: 600 / Проиндексировано: 600 / '
+          'Отсутствует: 0 / Папок: 1',
+        ),
         findsOneWidget);
     expect(find.text('Track 000'), findsOneWidget);
     expect(find.text('Track 599'), findsNothing);
@@ -348,7 +352,11 @@ void main() {
         indexedTrackStreamCreations);
     expect(userStateRepository.watchTrackStatesByTrackIdsCalls,
         userStateStreamCreations);
-    expect(find.text('Visible 50 / Indexed 50 / Missing 0 / Folders 1'),
+    expect(
+        find.text(
+          'Видимых: 50 / Проиндексировано: 50 / '
+          'Отсутствует: 0 / Папок: 1',
+        ),
         findsOneWidget);
   });
 
@@ -362,28 +370,28 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('nav-music')));
     await tester.pumpAndSettle();
-    expect(find.text('Track library'), findsOneWidget);
+    expect(find.text('Библиотека треков'), findsOneWidget);
     expect(find.byKey(const ValueKey('active-nav-music')), findsOneWidget);
-    expect(find.text('No track playing'), findsOneWidget);
+    expect(find.text('Трек не играет'), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('nav-playlists')));
     await tester.pumpAndSettle();
     expect(find.text('Создать плейлист'), findsOneWidget);
     expect(find.byKey(const ValueKey('active-nav-playlists')), findsOneWidget);
-    expect(find.text('No track playing'), findsOneWidget);
+    expect(find.text('Трек не играет'), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('nav-settings')));
     await tester.pumpAndSettle();
-    expect(find.text('Library folders'), findsOneWidget);
+    expect(find.text('Папки библиотеки'), findsOneWidget);
     expect(find.text('Почему выбран трек'), findsOneWidget);
     expect(find.byKey(const ValueKey('active-nav-settings')), findsOneWidget);
-    expect(find.text('No track playing'), findsOneWidget);
+    expect(find.text('Трек не играет'), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('nav-wave')));
     await tester.pumpAndSettle();
-    expect(find.text('Пустить жидкого'), findsOneWidget);
+    expect(find.text('Запустить волну'), findsOneWidget);
     expect(find.byKey(const ValueKey('active-nav-wave')), findsOneWidget);
-    expect(find.text('No track playing'), findsOneWidget);
+    expect(find.text('Трек не играет'), findsOneWidget);
     expect(find.byTooltip('Stop'), findsNothing);
   });
 
@@ -417,12 +425,12 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('nav-music')));
     await tester.pump(const Duration(milliseconds: 90));
 
-    expect(find.text('Track library'), findsOneWidget);
-    expect(find.text('No track playing'), findsOneWidget);
+    expect(find.text('Библиотека треков'), findsOneWidget);
+    expect(find.text('Трек не играет'), findsOneWidget);
     expect(find.byTooltip('Stop'), findsNothing);
 
     await tester.pumpAndSettle();
-    expect(find.text('Track library'), findsOneWidget);
+    expect(find.text('Библиотека треков'), findsOneWidget);
   });
 
   testWidgets('desktop sidebar collapses without losing active state',
@@ -473,11 +481,11 @@ void main() {
     await tester.tap(find.text('Создать плейлист'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).first, 'Road Mix');
-    await tester.tap(find.text('Create'));
+    await tester.tap(find.text('Создать'));
     await tester.pumpAndSettle();
 
     expect(find.text('Road Mix'), findsOneWidget);
-    expect(find.textContaining('0 tracks'), findsOneWidget);
+    expect(find.textContaining('0 треков'), findsOneWidget);
     expect(find.byKey(const ValueKey('active-nav-playlists')), findsOneWidget);
   });
 
@@ -494,7 +502,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('nav-music')));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byTooltip('Add to playlist'));
+    await tester.tap(find.byTooltip('Добавить в плейлист'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Road Mix'));
     await tester.pumpAndSettle();
@@ -526,9 +534,9 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('nav-music')));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byTooltip('Track actions'));
+    await tester.tap(find.byTooltip('Действия с треком'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Set cover'));
+    await tester.tap(find.text('Установить обложку'));
     await tester.pumpAndSettle();
 
     final coveredTrack =
@@ -541,9 +549,9 @@ void main() {
     await fixture.pump(tester);
     await tester.tap(find.byKey(const ValueKey('nav-music')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Track actions'));
+    await tester.tap(find.byTooltip('Действия с треком'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Remove custom cover'));
+    await tester.tap(find.text('Удалить пользовательскую обложку'));
     await tester.pumpAndSettle();
 
     final updatedTrack =
@@ -567,12 +575,13 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('nav-music')));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byTooltip('Track actions'));
+    await tester.tap(find.byTooltip('Действия с треком'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Set cover'));
+    await tester.tap(find.text('Установить обложку'));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('Could not set cover'), findsOneWidget);
+    expect(
+        find.textContaining('Не удалось установить обложку'), findsOneWidget);
     final track = await fixture.dependencies.repositories.tracks.findById(1);
     expect(track?.customArtworkPath, isNull);
   });
@@ -602,17 +611,17 @@ void main() {
     await tester.tap(find.text('Road Mix'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Back to playlists'), findsOneWidget);
+    expect(find.text('К плейлистам'), findsOneWidget);
     expect(find.byKey(const ValueKey('active-nav-playlists')), findsOneWidget);
 
-    await tester.tap(find.text('Add tracks'));
+    await tester.tap(find.text('Добавить треки'));
     await tester.pumpAndSettle();
 
     expect(find.text('Test Track'), findsWidgets);
     expect(find.text('Second Track'), findsOneWidget);
-    expect(find.widgetWithText(TextButton, 'Added'), findsOneWidget);
+    expect(find.widgetWithText(TextButton, 'Добавлен'), findsOneWidget);
 
-    await tester.tap(find.widgetWithText(TextButton, 'Add'));
+    await tester.tap(find.widgetWithText(TextButton, 'Добавить'));
     await tester.pumpAndSettle();
 
     final entries = await fixture.dependencies.repositories.playlists
@@ -620,7 +629,7 @@ void main() {
         .first;
 
     expect(entries.map((entry) => entry.trackId), [1, 2]);
-    expect(find.widgetWithText(TextButton, 'Added'), findsNWidgets(2));
+    expect(find.widgetWithText(TextButton, 'Добавлен'), findsNWidgets(2));
   });
 
   testWidgets('playlist detail exposes reorder and preserves row actions',
@@ -652,13 +661,13 @@ void main() {
     await tester.tap(find.text('Road Mix'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Back to playlists'), findsOneWidget);
+    expect(find.text('К плейлистам'), findsOneWidget);
     expect(find.byKey(const ValueKey('active-nav-playlists')), findsOneWidget);
     expect(find.byType(ReorderableListView), findsOneWidget);
-    expect(find.byTooltip('Reorder track'), findsNWidgets(2));
-    expect(find.byTooltip('Add to queue'), findsNWidgets(2));
-    expect(find.byTooltip('Remove from playlist'), findsNWidgets(2));
-    expect(find.byTooltip('Play'), findsAtLeastNWidgets(2));
+    expect(find.byTooltip('Изменить порядок трека'), findsNWidgets(2));
+    expect(find.byTooltip('Добавить в очередь'), findsNWidgets(2));
+    expect(find.byTooltip('Удалить из плейлиста'), findsNWidgets(2));
+    expect(find.byTooltip('Воспроизвести'), findsAtLeastNWidgets(2));
 
     await tester.drag(
       find.byIcon(Icons.drag_handle_outlined).first,
@@ -705,9 +714,9 @@ void main() {
       2,
       1,
     ]);
-    expect(find.text('Playing from: All Tracks'), findsOneWidget);
-    expect(find.byTooltip('No repeat'), findsOneWidget);
-    expect(find.byTooltip('Shuffle playlist'), findsNothing);
+    expect(find.text('Играет из: Все треки'), findsOneWidget);
+    expect(find.byTooltip('Без повтора'), findsOneWidget);
+    expect(find.byTooltip('Перемешать плейлист'), findsNothing);
   });
 
   testWidgets('library repeat control cycles without showing shuffle',
@@ -730,14 +739,14 @@ void main() {
     );
     await fixture.pump(tester);
 
-    expect(find.byTooltip('No repeat'), findsOneWidget);
-    expect(find.byTooltip('Shuffle playlist'), findsNothing);
+    expect(find.byTooltip('Без повтора'), findsOneWidget);
+    expect(find.byTooltip('Перемешать плейлист'), findsNothing);
 
-    await tester.tap(find.byTooltip('No repeat'));
+    await tester.tap(find.byTooltip('Без повтора'));
     await tester.pumpAndSettle();
 
     expect(fixture.queue.state.repeatMode, PlaybackRepeatMode.playlist);
-    expect(find.byTooltip('Repeat library'), findsOneWidget);
+    expect(find.byTooltip('Повторять библиотеку'), findsOneWidget);
   });
 
   testWidgets('playlist bottom controls expose repeat and shuffle',
@@ -774,10 +783,10 @@ void main() {
     );
     await fixture.pump(tester);
 
-    expect(find.byTooltip('No repeat'), findsOneWidget);
-    expect(find.byTooltip('Shuffle playlist'), findsOneWidget);
+    expect(find.byTooltip('Без повтора'), findsOneWidget);
+    expect(find.byTooltip('Перемешать плейлист'), findsOneWidget);
 
-    await tester.tap(find.byTooltip('Shuffle playlist'));
+    await tester.tap(find.byTooltip('Перемешать плейлист'));
     await tester.pumpAndSettle();
 
     expect(fixture.queue.state.isPlaylistShuffleEnabled, isTrue);
@@ -797,8 +806,8 @@ void main() {
     await fixture.pump(tester);
 
     expect(fixture.queue.state.activeSource, PlaybackSource.wave);
-    expect(find.byTooltip('No repeat'), findsNothing);
-    expect(find.byTooltip('Shuffle playlist'), findsNothing);
+    expect(find.byTooltip('Без повтора'), findsNothing);
+    expect(find.byTooltip('Перемешать плейлист'), findsNothing);
   });
 
   testWidgets('settings gear opens library folders and recommendation debug',
@@ -808,13 +817,44 @@ void main() {
     _addFixtureTearDown(tester, fixture);
 
     await fixture.pump(tester);
-    await tester.tap(find.byTooltip('Settings'));
+    await tester.tap(find.byTooltip('Настройки'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Library folders'), findsOneWidget);
+    expect(find.text('Папки библиотеки'), findsOneWidget);
     expect(find.text('Почему выбран трек'), findsOneWidget);
     expect(find.byKey(const ValueKey('active-nav-settings')), findsOneWidget);
-    expect(find.text('No track playing'), findsOneWidget);
+    expect(find.text('Трек не играет'), findsOneWidget);
+  });
+
+  testWidgets('recommendation debug shows Russian reasons and candidate labels',
+      (tester) async {
+    await _setLargeSurface(tester);
+    final fixture = await _HomeScreenFixture.create(
+      seedTracks: [
+        _testTrack(id: 1, title: 'First Track', artist: 'First Artist'),
+        _testTrack(id: 2, title: 'Second Track', artist: 'Second Artist'),
+      ],
+    );
+    _addFixtureTearDown(tester, fixture);
+
+    await fixture.queue.playSmartNext();
+    await fixture.pump(tester);
+    await tester.tap(find.byTooltip('Настройки'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Почему выбран трек'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('балл'), findsWidgets);
+    expect(find.textContaining('кандидатов:'), findsOneWidget);
+    expect(
+      find.textContaining(
+        'У трека есть метаданные, их можно учитывать при подборе.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Кандидаты'), findsOneWidget);
+    expect(find.textContaining('вес'), findsWidgets);
+    expect(find.textContaining('(выбран)'), findsOneWidget);
   });
 
   testWidgets('settings reset learning state can be cancelled', (tester) async {
@@ -839,7 +879,7 @@ void main() {
     );
 
     await fixture.pump(tester);
-    await tester.tap(find.byTooltip('Settings'));
+    await tester.tap(find.byTooltip('Настройки'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Сбросить историю и рекомендации'));
     await tester.pumpAndSettle();
@@ -885,9 +925,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Test Track'), findsOneWidget);
-    expect(find.byTooltip('Unlike'), findsOneWidget);
+    expect(find.byTooltip('Убрать лайк'), findsOneWidget);
 
-    await tester.tap(find.byTooltip('Settings'));
+    await tester.tap(find.byTooltip('Настройки'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Сбросить историю и рекомендации'));
     await tester.pumpAndSettle();
@@ -902,8 +942,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Test Track'), findsOneWidget);
-    expect(find.byTooltip('Unlike'), findsNothing);
-    expect(find.byTooltip('Like'), findsAtLeastNWidgets(1));
+    expect(find.byTooltip('Убрать лайк'), findsNothing);
+    expect(find.byTooltip('Лайк'), findsAtLeastNWidgets(1));
   });
 
   testWidgets('wave mode dialog updates selected mode', (tester) async {
@@ -915,13 +955,13 @@ void main() {
     await tester.tap(find.text('Настроить'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Текущий режим: Balanced'), findsOneWidget);
+    expect(find.text('Текущий режим: Сбалансированный'), findsOneWidget);
 
-    await tester.tap(find.text('Discovery'));
+    await tester.tap(find.text('Открытия'));
     await tester.pumpAndSettle();
 
     expect(fixture.queue.state.selectedWaveMode, WaveMode.discovery);
-    expect(find.text('Текущий режим: Discovery'), findsOneWidget);
+    expect(find.text('Текущий режим: Открытия'), findsOneWidget);
   });
 }
 
@@ -1413,7 +1453,7 @@ final class _FakePlaylistRepository implements PlaylistRepository {
             _entries.where((entry) => entry.playlistId == playlistId).length,
         addedAt: DateTime(2026, 5),
         track: track,
-        unavailableReason: track.isMissing ? 'Missing' : null,
+        unavailableReason: track.isMissing ? 'Отсутствует' : null,
       ),
     );
     _emit();
