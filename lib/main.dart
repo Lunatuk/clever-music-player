@@ -15,6 +15,7 @@ import 'src/library/metadata_reader_service.dart';
 import 'src/player/just_audio_player_service.dart';
 import 'src/queue/playback_queue_service.dart';
 import 'src/recommendation/recommendation_service.dart';
+import 'src/smtc/macos_now_playing_client.dart';
 import 'src/smtc/smtc_service.dart';
 import 'src/smtc/smtc_windows_plugin_client.dart';
 
@@ -55,7 +56,14 @@ Future<void> main() async {
           onPrevious: playbackQueue.previous,
           client: SmtcWindowsPluginClient(),
         )
-      : const NoopSmtcService();
+      : Platform.isMacOS
+          ? MacosNowPlayingService(
+              playerService: playerService,
+              onNext: playbackQueue.next,
+              onPrevious: playbackQueue.previous,
+              client: MacosNowPlayingClient(),
+            )
+          : const NoopSmtcService();
   await smtcService.initialize();
   final dependencies = AppDependencies(
     database: database,

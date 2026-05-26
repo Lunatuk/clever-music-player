@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:developer' as developer;
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -24,14 +25,40 @@ final class NoopSmtcService implements SmtcService {
   Future<void> dispose() async {}
 }
 
-final class WindowsSmtcService implements SmtcService {
+final class WindowsSmtcService extends _PlatformMediaControlsService {
   WindowsSmtcService({
+    required super.playerService,
+    required super.onNext,
+    required super.onPrevious,
+    required super.client,
+    super.fileExists,
+  }) : super(
+          debugName: 'WindowsSmtcService',
+        );
+}
+
+final class MacosNowPlayingService extends _PlatformMediaControlsService {
+  MacosNowPlayingService({
+    required super.playerService,
+    required super.onNext,
+    required super.onPrevious,
+    required super.client,
+    super.fileExists,
+  }) : super(
+          debugName: 'MacosNowPlayingService',
+        );
+}
+
+class _PlatformMediaControlsService implements SmtcService {
+  _PlatformMediaControlsService({
+    required String debugName,
     required PlayerService playerService,
     required Future<void> Function() onNext,
     required Future<void> Function() onPrevious,
     required SmtcPlatformClient client,
     bool Function(String path)? fileExists,
-  })  : _playerService = playerService,
+  })  : _debugName = debugName,
+        _playerService = playerService,
         _onNext = onNext,
         _onPrevious = onPrevious,
         _client = client,
@@ -47,6 +74,7 @@ final class WindowsSmtcService implements SmtcService {
     rewindEnabled: false,
   );
 
+  final String _debugName;
   final PlayerService _playerService;
   final Future<void> Function() _onNext;
   final Future<void> Function() _onPrevious;
@@ -306,13 +334,16 @@ final class WindowsSmtcService implements SmtcService {
 
   void _logError(Object error) {
     if (kDebugMode) {
-      debugPrint('WindowsSmtcService ignored error: $error');
+      debugPrint('$_debugName ignored error: $error');
+    } else {
+      developer.log('ignored media-control error',
+          name: _debugName, error: error);
     }
   }
 
   void _debugLog(String message) {
     if (kDebugMode) {
-      debugPrint('WindowsSmtcService $message');
+      debugPrint('$_debugName $message');
     }
   }
 }
