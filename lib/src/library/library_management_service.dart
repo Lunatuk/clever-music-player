@@ -11,8 +11,8 @@ final class NoEnabledLibraryFoldersException implements Exception {
 
   @override
   String toString() {
-    return 'No enabled music folders. Enable a folder or add a new one before '
-        'rescanning.';
+    return 'Нет включённых папок с музыкой. Включите папку или добавьте новую '
+        'перед пересканированием.';
   }
 }
 
@@ -54,7 +54,8 @@ final class LibraryManagementService {
     final id = folder.id;
     if (id == null) {
       throw StateError(
-          'Library folder must be persisted before it is updated.');
+        'Папка библиотеки должна быть сохранена перед обновлением.',
+      );
     }
 
     // Folder enabled state excludes tracks from active-library queries without
@@ -70,10 +71,11 @@ final class LibraryManagementService {
     final id = folder.id;
     if (id == null) {
       throw StateError(
-          'Library folder must be persisted before it is removed.');
+        'Папка библиотеки должна быть сохранена перед удалением.',
+      );
     }
     if (folder.isEnabled) {
-      throw StateError('Disable the folder before removing it from library.');
+      throw StateError('Отключите папку перед удалением из библиотеки.');
     }
 
     // This removes only app database rows. It must never delete audio files or

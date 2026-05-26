@@ -146,15 +146,15 @@ void main() {
     expect(update.trackNumber, 3);
     expect(update.discNumber, 1);
 
-    expect(validateManualMetadataTitle(' '), 'Title is required.');
-    expect(validateOptionalMetadataYear('twenty'), 'Enter a valid year.');
+    expect(validateManualMetadataTitle(' '), 'Название обязательно.');
+    expect(validateOptionalMetadataYear('twenty'), 'Введите корректный год.');
     expect(
-      validateOptionalPositiveMetadataInteger('0', 'Track number'),
-      'Track number must be a positive integer.',
+      validateOptionalPositiveMetadataInteger('0', 'Номер трека'),
+      'Номер трека должен быть положительным целым числом.',
     );
     expect(
-      validateOptionalPositiveMetadataInteger('-1', 'Disc number'),
-      'Disc number must be a positive integer.',
+      validateOptionalPositiveMetadataInteger('-1', 'Номер диска'),
+      'Номер диска должен быть положительным целым числом.',
     );
   });
 

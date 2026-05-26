@@ -253,7 +253,7 @@ final class JustAudioPlayerService implements PlayerService {
 
     if (!_fileExists(normalizedPath)) {
       await _stopAfterFailure(
-        'File not found: ${track.filePath} (resolved: $normalizedPath)',
+        'Файл не найден: ${track.filePath} (путь: $normalizedPath)',
       );
       return;
     }
@@ -282,7 +282,8 @@ final class JustAudioPlayerService implements PlayerService {
       _playInBackground();
     } on Object catch (error) {
       await _stopAfterFailure(
-        'Could not play "${track.displayTitle}": ${_describeError(error)}',
+        'Не удалось воспроизвести "${track.displayTitle}": '
+        '${_describeError(error)}',
       );
     }
   }
@@ -294,7 +295,7 @@ final class JustAudioPlayerService implements PlayerService {
       _emit(
         _state.copyWith(
           status: PlayerPlaybackStatus.error,
-          errorMessage: 'Select a track to play.',
+          errorMessage: 'Выберите трек для воспроизведения.',
         ),
       );
       return;
@@ -321,7 +322,8 @@ final class JustAudioPlayerService implements PlayerService {
       _startWindowsProgressRecovery(anchorPosition: _state.position);
       _playInBackground();
     } on Object catch (error) {
-      _emitPlaybackError('Playback failed: ${_describeError(error)}');
+      _emitPlaybackError(
+          'Воспроизведение не удалось: ${_describeError(error)}');
     }
   }
 
@@ -344,7 +346,10 @@ final class JustAudioPlayerService implements PlayerService {
       );
       unawaited(_recordEvent(track, PlaybackEventType.paused));
     } on Object catch (error) {
-      _emitPlaybackError('Could not pause playback: ${_describeError(error)}');
+      _emitPlaybackError(
+        'Не удалось поставить воспроизведение на паузу: '
+        '${_describeError(error)}',
+      );
     }
   }
 
@@ -365,7 +370,9 @@ final class JustAudioPlayerService implements PlayerService {
         ),
       );
     } on Object catch (error) {
-      _emitPlaybackError('Could not stop playback: ${_describeError(error)}');
+      _emitPlaybackError(
+        'Не удалось остановить воспроизведение: ${_describeError(error)}',
+      );
     }
   }
 
@@ -388,7 +395,9 @@ final class JustAudioPlayerService implements PlayerService {
       );
       _startWindowsProgressRecovery(anchorPosition: target);
     } on Object catch (error) {
-      _emitPlaybackError('Could not seek: ${_describeError(error)}');
+      _emitPlaybackError(
+        'Не удалось перейти к позиции: ${_describeError(error)}',
+      );
     }
   }
 
@@ -408,7 +417,9 @@ final class JustAudioPlayerService implements PlayerService {
       );
       await _persistVolume(normalizedVolume);
     } on Object catch (error) {
-      _emitPlaybackError('Could not set volume: ${_describeError(error)}');
+      _emitPlaybackError(
+        'Не удалось изменить громкость: ${_describeError(error)}',
+      );
     }
   }
 
@@ -553,7 +564,8 @@ final class JustAudioPlayerService implements PlayerService {
     _debugLogAudioError(error);
     unawaited(
       _stopAfterFailure(
-        'Could not play "${track.displayTitle}": ${_describeError(error)}',
+        'Не удалось воспроизвести "${track.displayTitle}": '
+        '${_describeError(error)}',
       ),
     );
   }
@@ -618,13 +630,13 @@ final class JustAudioPlayerService implements PlayerService {
       return _LoadedAudio(duration: duration);
     } on Object catch (cacheError) {
       final directDetails = directError == null
-          ? 'Direct load skipped for Windows non-ASCII path.'
-          : 'Direct load error: ${_describeError(directError)}.';
+          ? 'Прямая загрузка пропущена для Windows-пути с не-ASCII символами.'
+          : 'Ошибка прямой загрузки: ${_describeError(directError)}.';
       throw PlaybackLoadException(
-        'Windows Unicode path fallback failed. '
+        'Не удалось загрузить путь Windows с Unicode. '
         '$directDetails '
-        'Cache fallback error: ${_describeError(cacheError)}. '
-        'Source path: $normalizedPath',
+        'Ошибка кэша: ${_describeError(cacheError)}. '
+        'Исходный путь: $normalizedPath',
       );
     }
   }
@@ -637,7 +649,8 @@ final class JustAudioPlayerService implements PlayerService {
     try {
       await _audioEngine.play();
     } on Object catch (error) {
-      _emitPlaybackError('Playback failed: ${_describeError(error)}');
+      _emitPlaybackError(
+          'Воспроизведение не удалось: ${_describeError(error)}');
     }
   }
 
@@ -878,8 +891,8 @@ final class JustAudioPlayerService implements PlayerService {
     } on Object catch (error) {
       _emit(
         _state.copyWith(
-          errorMessage:
-              'Playback history was not saved: ${_describeError(error)}',
+          errorMessage: 'История воспроизведения не была сохранена: '
+              '${_describeError(error)}',
         ),
       );
     }
@@ -1149,7 +1162,7 @@ final class JustAudioPlayerService implements PlayerService {
       if (message != null && message.isNotEmpty) {
         return message;
       }
-      return 'Audio player error ${error.code}';
+      return 'Ошибка аудиоплеера ${error.code}';
     }
     if (error is PlaybackLoadException || error is PlaybackCacheException) {
       return error.toString();

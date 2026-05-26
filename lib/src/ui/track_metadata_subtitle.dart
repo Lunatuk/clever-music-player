@@ -14,7 +14,7 @@ String buildTrackMetadataSubtitle(Track track) {
         ].join(' ');
 
   return [
-    artist ?? 'Unknown artist',
+    artist ?? 'Неизвестный исполнитель',
     album,
     codec,
     metadataLabel,

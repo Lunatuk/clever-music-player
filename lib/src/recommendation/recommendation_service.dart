@@ -96,7 +96,7 @@ final class RecommendationService {
     final reasons = <RecommendationScoreReason>[
       const RecommendationScoreReason(
         code: 'technical_base_score',
-        message: 'Base candidate score.',
+        message: 'Базовый технический балл.',
         weight: 1,
       ),
     ];
@@ -117,7 +117,7 @@ final class RecommendationService {
     if (track.artist != null || track.album != null) {
       addReason(
         'metadata_present',
-        'Track has usable metadata for future library-aware scoring.',
+        'У трека есть метаданные, их можно учитывать при подборе.',
         2,
       );
     }
@@ -128,7 +128,7 @@ final class RecommendationService {
     if (recentTrackRank != null) {
       addReason(
         'recent_play_penalty',
-        'Played recently; lower priority keeps the wave varied.',
+        'Трек недавно играл, поэтому временно понижен в приоритете.',
         _recentTrackPenalty(recentTrackRank),
       );
     }
@@ -139,7 +139,7 @@ final class RecommendationService {
     if (recentArtistRank != null && recentTrackRank != 0) {
       addReason(
         'artist_repeat_penalty',
-        'Recent listening already included this artist.',
+        'Этот исполнитель уже недавно встречался.',
         -_repeatPenalty(waveMode, recentArtistRank, artist: true),
       );
     }
@@ -150,7 +150,7 @@ final class RecommendationService {
     if (recentAlbumRank != null && recentTrackRank != 0) {
       addReason(
         'album_repeat_penalty',
-        'Recent listening already included this album.',
+        'Этот альбом уже недавно встречался.',
         -_repeatPenalty(waveMode, recentAlbumRank, artist: false),
       );
     }
@@ -158,14 +158,14 @@ final class RecommendationService {
     if (state == null) {
       addReason(
         'no_user_state',
-        'No listening history yet; keep it eligible for exploration.',
+        'По треку ещё нет истории, можно попробовать его в подборке.',
         _discoveryWeight(waveMode),
       );
     } else {
       if (state.isFavorite) {
         addReason(
           'favorite',
-          'Marked as a favorite by the listener.',
+          'Трек отмечен как понравившийся.',
           _favoriteWeight(waveMode),
         );
       }
@@ -174,7 +174,7 @@ final class RecommendationService {
       if (rating != null && rating > 0) {
         addReason(
           'rating',
-          'Manual rating contributes to the score.',
+          'Ручная оценка влияет на итоговый балл.',
           (rating.clamp(0, 5).toDouble() / 5) * 8,
         );
       }
@@ -182,7 +182,7 @@ final class RecommendationService {
       if (state.playCount == 0) {
         addReason(
           'unplayed',
-          'Never played locally; useful for discovery.',
+          'Трек ещё не запускался, подходит для открытия нового.',
           _discoveryWeight(waveMode),
         );
       }
@@ -192,7 +192,7 @@ final class RecommendationService {
         if (skipPenalty != 0) {
           addReason(
             'skip_penalty',
-            'Recent skip history temporarily reduces confidence.',
+            'Трек недавно пропускался, поэтому временно понижен.',
             skipPenalty,
           );
         }
@@ -201,7 +201,7 @@ final class RecommendationService {
       if (state.userScoreBoost != 0) {
         addReason(
           'manual_boost',
-          'Manual preference boost from local user state.',
+          'Ручная поправка предпочтения влияет на итоговый балл.',
           state.userScoreBoost,
         );
       }
@@ -212,13 +212,13 @@ final class RecommendationService {
         if (daysSincePlayed >= 14) {
           addReason(
             'not_recently_played',
-            'Not played recently, so it can re-enter rotation.',
+            'Трек давно не играл, его можно вернуть в ротацию.',
             waveMode == WaveMode.deepCuts ? 18 : 6,
           );
         } else if (waveMode == WaveMode.discovery) {
           addReason(
             'recent_play_penalty',
-            'Recently played tracks are deprioritized in discovery.',
+            'Трек недавно играл, поэтому временно понижен в приоритете.',
             -8,
           );
         }
@@ -227,7 +227,7 @@ final class RecommendationService {
       if (waveMode == WaveMode.focus && state.skipCount == 0) {
         addReason(
           'focus_low_skip',
-          'No skip history, suitable for a lower-friction queue.',
+          'Трек редко пропускался, подходит для спокойного прослушивания.',
           8,
         );
       }
@@ -237,7 +237,7 @@ final class RecommendationService {
           state.playCount <= 3) {
         addReason(
           'deep_cut',
-          'Low play count makes it a candidate for deep cuts.',
+          'Низкое число прослушиваний делает трек редкой находкой.',
           14,
         );
       }

@@ -158,7 +158,7 @@ final class DriftTrackRepository
     );
 
     if (updatedRows == 0) {
-      throw StateError('Track ${metadata.trackId} was not found.');
+      throw StateError('Трек ${metadata.trackId} не найден.');
     }
   }
 
@@ -182,7 +182,7 @@ final class DriftTrackRepository
     );
 
     if (updatedRows == 0) {
-      throw StateError('Track $trackId was not found.');
+      throw StateError('Трек $trackId не найден.');
     }
   }
 
@@ -203,7 +203,7 @@ final class DriftTrackRepository
     );
 
     if (updatedRows == 0) {
-      throw StateError('Track $trackId was not found.');
+      throw StateError('Трек $trackId не найден.');
     }
     // TODO: Delete unreferenced app-owned custom artwork files after adding
     // reference counting or a safe startup cleanup pass.
@@ -543,7 +543,7 @@ final class DriftPlaylistRepository implements PlaylistRepository {
     );
 
     if (updatedRows == 0) {
-      throw StateError('Playlist $id was not found.');
+      throw StateError('Плейлист $id не найден.');
     }
   }
 
@@ -660,7 +660,8 @@ final class DriftPlaylistRepository implements PlaylistRepository {
         throw ArgumentError.value(
           trackIds,
           'trackIds',
-          'Reorder input must contain each target playlist track exactly once.',
+          'Список для изменения порядка должен содержать каждый трек '
+              'плейлиста ровно один раз.',
         );
       }
 
@@ -701,7 +702,8 @@ final class DriftPlaylistRepository implements PlaylistRepository {
   static String _trimRequiredName(String name) {
     final trimmed = name.trim();
     if (trimmed.isEmpty) {
-      throw ArgumentError.value(name, 'name', 'Playlist name cannot be empty.');
+      throw ArgumentError.value(
+          name, 'name', 'Название плейлиста обязательно.');
     }
     return trimmed;
   }
@@ -719,10 +721,10 @@ final class DriftPlaylistRepository implements PlaylistRepository {
     LibraryFolderRow? folder,
   ) {
     if (track.isMissing) {
-      return 'Missing';
+      return 'Отсутствует';
     }
     if (folder?.isEnabled == false) {
-      return 'Folder disabled';
+      return 'Папка отключена';
     }
     return null;
   }

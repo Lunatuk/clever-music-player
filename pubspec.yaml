@@ -2,7 +2,7 @@ name: clever_music_player
 description: Local-first smart music player for desktop, with Android-compatible architecture.
 publish_to: none
 
-version: 0.1.0+1
+version: 0.2.0
 
 environment:
   sdk: ^3.6.0

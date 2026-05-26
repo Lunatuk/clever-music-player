@@ -246,7 +246,7 @@ String _artworkLetter(Track? track) {
   if (artist != null && artist.isNotEmpty) {
     return String.fromCharCode(artist.runes.first).toUpperCase();
   }
-  return 'M';
+  return 'М';
 }
 
 int _stableHash(String value) {

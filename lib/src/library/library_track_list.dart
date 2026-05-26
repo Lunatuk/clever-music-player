@@ -12,13 +12,13 @@ enum LibraryTrackSortOption {
 extension LibraryTrackSortOptionLabel on LibraryTrackSortOption {
   String get label {
     return switch (this) {
-      LibraryTrackSortOption.title => 'Title',
-      LibraryTrackSortOption.artist => 'Artist',
-      LibraryTrackSortOption.album => 'Album',
-      LibraryTrackSortOption.recentlyAdded => 'Recently added',
-      LibraryTrackSortOption.recentlyPlayed => 'Recently played',
+      LibraryTrackSortOption.title => 'Название',
+      LibraryTrackSortOption.artist => 'Исполнитель',
+      LibraryTrackSortOption.album => 'Альбом',
+      LibraryTrackSortOption.recentlyAdded => 'Недавно добавленные',
+      LibraryTrackSortOption.recentlyPlayed => 'Недавно прослушанные',
       LibraryTrackSortOption.metadataConfidenceLowFirst =>
-        'Metadata confidence (lowest first)',
+        'Уверенность метаданных (сначала низкая)',
     };
   }
 }

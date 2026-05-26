@@ -21,7 +21,7 @@ void main() {
 
     expect(service.state.status, PlayerPlaybackStatus.error);
     expect(service.state.currentTrack, isNull);
-    expect(service.state.errorMessage, contains('File not found'));
+    expect(service.state.errorMessage, contains('Файл не найден'));
     expect(engine.setFilePathCalls, 0);
     expect(engine.playCalls, 0);
 
@@ -38,7 +38,13 @@ void main() {
 
     expect(service.state.status, PlayerPlaybackStatus.error);
     expect(service.state.currentTrack, isNull);
-    expect(service.state.errorMessage, contains('Could not play'));
+    expect(
+      service.state.errorMessage,
+      allOf(
+        contains('Не удалось воспроизвести "Song"'),
+        contains('unsupported format'),
+      ),
+    );
     expect(engine.setFilePathCalls, 1);
     expect(engine.playCalls, 0);
 
@@ -190,7 +196,7 @@ void main() {
     await service.playTrack(_track(filePath: r'D:\МУЗЫКА\missing.mp3'));
 
     expect(service.state.status, PlayerPlaybackStatus.error);
-    expect(service.state.errorMessage, contains('File not found'));
+    expect(service.state.errorMessage, contains('Файл не найден'));
     expect(engine.setFilePathCalls, 0);
     expect(cache.calls, 0);
 
@@ -224,7 +230,7 @@ void main() {
     expect(
       service.state.errorMessage,
       allOf(
-        contains('Windows Unicode path fallback failed'),
+        contains('Не удалось загрузить путь Windows с Unicode'),
         contains('cache copy failed'),
       ),
     );

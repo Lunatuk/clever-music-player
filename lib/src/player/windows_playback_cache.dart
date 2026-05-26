@@ -53,7 +53,7 @@ final class WindowsPlaybackCache implements PlaybackCache {
     final exists = await source.exists();
     if (!exists) {
       throw PlaybackCacheException(
-        'Source audio file does not exist: $sourcePath',
+        'Исходный аудиофайл не существует: $sourcePath',
       );
     }
 
@@ -83,14 +83,14 @@ final class WindowsPlaybackCache implements PlaybackCache {
       await source.copy(cachedFile.path);
     } on Object catch (error) {
       throw PlaybackCacheException(
-        'Could not copy audio file to the Windows playback cache.',
+        'Не удалось скопировать аудиофайл в кэш воспроизведения Windows.',
         error,
       );
     }
 
     if (!await _isValidCachedFile(cachedFile, sourceSize)) {
       throw PlaybackCacheException(
-        'Cached audio file is missing or has an unexpected size: '
+        'Кэшированный аудиофайл отсутствует или имеет неожиданный размер: '
         '${cachedFile.path}',
       );
     }
