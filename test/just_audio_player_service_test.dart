@@ -6,6 +6,7 @@ import 'package:clever_music_player/src/domain/repositories/repositories.dart';
 import 'package:clever_music_player/src/player/just_audio_player_service.dart';
 import 'package:clever_music_player/src/player/player_state.dart';
 import 'package:clever_music_player/src/player/windows_playback_cache.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 
@@ -20,8 +21,8 @@ void main() {
     await service.playTrack(_track());
 
     expect(service.state.status, PlayerPlaybackStatus.error);
-    expect(service.state.currentTrack, isNull);
-    expect(service.state.errorMessage, contains('Файл не найден'));
+    expect(service.state.currentTrack?.filePath, _track().filePath);
+    expect(service.state.errorMessage, _controlledPlaybackError);
     expect(engine.setFilePathCalls, 0);
     expect(engine.playCalls, 0);
 
@@ -37,14 +38,8 @@ void main() {
     await service.playTrack(_track());
 
     expect(service.state.status, PlayerPlaybackStatus.error);
-    expect(service.state.currentTrack, isNull);
-    expect(
-      service.state.errorMessage,
-      allOf(
-        contains('Не удалось воспроизвести "Song"'),
-        contains('unsupported format'),
-      ),
-    );
+    expect(service.state.currentTrack?.filePath, _track().filePath);
+    expect(service.state.errorMessage, _controlledPlaybackError);
     expect(engine.setFilePathCalls, 1);
     expect(engine.playCalls, 0);
 
@@ -113,6 +108,44 @@ void main() {
     await service.dispose();
   });
 
+  test('path length above 180 uses Windows playback cache', () async {
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'clever_music_player_long_path_test_',
+    );
+    addTearDown(() => tempDirectory.delete(recursive: true));
+    final appSupportDirectory =
+        Directory(p.join(tempDirectory.path, 'support'));
+    var sourceDirectory = tempDirectory.path;
+    while (p
+            .normalize(File(p.join(sourceDirectory, 'song.mp3')).absolute.path)
+            .length <=
+        180) {
+      sourceDirectory = p.join(sourceDirectory, 'very_long_directory_name');
+    }
+    final source = File(p.join(sourceDirectory, 'song.mp3'));
+    await source.parent.create(recursive: true);
+    await source.writeAsBytes([1, 2, 3, 4]);
+    final normalizedSourcePath = p.normalize(source.absolute.path);
+    final engine = _FakeAudioEngine();
+    final service = _service(
+      audioEngine: engine,
+      isWindows: true,
+      fileExists: (path) => File(path).existsSync(),
+      playbackCache: WindowsPlaybackCache(
+        appSupportDirectoryProvider: () async => appSupportDirectory,
+      ),
+    );
+
+    await service.playTrack(_track(filePath: source.path));
+
+    expect(normalizedSourcePath.length, greaterThan(180));
+    expect(engine.setFilePaths.single, isNot(normalizedSourcePath));
+    expect(p.basename(engine.setFilePaths.single), matches(_asciiFileName));
+    expect(service.state.status, PlayerPlaybackStatus.playing);
+
+    await service.dispose();
+  });
+
   test('non-ASCII Windows path falls back to cached ASCII path', () async {
     final tempDirectory = await Directory.systemTemp.createTemp(
       'clever_music_player_unicode_test_',
@@ -144,6 +177,32 @@ void main() {
     expect(p.extension(cachedPath), '.mp3');
     expect(File(cachedPath).readAsBytesSync(), [1, 2, 3, 4]);
     expect(service.state.currentTrack?.filePath, source.path);
+    expect(service.state.status, PlayerPlaybackStatus.playing);
+
+    await service.dispose();
+  });
+
+  test('short ASCII Windows path uses direct playback', () async {
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'clever_music_player_short_ascii_test_',
+    );
+    addTearDown(() => tempDirectory.delete(recursive: true));
+    final source = File(p.join(tempDirectory.path, 'song.mp3'));
+    await source.writeAsBytes([1, 2, 3, 4]);
+    final normalizedSourcePath = p.normalize(source.absolute.path);
+    final engine = _FakeAudioEngine();
+    final cache = _ThrowingPlaybackCache('cache should not be used');
+    final service = _service(
+      audioEngine: engine,
+      isWindows: true,
+      fileExists: (path) => File(path).existsSync(),
+      playbackCache: cache,
+    );
+
+    await service.playTrack(_track(filePath: source.path));
+
+    expect(engine.setFilePaths, [normalizedSourcePath]);
+    expect(cache.calls, 0);
     expect(service.state.status, PlayerPlaybackStatus.playing);
 
     await service.dispose();
@@ -183,6 +242,86 @@ void main() {
     await service.dispose();
   });
 
+  test('direct Windows load failure retries through playback cache', () async {
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'clever_music_player_direct_retry_test_',
+    );
+    addTearDown(() => tempDirectory.delete(recursive: true));
+    final appSupportDirectory =
+        Directory(p.join(tempDirectory.path, 'support'));
+    final source = File(p.join(tempDirectory.path, 'song.mp3'));
+    await source.writeAsBytes([1, 2, 3, 4]);
+    final normalizedSourcePath = p.normalize(source.absolute.path);
+    final engine = _FakeAudioEngine()
+      ..setFilePathHandler = (filePath, call) {
+        if (filePath == normalizedSourcePath) {
+          throw FileSystemException('Cannot find path', filePath);
+        }
+        return const Duration(minutes: 3);
+      };
+    final service = _service(
+      audioEngine: engine,
+      isWindows: true,
+      fileExists: (path) => File(path).existsSync(),
+      playbackCache: WindowsPlaybackCache(
+        appSupportDirectoryProvider: () async => appSupportDirectory,
+      ),
+    );
+
+    await service.playTrack(_track(filePath: source.path));
+
+    expect(engine.setFilePaths, hasLength(2));
+    expect(engine.setFilePaths.first, normalizedSourcePath);
+    expect(engine.setFilePaths.last, isNot(normalizedSourcePath));
+    expect(service.state.status, PlayerPlaybackStatus.playing);
+
+    await service.dispose();
+  });
+
+  test('source path with previous direct failure uses cache next time',
+      () async {
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'clever_music_player_previous_failure_test_',
+    );
+    addTearDown(() => tempDirectory.delete(recursive: true));
+    final appSupportDirectory =
+        Directory(p.join(tempDirectory.path, 'support'));
+    final source = File(p.join(tempDirectory.path, 'song.mp3'));
+    await source.writeAsBytes([1, 2, 3, 4]);
+    final normalizedSourcePath = p.normalize(source.absolute.path);
+    var failDirect = true;
+    final engine = _FakeAudioEngine()
+      ..setFilePathHandler = (filePath, call) {
+        if (filePath == normalizedSourcePath && failDirect) {
+          failDirect = false;
+          throw FileSystemException('Cannot find path', filePath);
+        }
+        return const Duration(minutes: 3);
+      };
+    final service = _service(
+      audioEngine: engine,
+      isWindows: true,
+      fileExists: (path) => File(path).existsSync(),
+      playbackCache: WindowsPlaybackCache(
+        appSupportDirectoryProvider: () async => appSupportDirectory,
+      ),
+    );
+    final track = _track(filePath: source.path);
+
+    await service.playTrack(track);
+    final cachedPath = engine.setFilePaths.last;
+    await service.playTrack(track);
+
+    expect(engine.setFilePaths, [
+      normalizedSourcePath,
+      cachedPath,
+      cachedPath,
+    ]);
+    expect(service.state.status, PlayerPlaybackStatus.playing);
+
+    await service.dispose();
+  });
+
   test('missing source file fails without loading or caching audio', () async {
     final engine = _FakeAudioEngine();
     final cache = _ThrowingPlaybackCache('cache should not be used');
@@ -196,20 +335,20 @@ void main() {
     await service.playTrack(_track(filePath: r'D:\МУЗЫКА\missing.mp3'));
 
     expect(service.state.status, PlayerPlaybackStatus.error);
-    expect(service.state.errorMessage, contains('Файл не найден'));
+    expect(service.state.errorMessage, _controlledPlaybackError);
     expect(engine.setFilePathCalls, 0);
     expect(cache.calls, 0);
 
     await service.dispose();
   });
 
-  test('failed direct load and failed cache fallback report useful error',
+  test('failed direct load and failed cache fallback report controlled error',
       () async {
     final tempDirectory = await Directory.systemTemp.createTemp(
       'clever_music_player_cache_failure_test_',
     );
     addTearDown(() => tempDirectory.delete(recursive: true));
-    final source = File(p.join(tempDirectory.path, 'МУЗЫКА', 'трек.mp3'));
+    final source = File(p.join(tempDirectory.path, 'song.mp3'));
     await source.parent.create(recursive: true);
     await source.writeAsBytes([1, 2, 3, 4]);
     final engine = _FakeAudioEngine()
@@ -227,15 +366,55 @@ void main() {
     await service.playTrack(_track(filePath: source.path));
 
     expect(service.state.status, PlayerPlaybackStatus.error);
-    expect(
-      service.state.errorMessage,
-      allOf(
-        contains('Не удалось загрузить путь Windows с Unicode'),
-        contains('cache copy failed'),
-      ),
-    );
+    expect(service.state.errorMessage, _controlledPlaybackError);
+    expect(engine.setFilePathCalls, 1);
     expect(engine.playCalls, 0);
     expect(cache.calls, 1);
+
+    await service.dispose();
+  });
+
+  test(
+      'failed cache load does not stay loading or expose MissingPluginException',
+      () async {
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'clever_music_player_missing_plugin_test_',
+    );
+    addTearDown(() => tempDirectory.delete(recursive: true));
+    final appSupportDirectory =
+        Directory(p.join(tempDirectory.path, 'support'));
+    final source = File(p.join(tempDirectory.path, 'song.mp3'));
+    await source.writeAsBytes([1, 2, 3, 4]);
+    final engine = _FakeAudioEngine()
+      ..setFilePathHandler = (_, __) {
+        throw MissingPluginException('No implementation found for setFilePath');
+      };
+    final service = _service(
+      audioEngine: engine,
+      isWindows: true,
+      fileExists: (path) => File(path).existsSync(),
+      playbackCache: WindowsPlaybackCache(
+        appSupportDirectoryProvider: () async => appSupportDirectory,
+      ),
+    );
+
+    await service.playTrack(_track(filePath: source.path));
+    engine.emitState(
+      const AudioEngineState(
+        isPlaying: true,
+        processingState: AudioEngineProcessingState.loading,
+      ),
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    expect(service.state.status, PlayerPlaybackStatus.error);
+    expect(service.state.isPlaying, isFalse);
+    expect(service.state.errorMessage, _controlledPlaybackError);
+    expect(
+        service.state.errorMessage, isNot(contains('MissingPluginException')));
+    expect(service.state.errorMessage, isNot(contains('No implementation')));
+    expect(engine.setFilePaths, hasLength(2));
+    expect(engine.playCalls, 0);
 
     await service.dispose();
   });
@@ -388,8 +567,8 @@ void main() {
     await Future<void>.delayed(Duration.zero);
 
     expect(service.state.status, PlayerPlaybackStatus.error);
-    expect(service.state.currentTrack, isNull);
-    expect(service.state.errorMessage, contains('Cannot find path'));
+    expect(service.state.currentTrack?.filePath, _track().filePath);
+    expect(service.state.errorMessage, _controlledPlaybackError);
 
     await service.dispose();
   });
@@ -550,6 +729,11 @@ void main() {
     await service.dispose();
   });
 }
+
+const _controlledPlaybackError =
+    'Не удалось воспроизвести трек. Возможно, файл недоступен, повреждён или '
+    'имеет неподдерживаемый формат.';
+final _asciiFileName = RegExp(r'^[A-Za-z0-9_.-]+$');
 
 JustAudioPlayerService _service({
   required _FakeAudioEngine audioEngine,

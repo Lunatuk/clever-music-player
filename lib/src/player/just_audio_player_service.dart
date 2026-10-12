@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart' as just_audio;
 import 'package:path/path.dart' as p;
 
@@ -144,6 +145,10 @@ const _volumeSettingKey = 'player.volume';
 const _previousVolumeBeforeMuteSettingKey = 'player.previousVolumeBeforeMute';
 const _defaultVolume = 1.0;
 const _volumeStep = 0.05;
+const _windowsPlaybackCachePathLengthThreshold = 180;
+const _playbackLoadFailureMessage =
+    'Не удалось воспроизвести трек. Возможно, файл недоступен, повреждён или '
+    'имеет неподдерживаемый формат.';
 
 final class JustAudioPlayerService implements PlayerService {
   JustAudioPlayerService({
@@ -202,6 +207,7 @@ final class JustAudioPlayerService implements PlayerService {
   Duration _windowsSyntheticAnchorPosition = Duration.zero;
   Duration? _lastWindowsPolledPosition;
   double _previousVolumeBeforeMute = _defaultVolume;
+  final Set<String> _windowsDirectLoadFailures = <String>{};
 
   @override
   PlayerState get state => _state;
@@ -247,14 +253,21 @@ final class JustAudioPlayerService implements PlayerService {
 
     _debugLogPlaybackDiagnostics(
       originalPath: track.filePath,
-      normalizedPath: normalizedPath,
+      sourcePath: normalizedPath,
       strategy: _initialLoadStrategy(normalizedPath),
+      targetPath: _shouldUseWindowsPlaybackCache(normalizedPath)
+          ? null
+          : normalizedPath,
     );
 
     if (!_fileExists(normalizedPath)) {
-      await _stopAfterFailure(
-        'Файл не найден: ${track.filePath} (путь: $normalizedPath)',
+      _debugLogPlaybackDiagnostics(
+        originalPath: track.filePath,
+        sourcePath: normalizedPath,
+        strategy: _initialLoadStrategy(normalizedPath),
+        error: FileSystemException('File not found', normalizedPath),
       );
+      await _stopAfterFailure(_playbackLoadFailureMessage);
       return;
     }
 
@@ -281,10 +294,13 @@ final class JustAudioPlayerService implements PlayerService {
       unawaited(_recordPlaybackStarted(track));
       _playInBackground();
     } on Object catch (error) {
-      await _stopAfterFailure(
-        'Не удалось воспроизвести "${track.displayTitle}": '
-        '${_describeError(error)}',
+      _debugLogPlaybackDiagnostics(
+        originalPath: track.filePath,
+        sourcePath: normalizedPath,
+        strategy: _initialLoadStrategy(normalizedPath),
+        error: error,
       );
+      await _stopAfterFailure(_playbackLoadFailureMessage);
     }
   }
 
@@ -298,6 +314,11 @@ final class JustAudioPlayerService implements PlayerService {
           errorMessage: 'Выберите трек для воспроизведения.',
         ),
       );
+      return;
+    }
+
+    if (_state.status == PlayerPlaybackStatus.error) {
+      await playTrack(track);
       return;
     }
 
@@ -322,8 +343,8 @@ final class JustAudioPlayerService implements PlayerService {
       _startWindowsProgressRecovery(anchorPosition: _state.position);
       _playInBackground();
     } on Object catch (error) {
-      _emitPlaybackError(
-          'Воспроизведение не удалось: ${_describeError(error)}');
+      _debugLogAudioError(error);
+      _emitPlaybackError(_playbackLoadFailureMessage);
     }
   }
 
@@ -486,6 +507,9 @@ final class JustAudioPlayerService implements PlayerService {
     if (_isDisposed) {
       return;
     }
+    if (_state.status == PlayerPlaybackStatus.error) {
+      return;
+    }
 
     final status = switch (audioState.processingState) {
       AudioEngineProcessingState.idle =>
@@ -536,7 +560,6 @@ final class JustAudioPlayerService implements PlayerService {
     }
 
     _positionEventsSinceLoad += 1;
-    _debugLogPositionEvent(position);
     final previousPosition = _state.position;
     _emit(_state.copyWith(position: position));
     if (_isWindows && position != previousPosition) {
@@ -551,7 +574,6 @@ final class JustAudioPlayerService implements PlayerService {
 
     _durationEventsSinceLoad += 1;
     final effectiveDuration = _effectiveDuration(duration, _state.currentTrack);
-    _debugLogDurationEvent(duration, effectiveDuration);
     _emit(_state.copyWith(duration: effectiveDuration));
   }
 
@@ -560,13 +582,9 @@ final class JustAudioPlayerService implements PlayerService {
       return;
     }
 
-    final track = _state.currentTrack!;
     _debugLogAudioError(error);
     unawaited(
-      _stopAfterFailure(
-        'Не удалось воспроизвести "${track.displayTitle}": '
-        '${_describeError(error)}',
-      ),
+      _stopAfterFailure(_playbackLoadFailureMessage),
     );
   }
 
@@ -574,7 +592,7 @@ final class JustAudioPlayerService implements PlayerService {
     Track track,
     String normalizedPath,
   ) async {
-    if (_shouldPreferWindowsCache(normalizedPath)) {
+    if (_shouldUseWindowsPlaybackCache(normalizedPath)) {
       return _loadFromWindowsCache(
         track: track,
         normalizedPath: normalizedPath,
@@ -589,15 +607,18 @@ final class JustAudioPlayerService implements PlayerService {
       );
       return _LoadedAudio(duration: duration);
     } on Object catch (directError) {
-      if (!_shouldUseWindowsCacheFallback(
-        path: normalizedPath,
+      _debugLogPlaybackDiagnostics(
+        originalPath: track.filePath,
+        sourcePath: normalizedPath,
+        strategy: 'direct',
+        targetPath: normalizedPath,
         error: directError,
-      )) {
+      );
+      if (!_isWindows) {
         rethrow;
       }
 
-      // TODO: Remove this fallback if the Windows audio backend reliably
-      // accepts Unicode local file paths.
+      _windowsDirectLoadFailures.add(normalizedPath);
       return _loadFromWindowsCache(
         track: track,
         normalizedPath: normalizedPath,
@@ -611,17 +632,17 @@ final class JustAudioPlayerService implements PlayerService {
     required String normalizedPath,
     required Object? directError,
   }) async {
+    PlaybackCacheEntry? cached;
+    final strategy =
+        directError == null ? 'cache' : 'cache_after_direct_failure';
     try {
-      final cached = await _playbackCache.resolve(track, normalizedPath);
-      final strategyPrefix = directError == null
-          ? 'windows_cache_preferred'
-          : 'windows_cache_fallback';
+      cached = await _playbackCache.resolve(track, normalizedPath);
       _debugLogPlaybackDiagnostics(
         originalPath: track.filePath,
-        normalizedPath: cached.filePath,
-        strategy: cached.reusedExistingFile
-            ? '${strategyPrefix}_reused'
-            : '${strategyPrefix}_copied',
+        sourcePath: normalizedPath,
+        strategy: strategy,
+        targetPath: cached.filePath,
+        cacheEntry: cached,
       );
       final duration = await _audioEngine.setFilePath(
         cached.filePath,
@@ -629,15 +650,15 @@ final class JustAudioPlayerService implements PlayerService {
       );
       return _LoadedAudio(duration: duration);
     } on Object catch (cacheError) {
-      final directDetails = directError == null
-          ? 'Прямая загрузка пропущена для Windows-пути с не-ASCII символами.'
-          : 'Ошибка прямой загрузки: ${_describeError(directError)}.';
-      throw PlaybackLoadException(
-        'Не удалось загрузить путь Windows с Unicode. '
-        '$directDetails '
-        'Ошибка кэша: ${_describeError(cacheError)}. '
-        'Исходный путь: $normalizedPath',
+      _debugLogPlaybackDiagnostics(
+        originalPath: track.filePath,
+        sourcePath: normalizedPath,
+        strategy: strategy,
+        targetPath: cached?.filePath,
+        cacheEntry: cached,
+        error: cacheError,
       );
+      throw PlaybackLoadException(_playbackLoadFailureMessage);
     }
   }
 
@@ -649,8 +670,8 @@ final class JustAudioPlayerService implements PlayerService {
     try {
       await _audioEngine.play();
     } on Object catch (error) {
-      _emitPlaybackError(
-          'Воспроизведение не удалось: ${_describeError(error)}');
+      _debugLogAudioError(error);
+      _emitPlaybackError(_playbackLoadFailureMessage);
     }
   }
 
@@ -665,6 +686,8 @@ final class JustAudioPlayerService implements PlayerService {
     _didRecordCompletion = false;
     _emit(
       PlayerState(
+        currentTrack: _state.currentTrack,
+        duration: _state.duration,
         volume: _state.volume,
         status: PlayerPlaybackStatus.error,
         errorMessage: message,
@@ -1000,62 +1023,17 @@ final class JustAudioPlayerService implements PlayerService {
     return p.normalize(File(filePath).absolute.path);
   }
 
-  bool _shouldUseWindowsCacheFallback({
-    required String path,
-    required Object error,
-  }) {
+  bool _shouldUseWindowsPlaybackCache(String path) {
     if (!_isWindows) {
       return false;
     }
-    if (_isLikelyUnsupportedFormatError(error)) {
-      return false;
-    }
-    return _isLikelyFilePathError(error) || _containsNonAscii(path);
-  }
-
-  bool _shouldPreferWindowsCache(String path) {
-    return _isWindows && _containsNonAscii(path);
+    return path.length > _windowsPlaybackCachePathLengthThreshold ||
+        _containsNonAscii(path) ||
+        _windowsDirectLoadFailures.contains(path);
   }
 
   String _initialLoadStrategy(String path) {
-    return _shouldPreferWindowsCache(path)
-        ? 'windows_cache_preferred'
-        : 'direct';
-  }
-
-  bool _isLikelyUnsupportedFormatError(Object error) {
-    final message = _errorText(error).toLowerCase();
-    return message.contains('unsupported') ||
-        message.contains('format') ||
-        message.contains('codec') ||
-        message.contains('decode');
-  }
-
-  bool _isLikelyFilePathError(Object error) {
-    if (error is FileSystemException || error is PathNotFoundException) {
-      return true;
-    }
-
-    final message = _errorText(error).toLowerCase();
-    return message.contains('path') ||
-        message.contains('file') ||
-        message.contains('not found') ||
-        message.contains('cannot find') ||
-        message.contains('does not exist') ||
-        message.contains('не удается найти') ||
-        message.contains('не удаётся найти') ||
-        message.contains('указанный путь') ||
-        message.contains('путь');
-  }
-
-  String _errorText(Object error) {
-    if (error is just_audio.PlayerException) {
-      return [
-        error.code,
-        if (error.message != null) error.message!,
-      ].join(' ');
-    }
-    return error.toString();
+    return _shouldUseWindowsPlaybackCache(path) ? 'cache' : 'direct';
   }
 
   bool _containsNonAscii(String value) {
@@ -1089,50 +1067,29 @@ final class JustAudioPlayerService implements PlayerService {
     });
   }
 
-  void _debugLogPositionEvent(Duration position) {
-    if (!kDebugMode || !_isWindows || _positionEventsSinceLoad > 3) {
-      return;
-    }
-    debugPrint(
-      'JustAudioPlayerService positionStream event '
-      '#$_positionEventsSinceLoad: position=$position',
-    );
-  }
-
-  void _debugLogDurationEvent(
-    Duration? backendDuration,
-    Duration? effectiveDuration,
-  ) {
-    if (!kDebugMode || !_isWindows || _durationEventsSinceLoad > 5) {
-      return;
-    }
-    debugPrint(
-      'JustAudioPlayerService durationStream event '
-      '#$_durationEventsSinceLoad: backend=$backendDuration, '
-      'effective=$effectiveDuration',
-    );
-  }
-
   void _debugLogAudioError(Object error) {
-    if (!kDebugMode) {
+    if (!kDebugMode || !_isWindows) {
       return;
     }
     debugPrint(
       'JustAudioPlayerService audio error: '
-      'isWindows=$_isWindows, error=${_describeError(error)}',
+      'isWindows=$_isWindows, error=${_diagnosticErrorText(error)}',
     );
   }
 
   void _debugLogPlaybackDiagnostics({
     required String originalPath,
-    required String normalizedPath,
+    required String sourcePath,
     required String strategy,
+    String? targetPath,
+    PlaybackCacheEntry? cacheEntry,
+    Object? error,
   }) {
-    if (!kDebugMode) {
+    if (!kDebugMode || !_isWindows) {
       return;
     }
 
-    final file = File(normalizedPath);
+    final file = File(sourcePath);
     final exists = file.existsSync();
     Object? length;
     if (exists) {
@@ -1142,18 +1099,48 @@ final class JustAudioPlayerService implements PlayerService {
         length = 'unavailable ($error)';
       }
     }
+    final cachePath = cacheEntry?.filePath;
+    final cacheFile = cachePath == null ? null : File(cachePath);
+    final cacheExists = cacheFile?.existsSync();
+    Object? cacheSize;
+    if (cacheFile != null && cacheExists == true) {
+      try {
+        cacheSize = cacheFile.lengthSync();
+      } on Object catch (cacheLengthError) {
+        cacheSize = 'unavailable ($cacheLengthError)';
+      }
+    }
 
     debugPrint(
       'JustAudioPlayerService load diagnostics: '
       'originalPath="$originalPath", '
-      'normalizedPath="$normalizedPath", '
+      'fullOriginalPath="$sourcePath", '
+      'originalPathLength=${sourcePath.length}, '
       'isWindows=$_isWindows, '
-      'exists=$exists, '
-      'length=$length, '
-      'extension="${p.extension(normalizedPath).toLowerCase()}", '
-      'containsNonAscii=${_containsNonAscii(normalizedPath)}, '
-      'strategy=$strategy',
+      'containsNonAscii=${_containsNonAscii(sourcePath)}, '
+      'fileExists=$exists, '
+      'fileSize=$length, '
+      'extension="${p.extension(sourcePath).toLowerCase()}", '
+      'chosenStrategy=$strategy, '
+      'cachePath="${cachePath ?? ''}", '
+      'cachePathLength=${cachePath?.length ?? 0}, '
+      'cacheExists=${cacheExists ?? false}, '
+      'cacheSize=$cacheSize, '
+      'cacheAction=${cacheEntry == null ? '' : cacheEntry.reusedExistingFile ? 'reused' : 'copied'}, '
+      'cacheCleanupBefore=${cacheEntry?.cacheSizeBeforeCleanupBytes}, '
+      'cacheCleanupAfter=${cacheEntry?.cacheSizeAfterCleanupBytes}, '
+      'cacheCleanupDeleted=${cacheEntry?.cleanupDeletedFileCount}, '
+      'targetPath="${targetPath ?? ''}", '
+      'targetPathLength=${targetPath?.length ?? 0}, '
+      'exception="${error == null ? '' : _diagnosticErrorText(error)}"',
     );
+  }
+
+  String _diagnosticErrorText(Object error) {
+    if (error is just_audio.PlayerException) {
+      return 'PlayerException(code=${error.code}, message=${error.message})';
+    }
+    return error.toString();
   }
 
   String _describeError(Object error) {
@@ -1163,6 +1150,9 @@ final class JustAudioPlayerService implements PlayerService {
         return message;
       }
       return 'Ошибка аудиоплеера ${error.code}';
+    }
+    if (error is MissingPluginException) {
+      return 'Аудиомодуль Windows недоступен.';
     }
     if (error is PlaybackLoadException || error is PlaybackCacheException) {
       return error.toString();

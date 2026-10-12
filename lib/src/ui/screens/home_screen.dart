@@ -1,7 +1,10 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 
 import '../../app/dependency_scope.dart';
 import '../../domain/models/models.dart';
@@ -338,6 +341,9 @@ final class _HomeScreenState extends State<HomeScreen> {
           onResetLearningState: () {
             unawaited(_confirmAndResetLearningState(dependencies));
           },
+          onOpenDiagnosticsFolder: () {
+            unawaited(_openDiagnosticsFolder());
+          },
         );
     }
   }
@@ -562,6 +568,25 @@ final class _HomeScreenState extends State<HomeScreen> {
           _isResettingLearningState = false;
         });
       }
+    }
+  }
+
+  Future<void> _openDiagnosticsFolder() async {
+    try {
+      final supportDirectory = await getApplicationSupportDirectory();
+      final diagnosticsDirectory = Directory(
+        p.join(supportDirectory.path, 'CleverMusicPlayer'),
+      );
+      await diagnosticsDirectory.create(recursive: true);
+      await _openDirectoryInFileManager(diagnosticsDirectory);
+    } on Object catch (error) {
+      if (!mounted) {
+        return;
+      }
+      _showErrorSnack(
+        context,
+        'Не удалось открыть папку диагностики: $error',
+      );
     }
   }
 
@@ -1391,6 +1416,7 @@ final class _SettingsPage extends StatelessWidget {
     required this.onToggleEnabled,
     required this.onRemoveFolder,
     required this.onResetLearningState,
+    required this.onOpenDiagnosticsFolder,
   });
 
   final List<LibraryFolder> folders;
@@ -1406,6 +1432,7 @@ final class _SettingsPage extends StatelessWidget {
   final ValueChanged<LibraryFolder> onToggleEnabled;
   final ValueChanged<LibraryFolder> onRemoveFolder;
   final VoidCallback onResetLearningState;
+  final VoidCallback onOpenDiagnosticsFolder;
 
   @override
   Widget build(BuildContext context) {
@@ -1468,6 +1495,13 @@ final class _SettingsPage extends StatelessWidget {
                       selectionPoolMessage: queueState.selectionPoolMessage,
                     );
                   },
+                ),
+                const SizedBox(height: 16),
+                _SettingsSection(
+                  title: 'Диагностика',
+                  child: _DiagnosticsActions(
+                    onOpenDiagnosticsFolder: onOpenDiagnosticsFolder,
+                  ),
                 ),
                 const SizedBox(height: 16),
                 const _DevInfoPanel(),
@@ -1721,6 +1755,30 @@ final class _ResetActions extends StatelessWidget {
           ],
         ),
         // TODO: Add a stronger full library database reset flow separately.
+      ],
+    );
+  }
+}
+
+final class _DiagnosticsActions extends StatelessWidget {
+  const _DiagnosticsActions({
+    required this.onOpenDiagnosticsFolder,
+  });
+
+  final VoidCallback onOpenDiagnosticsFolder;
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 12,
+      runSpacing: 12,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        OutlinedButton.icon(
+          onPressed: onOpenDiagnosticsFolder,
+          icon: const Icon(Icons.folder_open_outlined),
+          label: const Text('Открыть папку диагностики'),
+        ),
       ],
     );
   }
@@ -3164,6 +3222,34 @@ void _showErrorSnack(BuildContext context, String message) {
   );
 }
 
+Future<void> _openDirectoryInFileManager(Directory directory) async {
+  if (Platform.isWindows) {
+    await Process.start(
+      'explorer.exe',
+      [directory.path],
+      mode: ProcessStartMode.detached,
+    );
+    return;
+  }
+  if (Platform.isMacOS) {
+    await Process.start(
+      'open',
+      [directory.path],
+      mode: ProcessStartMode.detached,
+    );
+    return;
+  }
+  if (Platform.isLinux) {
+    await Process.start(
+      'xdg-open',
+      [directory.path],
+      mode: ProcessStartMode.detached,
+    );
+    return;
+  }
+  throw UnsupportedError('Открытие папки не поддерживается на этой платформе.');
+}
+
 final class _LibraryFoldersPanel extends StatelessWidget {
   const _LibraryFoldersPanel({
     required this.folders,
@@ -3666,7 +3752,7 @@ final class _WaveHeroSection extends StatelessWidget {
                               ? colorScheme.onSurface.withValues(alpha: 0.45)
                               : colorScheme.tertiary,
                         ),
-                        label: const Text('Пустить жидкого'),
+                        label: const Text('Запустить волну'),
                       ),
                       if (hasTrack) ...[
                         const SizedBox(height: 14),
