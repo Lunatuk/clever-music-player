@@ -77,19 +77,22 @@ are available in the prototype; URI hashing and bulk library import remain
 separate work. Background audio uses the existing shared runtime.
 See [the source reference contract](docs/architecture/audio-source-references.md).
 
-## Android preview (package 21)
+## Android preview (package 22)
 
-`dist/clever-music-player-core-21-android-arm64.apk` updates **Clever Music Preview**
+`dist/clever-music-player-core-22-android-arm64.apk` updates **Clever Music Preview**
 in its own Android sandbox. The compact screen selects up to 64 audio documents
 at a time through the system picker, stores read-only persistent grants and uses
 the shared database/player/queue. Re-selecting the same URI keeps the existing
 record and manual edits. Audio files are not copied into app storage.
 
 Folder import traverses subfolders in bounded pages and supports cancellation.
-Package 21 remembers selected folders and refreshes them without the picker;
-package 20 tree grants bootstrap the initial list. The Folders screen checks
-access, restores it through explicit selection and forgets refresh bookmarks
-while retaining tracks and grants. See [saved folder rules](docs/architecture/android-saved-folders.md).
+Selected folders refresh without the picker; package 20 tree grants bootstrap
+the initial list. Package 22 links Android tracks to the shared folder model:
+removing a folder hides its tracks, and adding it again restores their IDs and
+user data. Existing tree documents are adopted without rescanning, including
+folders forgotten in package 21. Separate document imports remain independent.
+The Folders screen also checks and restores access. Files and grants are retained.
+See [saved folder rules](docs/architecture/android-saved-folders.md).
 Different provider URIs of one physical file still need a future
 identity/alias layer; see [folder import limits](docs/architecture/android-folder-import.md).
 
@@ -98,7 +101,7 @@ queue and Wave history. Notification/lock-screen/headset commands control this
 runtime. Audio interruptions and headphone removal pause both crossfade decks;
 resume explicitly with Play. Stop ends playback and removes the notification.
 This is a debug-signed release-mode prototype, not the final design or store release.
-Windows remains on the verified core-19 ZIP; package 21 changes Android only.
+Windows remains on the verified core-19 ZIP; package 22 changes Android only.
 See [targeted checks](docs/MANUAL_CHECKS.md)
 and [background playback contract](docs/architecture/android-background-playback.md).
 

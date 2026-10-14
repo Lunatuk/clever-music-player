@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:clever_music_player/src/android/android_folder_bookmarks.dart';
 import 'package:clever_music_player/src/android/android_import_controller.dart';
 import 'package:clever_music_player/src/android/audio_documents.dart';
+import 'package:clever_music_player/src/android/drift_android_folder_library.dart';
 import 'package:clever_music_player/src/data/drift/app_database.dart';
 import 'package:clever_music_player/src/data/repositories/drift_repositories.dart';
 import 'package:clever_music_player/src/domain/models/models.dart';
@@ -363,8 +364,7 @@ void main() {
           isTrue);
     });
 
-    test(
-        'forget removes only refresh bookmark, preserving tracks/feedback/grants',
+    test('removing a folder hides tracks, preserving records/feedback/grants',
         () async {
       f.native.grants = [f.native.first];
       await f.importer.refreshSavedFolders();
@@ -374,7 +374,10 @@ void main() {
           trackId: id, isFavorite: true, updatedAt: DateTime(2026)));
       await f.bookmarks.forget(f.native.first);
       expect(f.bookmarks.folders, isEmpty);
-      expect(await f.rows(), before);
+      expect(await f.rows(), isEmpty);
+      expect(
+          await f.repositories.tracks.listTracks(includeDisabledFolders: true),
+          before);
       expect(
           (await f.repositories.trackUserState.findByTrackId(id))!.isFavorite,
           isTrue);
@@ -485,8 +488,10 @@ Future<void> until(bool Function() condition) async {
 final class _Fixture {
   _Fixture() {
     repositories = DriftRepositories(database);
-    bookmarks =
-        AndroidFolderBookmarks(settings: repositories.settings, access: native);
+    bookmarks = AndroidFolderBookmarks(
+        settings: repositories.settings,
+        access: native,
+        library: DriftAndroidFolderLibrary(database));
     importer = AndroidImportController(
         documents: native,
         imports: repositories.tracks as TrackImportRepository,

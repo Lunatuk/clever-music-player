@@ -81,7 +81,7 @@ final class AndroidImportController extends ChangeNotifier {
         await bookmarks?.waitForWrites();
         if (_stopped) return;
         if (savedTree != null && !_hasSavedFolder(savedTree)) {
-          _message = 'Папка уже убрана из списка обновления.';
+          _message = 'Папка уже убрана из библиотеки.';
           return;
         }
         if (allSaved) {
@@ -155,7 +155,7 @@ final class AndroidImportController extends ChangeNotifier {
         await bookmarks?.waitForWrites();
       }
       if (_stopped) return;
-      if (!remember && !_hasSavedFolder(tree)) return;
+      if (!_hasSavedFolder(tree)) return;
       final access = documents;
       if (bookmarks != null && access is AudioDocumentFolderAccess) {
         final info = await (access as AudioDocumentFolderAccess)
@@ -165,12 +165,12 @@ final class AndroidImportController extends ChangeNotifier {
         if (info.name != null) await bookmarks!.updateName(tree, info.name!);
         await bookmarks!.waitForWrites();
         if (_stopped) return;
-        if (!remember && !_hasSavedFolder(tree)) return;
+        if (!_hasSavedFolder(tree)) return;
       }
       _folderSession = await _folders!.openAudioFolder(tree);
       while (!_stopped) {
         final page = await _folders.readAudioFolderPage(_folderSession!);
-        if (_stopped) break;
+        if (_stopped || !_hasSavedFolder(tree)) break;
         if (page.visited < _visited ||
             (!page.done && page.visited == _visited)) {
           throw const FormatException('Обход папки не продвигается.');
@@ -178,7 +178,8 @@ final class AndroidImportController extends ChangeNotifier {
         _visited = page.visited;
         _total += page.sources.length;
         notifyListeners();
-        await _importSources(page.sources);
+        await _importSources(page.sources,
+            libraryFolderId: bookmarks?.folderIdFor(tree));
         if (page.done) {
           completed = true;
           break;
@@ -208,7 +209,8 @@ final class AndroidImportController extends ChangeNotifier {
     }
   }
 
-  Future<void> _importSources(Iterable<ContentUriAudioSource> sources) async {
+  Future<void> _importSources(Iterable<ContentUriAudioSource> sources,
+      {int? libraryFolderId}) async {
     for (final source in sources) {
       if (_stopped) break;
       try {
@@ -229,6 +231,7 @@ final class AndroidImportController extends ChangeNotifier {
         await imports.upsertScannedTracks([
           Track.fromSource(
             source: source,
+            libraryFolderId: libraryFolderId,
             title: metadata.title ?? metadata.name ?? 'Без названия',
             artist: metadata.artist,
             album: metadata.album,

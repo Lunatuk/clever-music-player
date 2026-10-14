@@ -136,13 +136,13 @@ final class _AndroidFoldersScreenState extends State<AndroidFoldersScreen> {
                                                               .titleMedium)),
                                                   IconButton(
                                                       tooltip:
-                                                          'Убрать из списка',
+                                                          'Убрать из библиотеки',
                                                       onPressed: blocked
                                                           ? null
                                                           : () => _command(() =>
                                                               _forget(folder)),
                                                       icon: const Icon(Icons
-                                                          .bookmark_remove_outlined)),
+                                                          .folder_off_outlined)),
                                                 ]),
                                                 Text(access == null
                                                     ? 'Доступ ещё не проверен'
@@ -185,7 +185,7 @@ final class _AndroidFoldersScreenState extends State<AndroidFoldersScreen> {
                 const Padding(
                     padding: EdgeInsets.all(16),
                     child: Text(
-                        '«Убрать из списка» отключает обновление этой папки. Треки остаются в библиотеке, файлы не изменяются.',
+                        '«Убрать из библиотеки» скрывает треки этой папки. Файлы и история сохраняются. Добавьте папку заново, чтобы вернуть её музыку.',
                         textAlign: TextAlign.center)),
               ])),
         );

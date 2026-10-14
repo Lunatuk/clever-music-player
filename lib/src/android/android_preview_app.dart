@@ -16,6 +16,7 @@ import 'audio_documents.dart';
 import 'android_media_controls.dart';
 import 'android_folder_bookmarks.dart';
 import 'android_folders_screen.dart';
+import 'drift_android_folder_library.dart';
 
 /// A small Android prototype using the same database, player and queue.
 /// The Android application ID isolates its sandbox from the future release.
@@ -37,6 +38,7 @@ final class _AndroidPreviewAppState extends State<AndroidPreviewApp> {
     _bookmarks = widget.bookmarks ??
         AndroidFolderBookmarks(
             settings: widget.dependencies.repositories.settings,
+            library: DriftAndroidFolderLibrary(widget.dependencies.database),
             access: const AndroidAudioDocuments());
     unawaited(
         _bookmarks.initialize().catchError((Object error, StackTrace stack) {

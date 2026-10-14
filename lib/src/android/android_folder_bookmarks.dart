@@ -17,15 +17,24 @@ final class SavedAudioFolder {
       name ?? source.uri.pathSegments.last.split('/').last;
 }
 
-/// Small refresh bookmarks, deliberately separate from track/source ownership.
-/// Forgetting one never removes tracks or revokes grants used by existing URIs.
+/// Atomically persists the folder list and its track visibility in SQLite.
+abstract interface class AndroidFolderLibraryStorage {
+  Future<Map<String, int>> synchronize(
+      List<SavedAudioFolder> folders, String encoded);
+}
+
+/// Saved Android roots. Removing a root hides its tracks without deleting data
+/// or revoking document permissions. Re-adding it restores the same track IDs.
 final class AndroidFolderBookmarks extends ChangeNotifier {
-  AndroidFolderBookmarks({required this.settings, this.access});
+  AndroidFolderBookmarks({required this.settings, this.access, this.library});
   static const settingKey = 'android.audio_folder_bookmarks.v1';
   static const maxFolders = 128;
   static const maxBytes = 256 * 1024;
   final SettingsRepository settings;
   final AudioDocumentFolderAccess? access;
+  final AndroidFolderLibraryStorage? library;
+  Map<String, int> _folderIds = const {};
+  int? folderIdFor(ContentUriAudioSource tree) => _folderIds[tree.storageValue];
   final _operations = AsyncOperationTracker();
   List<SavedAudioFolder> _folders = const [];
   final _access = <String, AudioFolderAccess>{};
@@ -53,10 +62,13 @@ final class AndroidFolderBookmarks extends ChangeNotifier {
           for (final source in grants.toSet()) SavedAudioFolder(source)
         ];
         // Persist even an empty bootstrap: forgotten grants must not reappear.
-        await settings.writeString(settingKey, _encode(folders));
+        await _persist(folders, _encode(folders));
         _folders = List.unmodifiable(folders);
       } else {
-        _folders = _decode(stored);
+        final folders = _decode(stored);
+        // Also migrate tracks imported before roots had library ownership.
+        if (library != null) await _persist(folders, _encode(folders));
+        _folders = folders;
       }
       _loaded = true;
     } on Object {
@@ -80,7 +92,7 @@ final class AndroidFolderBookmarks extends ChangeNotifier {
         final next = update(_folders);
         final encoded = _encode(next);
         if (encoded == _encode(_folders)) return;
-        await settings.writeString(settingKey, encoded);
+        await _persist(next, encoded);
         _folders = List.unmodifiable(next);
         _access.removeWhere(
             (uri, _) => !_folders.any((f) => f.source.storageValue == uri));
@@ -89,6 +101,16 @@ final class AndroidFolderBookmarks extends ChangeNotifier {
         done.complete();
       }
     });
+  }
+
+  Future<void> _persist(List<SavedAudioFolder> folders, String encoded) async {
+    final storage = library;
+    if (storage == null) {
+      await settings.writeString(settingKey, encoded);
+    } else {
+      _folderIds =
+          Map.unmodifiable(await storage.synchronize(folders, encoded));
+    }
   }
 
   Future<void> remember(ContentUriAudioSource tree, {String? name}) =>

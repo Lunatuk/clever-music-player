@@ -25,7 +25,7 @@ void main() {
     await tester.pump();
     final oldCallback = tester
         .widget<IconButton>(
-            find.widgetWithIcon(IconButton, Icons.bookmark_remove_outlined))
+            find.widgetWithIcon(IconButton, Icons.folder_off_outlined))
         .onPressed!;
     final info = Completer<AudioFolderAccess>();
     f.native.inspectAction = (_) => info.future;
@@ -42,7 +42,7 @@ void main() {
     }
   });
   testWidgets(
-      'saved folders refresh without picker; forgetting keeps imported tracks',
+      'saved folders refresh without picker; removing a root preserves stored records',
       (tester) async {
     final f = _Fixture();
     addTearDown(f.close);
@@ -56,7 +56,7 @@ void main() {
     expect(f.native.opens, 1);
     expect(f.imports.saved, hasLength(2));
     expect(find.textContaining('Последнее обновление:'), findsOneWidget);
-    await tester.tap(find.byTooltip('Убрать из списка'));
+    await tester.tap(find.byTooltip('Убрать из библиотеки'));
     await tester.pump();
     expect(f.bookmarks.folders, isEmpty);
     expect(f.imports.saved, hasLength(2));
