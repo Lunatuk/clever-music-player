@@ -1,11 +1,11 @@
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import 'metadata_enrichment.dart';
+import 'sha256_digest.dart';
 
 final class CachedArtwork {
   const CachedArtwork({
@@ -101,11 +101,10 @@ final class AppSupportArtworkCacheService implements ArtworkCacheService {
     required Uint8List bytes,
     required String? mimeType,
   }) async {
-    await directory.create(recursive: true);
-
-    final hash = sha256.convert(bytes).toString();
-    final existing = _findExistingArtworkFile(directory, hash);
+    final hash = sha256Hex(bytes);
     final resolvedMimeType = mimeType ?? _mimeTypeFromMagicBytes(bytes);
+    final extension = _extensionFor(mimeType: resolvedMimeType, bytes: bytes);
+    final existing = await _findExistingArtworkFile(directory, hash, extension);
     if (existing != null) {
       return CachedArtwork(
         path: existing.path,
@@ -115,7 +114,7 @@ final class AppSupportArtworkCacheService implements ArtworkCacheService {
       );
     }
 
-    final extension = _extensionFor(mimeType: resolvedMimeType, bytes: bytes);
+    await directory.create(recursive: true);
     final file = File(p.join(directory.path, '$hash.$extension'));
     await file.writeAsBytes(bytes, flush: true);
 
@@ -151,15 +150,27 @@ final class AppSupportArtworkCacheService implements ArtworkCacheService {
   }
 }
 
-File? _findExistingArtworkFile(Directory directory, String hash) {
-  if (!directory.existsSync()) {
-    return null;
-  }
-
-  for (final entity in directory.listSync(followLinks: false)) {
-    if (entity is File && p.basenameWithoutExtension(entity.path) == hash) {
-      return entity;
-    }
+Future<File?> _findExistingArtworkFile(
+  Directory directory,
+  String hash,
+  String preferredExtension,
+) async {
+  // Cache filenames are content-addressed. Probe the finite set of formats
+  // written by this app, including older extension aliases, without listing it.
+  for (final extension in {
+    preferredExtension,
+    'jpg',
+    'jpeg',
+    'png',
+    'webp',
+    'gif',
+    'tif',
+    'tiff',
+    'bmp',
+    'bin',
+  }) {
+    final file = File(p.join(directory.path, '$hash.$extension'));
+    if (await file.exists()) return file;
   }
   return null;
 }

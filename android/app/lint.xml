@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<lint>
+    <!-- AudioService only posts MediaStyle notifications tied to its MediaSession.
+         Android explicitly exempts these from POST_NOTIFICATIONS:
+         https://developer.android.com/develop/ui/views/notifications/notification-permission#media-sessions
+         Match only this dependency's notification usage; other notification
+         senders must still pass NotificationPermission checks. -->
+    <issue id="NotificationPermission">
+        <ignore regexp=".*usage from com\.ryanheise\.audioservice\.AudioService.*" />
+    </issue>
+</lint>

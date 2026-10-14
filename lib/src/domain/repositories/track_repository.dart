@@ -21,6 +21,9 @@ abstract interface class TrackRepository {
 
   Future<Track?> findById(int id);
 
+  /// Returns a match only when the metadata signature is unambiguous.
+  ///
+  /// A signature is not a unique file identity and must not authorize upserts.
   Future<Track?> findByStableId(String stableId);
 
   Future<Track?> findByPath(String filePath);
@@ -61,4 +64,24 @@ abstract interface class TrackScanRepository {
     required Iterable<int> trackIds,
     required DateTime updatedAt,
   });
+}
+
+/// Updates only scan-owned content identity, preserving concurrent tag edits.
+abstract interface class TrackContentHashRepository {
+  Future<void> updateContentHashes(Map<int, String?> hashesByTrackId);
+}
+
+/// A short, atomic import of already prepared tracks, identified by file path.
+/// No file IO belongs inside this transaction. Existing IDs, source ownership,
+/// user metadata (including cleared fields) and custom covers must survive.
+/// On failure nothing in the batch is committed; IDs follow input order.
+abstract interface class TrackImportRepository {
+  static const maxBatchSize = 64;
+
+  Future<List<int>> upsertScannedTracks(List<Track> tracks);
+}
+
+abstract interface class TrackLibraryCountRepository {
+  /// All indexed file records, including missing/disabled sources.
+  Stream<int> watchIndexedTrackCount();
 }

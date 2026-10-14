@@ -1,5 +1,6 @@
 import '../domain/models/models.dart';
 import '../domain/repositories/repositories.dart';
+import '../library/exact_track_copies.dart';
 
 final class RecommendationService {
   const RecommendationService({
@@ -47,7 +48,9 @@ final class RecommendationService {
       return const [];
     }
 
-    final candidates = input.tracks.where((track) => !track.isMissing).toList();
+    final candidates = withoutExactTrackCopies(
+      input.tracks.where((track) => !track.isMissing),
+    );
     final history = _RecommendationHistory.from(
       recentEvents: input.recentEvents,
       tracksById: {

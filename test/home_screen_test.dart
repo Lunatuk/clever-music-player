@@ -10,6 +10,9 @@ import 'package:clever_music_player/src/library/artwork_cache_service.dart';
 import 'package:clever_music_player/src/library/custom_artwork_service.dart';
 import 'package:clever_music_player/src/library/directory_picker_service.dart';
 import 'package:clever_music_player/src/library/library_scanner_service.dart';
+import 'package:clever_music_player/src/library/library_controller.dart';
+import 'package:clever_music_player/src/library/library_management_service.dart';
+import 'package:clever_music_player/src/library/library_scan_control.dart';
 import 'package:clever_music_player/src/library/metadata_reader_service.dart';
 import 'package:clever_music_player/src/player/player_service.dart';
 import 'package:clever_music_player/src/player/player_state.dart';
@@ -22,7 +25,290 @@ import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/learning_repository_helpers.dart';
+
 void main() {
+  testWidgets(
+      'scan progress survives navigation and can stop without pausing music',
+      (tester) async {
+    await _setLargeSurface(tester);
+    final entered = Completer<LibraryScanControl>();
+    final release = Completer<void>();
+    final fixture = await _HomeScreenFixture.create(
+        seedLibrary: true,
+        controlledScanFolder: (path, {required control}) async {
+          control.report(LibraryScanProgress(
+              folderPath: path,
+              stage: LibraryScanStage.hashing,
+              processedFiles: 7,
+              fileName: 'large.wav',
+              fileBytesRead: 50,
+              fileSizeBytes: 100));
+          entered.complete(control);
+          await release.future;
+          return LibraryScanResult(
+              folderPath: path,
+              scannedFiles: 7,
+              addedTracks: 0,
+              updatedTracks: 7,
+              missingTracks: 0,
+              errors: const [],
+              wasCancelled: control.isCancellationRequested);
+        });
+    _addFixtureTearDown(tester, fixture);
+    await fixture.pump(tester);
+    await fixture.player.playTrack(_testTrack());
+    final scanning = fixture.dependencies.libraryController.rescanLibrary();
+    final control = await entered.future;
+    try {
+      await tester.tap(find.byTooltip('Настройки'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.textContaining('Обработано файлов: 7'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('nav-music')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tap(find.byTooltip('Настройки'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.textContaining('large.wav'), findsOneWidget);
+      await tester.tap(find.text('Остановить сканирование'));
+      await tester.pump();
+      expect(control.isCancellationRequested, isTrue);
+      expect(find.text('Останавливаем сканирование…'), findsOneWidget);
+      expect(fixture.player.state.isPlaying, isTrue);
+    } finally {
+      release.complete();
+      await scanning;
+      await tester.pumpAndSettle();
+    }
+    expect(find.textContaining('Сканирование остановлено.'), findsOneWidget);
+    expect(fixture.dependencies.libraryController.state.isBusy, isFalse);
+  });
+
+  testWidgets(
+      'exact copies toggle and search produce the visible playback context',
+      (tester) async {
+    await _setLargeSurface(tester);
+    final hash = 'file-sha256-v1:3:${'a' * 64}';
+    final original =
+        _testTrack(id: 1, title: 'Same title').copyWith(contentHash: hash);
+    final copy = original.copyWith(id: 2, filePath: '/copies/song.mp3');
+    final different = original.copyWith(
+        id: 3,
+        filePath: '/other/song.mp3',
+        contentHash: 'file-sha256-v1:3:${'b' * 64}');
+    final fixture = await _HomeScreenFixture.create(
+        seedTracks: [original, copy, different]);
+    _addFixtureTearDown(tester, fixture);
+    await fixture.pump(tester);
+    await tester.tap(find.byKey(const ValueKey('nav-music')));
+    await tester.pumpAndSettle();
+    expect(find.text('Same title'), findsNWidgets(2));
+    final toggle = find.widgetWithText(FilterChip, 'Показывать точные копии');
+    expect(tester.widget<FilterChip>(toggle).selected, isFalse);
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+    expect(find.text('Same title'), findsNWidgets(3));
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+    expect(find.text('Same title'), findsNWidgets(2));
+    await tester.enterText(find.byType(TextField).first, 'copies');
+    await tester.pumpAndSettle();
+    expect(find.text('Same title'), findsOneWidget);
+    await tester.tap(find.text('Same title'));
+    await tester.pumpAndSettle();
+    expect(fixture.player.state.currentTrack?.id, 2);
+    expect(fixture.queue.state.playbackContext.tracks.map((track) => track.id),
+        [2]);
+    expect(await fixture.dependencies.repositories.tracks.listTracks(),
+        hasLength(3));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'default library playback omits copies while retaining same-title tracks',
+      (tester) async {
+    await _setLargeSurface(tester);
+    final original = _testTrack(id: 1, title: 'Same title')
+        .copyWith(contentHash: 'file-sha256-v1:3:${'a' * 64}');
+    final fixture = await _HomeScreenFixture.create(seedTracks: [
+      original.copyWith(id: 2, filePath: '/copy/song.mp3'),
+      original,
+      original.copyWith(
+          id: 3,
+          filePath: '/different/song.mp3',
+          contentHash: 'file-sha256-v1:3:${'b' * 64}'),
+    ]);
+    _addFixtureTearDown(tester, fixture);
+    await fixture.pump(tester);
+    await tester.tap(find.byKey(const ValueKey('nav-music')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Same title').first);
+    await tester.pumpAndSettle();
+    expect(fixture.queue.state.playbackContext.tracks.map((track) => track.id),
+        [3, 1]);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('library scan survives navigation and keeps actions disabled',
+      (tester) async {
+    await _setLargeSurface(tester);
+    final gate = Completer<LibraryScanResult>();
+    final fixture = await _HomeScreenFixture.create(
+        seedLibrary: true, scanFolder: (_) => gate.future);
+    _addFixtureTearDown(tester, fixture);
+    await fixture.pump(tester);
+    final scanning =
+        fixture.dependencies.libraryController.rescanFolder(_testFolder());
+    try {
+      await tester.pump();
+      await tester.tap(find.byTooltip('Настройки'));
+      await tester.pump();
+      expect(
+          tester
+              .widget<OutlinedButton>(find.widgetWithText(
+                  OutlinedButton, 'Пересканировать библиотеку'))
+              .onPressed,
+          isNull);
+      await tester.tap(find.text('Папки библиотеки'));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(
+          tester
+              .widget<TextButton>(find.widgetWithText(TextButton, 'Отключить'))
+              .onPressed,
+          isNull);
+      await tester.tap(find.text('Моя музыка').first);
+      await tester.pump();
+      expect(fixture.dependencies.libraryController.state.isBusy, true);
+      expect(fixture.player.state.status, PlayerPlaybackStatus.idle);
+    } finally {
+      gate.complete(_controlledScanResult());
+      await scanning;
+      await tester.pumpAndSettle();
+    }
+    await tester.tap(find.byTooltip('Настройки'));
+    await tester.pumpAndSettle();
+    expect(
+        tester
+            .widget<OutlinedButton>(find.widgetWithText(
+                OutlinedButton, 'Пересканировать библиотеку'))
+            .onPressed,
+        isNotNull);
+    expect(find.textContaining('Просканировано файлов: 3'), findsOneWidget);
+  });
+
+  testWidgets(
+      'recreated home observes the app-scoped picker and its cancellation',
+      (tester) async {
+    await _setLargeSurface(tester);
+    final picker = _GatedDirectoryPicker();
+    final fixture = await _HomeScreenFixture.create(directoryPicker: picker);
+    _addFixtureTearDown(tester, fixture);
+    await fixture.pump(tester);
+    await tester.tap(find.text('Добавить папку с музыкой'));
+    await tester.pump();
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpWidget(AppDependenciesScope(
+        dependencies: fixture.dependencies,
+        child: const CleverMusicPlayerApp()));
+    await tester.pump();
+    expect(
+        tester
+            .widget<FilledButton>(
+                find.widgetWithText(FilledButton, 'Добавить папку с музыкой'))
+            .onPressed,
+        isNull);
+    picker.result.complete(null);
+    await tester.pumpAndSettle();
+    expect(
+        tester
+            .widget<FilledButton>(
+                find.widgetWithText(FilledButton, 'Добавить папку с музыкой'))
+            .onPressed,
+        isNotNull);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('replacing dependencies ignores the old library result',
+      (tester) async {
+    await _setLargeSurface(tester);
+    final gate = Completer<LibraryScanResult>();
+    final old = await _HomeScreenFixture.create(scanFolder: (_) => gate.future);
+    final current = await _HomeScreenFixture.create();
+    _addFixtureTearDown(tester, old);
+    _addFixtureTearDown(tester, current);
+    await old.pump(tester);
+    final scanning =
+        old.dependencies.libraryController.rescanFolder(_testFolder());
+    await tester.pump();
+    await current.pump(tester);
+    gate.complete(_controlledScanResult());
+    await scanning;
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Настройки'));
+    await tester.pumpAndSettle();
+    expect(current.dependencies.libraryController.state.lastScanResult, isNull);
+    expect(find.textContaining('Просканировано файлов: 3'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('folder picker reserves library actions before its result',
+      (tester) async {
+    await _setLargeSurface(tester);
+    final picker = _GatedDirectoryPicker();
+    final fixture = await _HomeScreenFixture.create(directoryPicker: picker);
+    _addFixtureTearDown(tester, fixture);
+    await fixture.pump(tester);
+    try {
+      await tester.tap(find.text('Добавить папку с музыкой'));
+      await tester.pump();
+      await tester.tap(find.text('Добавить папку с музыкой'));
+      await tester.pump();
+      expect(picker.calls, 1);
+      expect(fixture.player.state.status, PlayerPlaybackStatus.idle);
+    } finally {
+      picker.result.complete(null);
+      await tester.pumpAndSettle();
+    }
+  });
+
+  testWidgets('settings exposes a diagnostic report without playback changes',
+      (tester) async {
+    await _setLargeSurface(tester);
+    final fixture = await _HomeScreenFixture.create();
+    _addFixtureTearDown(tester, fixture);
+    await fixture.pump(tester);
+    await tester.tap(find.byTooltip('Настройки'));
+    await tester.pumpAndSettle();
+    expect(find.text('Создать диагностический отчёт'), findsOneWidget);
+    expect(find.text('Открыть папку диагностики'), findsOneWidget);
+    expect(fixture.player.state.status, PlayerPlaybackStatus.idle);
+  });
+  testWidgets('bottom player can pause a source that is still loading',
+      (tester) async {
+    await _setLargeSurface(tester);
+    final fixture = await _HomeScreenFixture.create(seedLibrary: true);
+    _addFixtureTearDown(tester, fixture);
+    await fixture.pump(tester);
+    fixture.player._emit(PlayerState(
+      currentTrack: _testTrack(),
+      isPlaying: true,
+      duration: const Duration(minutes: 3),
+      status: PlayerPlaybackStatus.loading,
+    ));
+    await tester.pump();
+    await tester.pump();
+
+    final pauseButton = find.byTooltip('Пауза');
+    expect(pauseButton, findsOneWidget);
+    await tester.tap(pauseButton);
+    await tester.pump();
+    expect(fixture.player.state.status, PlayerPlaybackStatus.paused);
+    await tester.pump();
+    expect(find.byTooltip('Воспроизвести'), findsOneWidget);
+  });
+
   testWidgets('home shows Liquid Wave actions and bottom player bar',
       (tester) async {
     await _setLargeSurface(tester);
@@ -358,6 +644,46 @@ void main() {
           'Отсутствует: 0 / Папок: 1',
         ),
         findsOneWidget);
+  });
+
+  testWidgets(
+      'count stream avoids a second full library subscription and updates',
+      (tester) async {
+    await _setLargeSurface(tester);
+    final fixture =
+        await _HomeScreenFixture.create(seedTracks: _largeLibraryTracks(2));
+    _addFixtureTearDown(tester, fixture);
+    await fixture.pump(tester);
+    await tester.tap(find.byKey(const ValueKey('nav-music')));
+    await tester.pumpAndSettle();
+    final tracks =
+        fixture.dependencies.repositories.tracks as _FakeTrackRepository;
+    expect(tracks.activeTrackStreamCreations, 1);
+    expect(tracks.indexedTrackStreamCreations, 0);
+    expect(tracks.indexedCountStreamCreations, 1);
+    await tracks.upsertTrack(_testTrack(id: 99, title: 'New imported track'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Проиндексировано: 3'), findsOneWidget);
+    expect(find.text('New imported track'), findsOneWidget);
+  });
+
+  testWidgets('changing track order retains the same feedback subscription',
+      (tester) async {
+    await _setLargeSurface(tester);
+    final fixture =
+        await _HomeScreenFixture.create(seedTracks: _largeLibraryTracks(3));
+    _addFixtureTearDown(tester, fixture);
+    await fixture.pump(tester);
+    final tracks =
+        fixture.dependencies.repositories.tracks as _FakeTrackRepository;
+    final feedback = fixture.dependencies.repositories.trackUserState
+        as _FakeTrackUserStateRepository;
+    final creations = feedback.watchTrackStatesByTrackIdsCalls;
+    tracks._tracks.setAll(0, tracks._tracks.reversed.toList());
+    tracks._emit();
+    await tester.pumpAndSettle();
+    expect(feedback.watchTrackStatesByTrackIdsCalls, creations);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('sidebar navigates primary pages and keeps player bar',
@@ -1019,6 +1345,9 @@ final class _HomeScreenFixture {
     bool seedLibrary = false,
     List<Track>? seedTracks,
     CustomArtworkService? customArtwork,
+    DirectoryPickerService? directoryPicker,
+    LibraryFolderScanner? scanFolder,
+    ControlledLibraryFolderScanner? controlledScanFolder,
   }) async {
     final initialTracks =
         seedTracks ?? (seedLibrary ? [_testTrack()] : const <Track>[]);
@@ -1045,12 +1374,23 @@ final class _HomeScreenFixture {
       playbackEvents: repositories.playbackEvents,
       recommendationService: recommendationService,
     );
+    final library = LibraryController(
+      directoryPicker: directoryPicker ?? const _NoopDirectoryPickerService(),
+      scanFolder: scanFolder ?? libraryScanner.scanFolder,
+      controlledScanFolder: controlledScanFolder,
+      management: LibraryManagementService(
+        libraryRepository: repositories.libraryFolders,
+        scanFolder: scanFolder ?? libraryScanner.scanFolder,
+        controlledScanFolder: controlledScanFolder,
+      ),
+    );
     final dependencies = AppDependencies(
       database: database,
       repositories: repositories,
       recommendationService: recommendationService,
       libraryScanner: libraryScanner,
-      directoryPicker: const _NoopDirectoryPickerService(),
+      libraryController: library,
+      directoryPicker: directoryPicker ?? const _NoopDirectoryPickerService(),
       customArtwork: customArtwork ?? _FakeCustomArtworkService(),
       playerService: player,
       playbackQueue: queue,
@@ -1089,7 +1429,9 @@ final class _FakeAppRepositories implements AppRepositories {
         playlists = _FakePlaylistRepository(initialTracks),
         playbackEvents = _FakePlaybackEventRepository(),
         trackUserState = _FakeTrackUserStateRepository(),
-        settings = _FakeSettingsRepository();
+        settings = _FakeSettingsRepository() {
+    (playbackEvents as _FakePlaybackEventRepository).userState = trackUserState;
+  }
 
   @override
   final LibraryRepository libraryFolders;
@@ -1187,7 +1529,8 @@ final class _FakeLibraryRepository implements LibraryRepository {
   }
 }
 
-final class _FakeTrackRepository implements TrackRepository {
+final class _FakeTrackRepository
+    implements TrackRepository, TrackLibraryCountRepository {
   _FakeTrackRepository(List<Track> tracks) : _tracks = [...tracks];
 
   final List<Track> _tracks;
@@ -1195,6 +1538,16 @@ final class _FakeTrackRepository implements TrackRepository {
   int watchAllTracksCalls = 0;
   int activeTrackStreamCreations = 0;
   int indexedTrackStreamCreations = 0;
+  int indexedCountStreamCreations = 0;
+
+  @override
+  Stream<int> watchIndexedTrackCount() async* {
+    indexedCountStreamCreations++;
+    yield _tracks.length;
+    await for (final _ in _controller.stream) {
+      yield _tracks.length;
+    }
+  }
 
   @override
   Future<int> upsertTrack(Track track) async {
@@ -1554,6 +1907,11 @@ final class _FakeTrackUserStateRepository implements TrackUserStateRepository {
   int watchTrackStatesByTrackIdsCalls = 0;
 
   @override
+  Future<TrackUserState> toggleFeedback(int trackId, TrackFeedback feedback,
+          {required DateTime updatedAt}) =>
+      toggleTestFeedback(this, trackId, feedback, updatedAt);
+
+  @override
   Future<void> upsertState(TrackUserState state) async {
     _states[state.trackId] = state;
     _emit();
@@ -1623,6 +1981,12 @@ final class _FakeTrackUserStateRepository implements TrackUserStateRepository {
 
 final class _FakePlaybackEventRepository implements PlaybackEventRepository {
   final List<PlaybackEvent> _events = [];
+
+  TrackUserStateRepository? userState;
+
+  @override
+  Future<int> recordEvent(PlaybackEvent event) =>
+      recordTestEvent(this, userState, event);
 
   @override
   Future<int> addEvent(PlaybackEvent event) async {
@@ -1867,3 +2231,21 @@ final class _FakePlayerService implements PlayerService {
     }
   }
 }
+
+class _GatedDirectoryPicker implements DirectoryPickerService {
+  final result = Completer<String?>();
+  int calls = 0;
+  @override
+  Future<String?> pickMusicFolder() {
+    calls++;
+    return result.future;
+  }
+}
+
+LibraryScanResult _controlledScanResult() => const LibraryScanResult(
+    folderPath: '/music',
+    scannedFiles: 3,
+    addedTracks: 0,
+    updatedTracks: 3,
+    missingTracks: 0,
+    errors: []);

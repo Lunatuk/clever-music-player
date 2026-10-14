@@ -6,6 +6,76 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 
 void main() {
+  test(
+      'active and prepared decoder leases survive cache pressure and release independently',
+      () async {
+    final temp = await Directory.systemTemp.createTemp('cmp_leases_');
+    addTearDown(() => temp.delete(recursive: true));
+    final source = File(p.join(temp.path, 'first.mp3'));
+    final other = File(p.join(temp.path, 'second.mp3'));
+    await source.writeAsBytes(List.filled(10, 1));
+    await other.writeAsBytes(List.filled(10, 2));
+    final cache = WindowsPlaybackCache(
+        maxBytes: 15,
+        appSupportDirectoryProvider: () async =>
+            Directory(p.join(temp.path, 'support')));
+    final first =
+        await cache.acquire(_track(filePath: source.path), source.path);
+    final repeated =
+        await cache.acquire(_track(filePath: source.path), source.path);
+    expect(repeated.filePath, first.filePath);
+    await expectLater(cache.resolve(_track(filePath: other.path), other.path),
+        throwsA(isA<PlaybackCacheException>()));
+    expect(await File(first.filePath).readAsBytes(), List.filled(10, 1));
+    cache.release(first.filePath);
+    await expectLater(cache.resolve(_track(filePath: other.path), other.path),
+        throwsA(isA<PlaybackCacheException>()));
+    cache.release(repeated.filePath);
+    final next = await cache.acquire(_track(filePath: other.path), other.path);
+    expect(await File(next.filePath).readAsBytes(), List.filled(10, 2));
+    expect(await File(first.filePath).exists(), isFalse);
+    cache.release(next.filePath);
+    await cache.waitForPendingOperations();
+  });
+
+  test('simultaneous requests for one source share the completed cache file',
+      () async {
+    final temp = await Directory.systemTemp.createTemp('cmp_parallel_cache_');
+    addTearDown(() => temp.delete(recursive: true));
+    final source = File(p.join(temp.path, 'source.mp3'));
+    final bytes = List.generate(65536, (index) => index % 256);
+    await source.writeAsBytes(bytes);
+    final cache = WindowsPlaybackCache(
+        appSupportDirectoryProvider: () async =>
+            Directory(p.join(temp.path, 'support')));
+    final entries = await Future.wait(List.generate(
+        8, (_) => cache.acquire(_track(filePath: source.path), source.path)));
+    expect(entries.where((entry) => !entry.reusedExistingFile), hasLength(1));
+    expect(entries.map((entry) => entry.filePath).toSet(), hasLength(1));
+    expect(await File(entries.first.filePath).readAsBytes(), bytes);
+    for (final entry in entries) {
+      cache.release(entry.filePath);
+    }
+    await cache.waitForPendingOperations();
+  });
+
+  test('one large playback source may temporarily exceed the retention limit',
+      () async {
+    final temp = await Directory.systemTemp.createTemp('cmp_large_playback_');
+    addTearDown(() => temp.delete(recursive: true));
+    final source = File(p.join(temp.path, 'large.wav'));
+    await source.writeAsBytes(List.filled(30, 1));
+    final cache = WindowsPlaybackCache(
+        maxBytes: 20,
+        appSupportDirectoryProvider: () async =>
+            Directory(p.join(temp.path, 'support')));
+    final entry =
+        await cache.acquire(_track(filePath: source.path), source.path);
+    expect(await File(entry.filePath).length(), 30);
+    cache.release(entry.filePath);
+    await cache.waitForPendingOperations();
+  });
+
   test('Windows playback cache production limit is 250 MB', () {
     expect(windowsPlaybackCacheMaxBytes, 250 * 1024 * 1024);
   });

@@ -11,6 +11,7 @@
 #include <flutter/standard_method_codec.h>
 
 #include "uri_utils.hpp"
+#include "player_data.hpp"
 
 #include <winrt/Windows.Foundation.Collections.h>
 #include <winrt/Windows.Foundation.h>
@@ -616,15 +617,8 @@ public:
   void AudioPlayer::broadcastDataEvent() {
     if(disposed_) return;
     auto session = mediaPlayer.PlaybackSession();
-    auto eventData = flutter::EncodableMap();
-
-    auto isPlaying = session.PlaybackState() == Playback::MediaPlaybackState::Playing;
-
-    eventData[flutter::EncodableValue("playing")] = flutter::EncodableValue(isPlaying);
-    eventData[flutter::EncodableValue("volume")] = flutter::EncodableValue(mediaPlayer.Volume());
-    eventData[flutter::EncodableValue("speed")] = flutter::EncodableValue(session.PlaybackRate());
-    eventData[flutter::EncodableValue("loopMode")] = flutter::EncodableValue(getLoopMode());
-    eventData[flutter::EncodableValue("shuffleMode")] = flutter::EncodableValue(getShuffleMode());
+    auto eventData = just_audio_windows::BuildPlayerDataEvent(
+        mediaPlayer.Volume(), session.PlaybackRate(), getLoopMode(), getShuffleMode());
 
     data_sink_->Success(eventData);
   }

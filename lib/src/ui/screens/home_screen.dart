@@ -1,31 +1,32 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
-import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 
 import '../../app/dependency_scope.dart';
+import '../../diagnostics/diagnostics_service.dart';
 import '../../domain/models/models.dart';
 import '../../domain/repositories/repositories.dart';
-import '../../library/library_management_service.dart';
-import '../../library/library_scanner_service.dart';
+import '../../library/library_controller.dart';
 import '../../library/library_track_list.dart';
-import '../../player/player_progress.dart';
+import '../../player/playback_transitions.dart';
 import '../../player/player_service.dart';
 import '../../player/player_state.dart';
-import '../../queue/playlist_queue_actions.dart';
 import '../../queue/playback_queue_service.dart';
+import '../../queue/playlist_queue_actions.dart';
 import '../../queue/queue_state.dart';
-import '../track_metadata_subtitle.dart';
-import '../track_metadata_edit_dialog.dart';
+import '../diagnostics_settings.dart';
+import '../playback_transition_settings.dart';
+import '../player/bottom_player_bar.dart';
+import '../queue/queue_panel.dart';
 import '../track_artwork.dart';
+import '../track_display_helpers.dart';
+import '../library/library_scan_status.dart';
+import '../track_metadata_edit_dialog.dart';
+import '../track_metadata_subtitle.dart';
+import '../widgets/track_feedback_button.dart';
 
-const double _cardRadius = 24;
 const double _controlRadius = 18;
-const double _bottomPlayerBarBackgroundOpacity = 0.48;
-const double _bottomPlayerBarBlurSigma = 18;
 const double _bottomPlayerBarScrollPadding = 152;
 
 const int _wavePageIndex = 0;
@@ -44,7 +45,7 @@ final class _HomeScreenState extends State<HomeScreen> {
   late final TextEditingController _searchController;
   AppDependencies? _streamDependencies;
   Stream<List<Track>>? _activeTracksStream;
-  Stream<List<Track>>? _indexedTracksStream;
+  Stream<int>? _indexedTrackCountStream;
   Stream<List<LibraryFolder>>? _foldersStream;
   Stream<PlayerState>? _pagePlayerStateStream;
   Stream<Map<int, TrackUserState>>? _userStatesStream;
@@ -54,17 +55,19 @@ final class _HomeScreenState extends State<HomeScreen> {
   String? _visibleTracksSearchQueryInput;
   LibraryTrackSortOption? _visibleTracksSortOptionInput;
   bool? _visibleTracksShowMissingInput;
+  bool? _visibleTracksShowExactCopiesInput;
   List<Track>? _cachedVisibleTracks;
   List<Track>? _missingCountInput;
   int? _cachedMissingCount;
-  LibraryScanResult? _lastScanResult;
+  LibraryController? _libraryController;
+  bool _confirmingFolderRemoval = false;
   Object? _lastError;
   int _selectedPageIndex = _wavePageIndex;
   String _searchQuery = '';
   LibraryTrackSortOption _sortOption = LibraryTrackSortOption.title;
   bool _showMissingTracks = false;
+  bool _showExactCopies = false;
   int? _selectedPlaylistId;
-  bool _isScanning = false;
   bool _isResettingLearningState = false;
   bool _isSidebarCollapsed = false;
 
@@ -75,7 +78,28 @@ final class _HomeScreenState extends State<HomeScreen> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final library = AppDependenciesScope.of(context).libraryController;
+    if (identical(library, _libraryController)) return;
+    _libraryController?.removeListener(_onLibraryChanged);
+    _libraryController = library;
+    library.addListener(_onLibraryChanged);
+  }
+
+  void _onLibraryChanged() {
+    if (!mounted) return;
+    setState(() {
+      if (_libraryController!.state.isBusy &&
+          _libraryController!.state.error == null) {
+        _lastError = null;
+      }
+    });
+  }
+
+  @override
   void dispose() {
+    _libraryController?.removeListener(_onLibraryChanged);
     _searchController.dispose();
     super.dispose();
   }
@@ -89,7 +113,7 @@ final class _HomeScreenState extends State<HomeScreen> {
       extendBody: true,
       bottomNavigationBar: SafeArea(
         top: false,
-        child: _BottomPlayerBar(
+        child: BottomPlayerBar(
           playerService: dependencies.playerService,
           queueService: dependencies.playbackQueue,
           tracksStream: _activeTracksStream!,
@@ -117,9 +141,9 @@ final class _HomeScreenState extends State<HomeScreen> {
                 final userStates =
                     stateSnapshot.data ?? const <int, TrackUserState>{};
 
-                return StreamBuilder<List<Track>>(
-                  stream: _indexedTracksStream,
-                  initialData: const [],
+                return StreamBuilder<int>(
+                  stream: _indexedTrackCountStream,
+                  initialData: 0,
                   builder: (context, indexedSnapshot) {
                     return StreamBuilder<List<LibraryFolder>>(
                       stream: _foldersStream,
@@ -146,8 +170,7 @@ final class _HomeScreenState extends State<HomeScreen> {
                                 dependencies,
                                 playerState: playerState,
                                 activeTracks: activeTracks,
-                                totalIndexedTracks:
-                                    indexedSnapshot.data?.length ?? 0,
+                                totalIndexedTracks: indexedSnapshot.data ?? 0,
                                 userStates: userStates,
                                 folders: folderSnapshot.data ?? const [],
                                 trackLoadError: trackSnapshot.error ??
@@ -178,11 +201,15 @@ final class _HomeScreenState extends State<HomeScreen> {
     _activeTracksStream = dependencies.repositories.tracks
         .watchAllTracks(includeMissing: true)
         .asBroadcastStream();
-    _indexedTracksStream = dependencies.repositories.tracks
-        .watchAllTracks(
-          includeMissing: true,
-          includeDisabledFolders: true,
-        )
+    final tracks = dependencies.repositories.tracks;
+    _indexedTrackCountStream = (tracks is TrackLibraryCountRepository
+            ? (tracks as TrackLibraryCountRepository).watchIndexedTrackCount()
+            : tracks
+                .watchAllTracks(
+                  includeMissing: true,
+                  includeDisabledFolders: true,
+                )
+                .map((items) => items.length))
         .asBroadcastStream();
     _foldersStream = dependencies.repositories.libraryFolders
         .watchFolders()
@@ -225,12 +252,16 @@ final class _HomeScreenState extends State<HomeScreen> {
           playerState: playerState,
           playerService: dependencies.playerService,
           queueService: dependencies.playbackQueue,
-          scanResult: _lastScanResult,
-          scanError: _lastError,
-          isScanning: _isScanning,
+          scanController: _libraryController!,
+          scanError: _libraryController!.state.error ?? _lastError,
+          isLibraryBusy: _libraryController!.state.isBusy,
           onPageSelected: _selectPage,
-          onAddFolder: () => _addMusicFolder(dependencies),
-          onRescanLibrary: () => _rescanLibrary(dependencies),
+          onAddFolder: () {
+            unawaited(dependencies.libraryController.addFolder());
+          },
+          onRescanLibrary: () {
+            unawaited(dependencies.libraryController.rescanLibrary());
+          },
         );
       case _myMusicPageIndex:
         final visibleTracks = _visibleTracksFor(
@@ -251,6 +282,7 @@ final class _HomeScreenState extends State<HomeScreen> {
           searchQuery: _searchQuery,
           sortOption: _sortOption,
           showMissingTracks: _showMissingTracks,
+          showExactCopies: _showExactCopies,
           onSearchChanged: (value) {
             setState(() {
               _searchQuery = value;
@@ -270,6 +302,11 @@ final class _HomeScreenState extends State<HomeScreen> {
           onShowMissingChanged: (value) {
             setState(() {
               _showMissingTracks = value;
+            });
+          },
+          onShowExactCopiesChanged: (value) {
+            setState(() {
+              _showExactCopies = value;
             });
           },
           onPlayTrack: (track) {
@@ -322,18 +359,24 @@ final class _HomeScreenState extends State<HomeScreen> {
         return _SettingsPage(
           folders: folders,
           folderLoadError: folderLoadError,
-          scanResult: _lastScanResult,
-          scanError: _lastError,
-          isScanning: _isScanning,
+          scanController: _libraryController!,
+          scanError: _libraryController!.state.error ?? _lastError,
+          isLibraryBusy: _libraryController!.state.isBusy,
           isResettingLearningState: _isResettingLearningState,
           queueService: dependencies.playbackQueue,
-          onAddFolder: () => _addMusicFolder(dependencies),
-          onRescanLibrary: () => _rescanLibrary(dependencies),
+          playerService: dependencies.playerService,
+          onAddFolder: () {
+            unawaited(dependencies.libraryController.addFolder());
+          },
+          onRescanLibrary: () {
+            unawaited(dependencies.libraryController.rescanLibrary());
+          },
           onRescanFolder: (folder) {
-            unawaited(_rescanFolder(dependencies, folder));
+            unawaited(dependencies.libraryController.rescanFolder(folder));
           },
           onToggleEnabled: (folder) {
-            unawaited(_toggleFolderEnabled(dependencies, folder));
+            unawaited(dependencies.libraryController
+                .setFolderEnabled(folder, isEnabled: !folder.isEnabled));
           },
           onRemoveFolder: (folder) {
             unawaited(_confirmAndRemoveFolder(dependencies, folder));
@@ -341,9 +384,7 @@ final class _HomeScreenState extends State<HomeScreen> {
           onResetLearningState: () {
             unawaited(_confirmAndResetLearningState(dependencies));
           },
-          onOpenDiagnosticsFolder: () {
-            unawaited(_openDiagnosticsFolder());
-          },
+          diagnostics: dependencies.diagnostics,
         );
     }
   }
@@ -356,7 +397,8 @@ final class _HomeScreenState extends State<HomeScreen> {
         identical(_visibleTracksUserStatesInput, userStates) &&
         _visibleTracksSearchQueryInput == _searchQuery &&
         _visibleTracksSortOptionInput == _sortOption &&
-        _visibleTracksShowMissingInput == _showMissingTracks) {
+        _visibleTracksShowMissingInput == _showMissingTracks &&
+        _visibleTracksShowExactCopiesInput == _showExactCopies) {
       return _cachedVisibleTracks!;
     }
 
@@ -364,6 +406,7 @@ final class _HomeScreenState extends State<HomeScreen> {
       tracks: activeTracks,
       searchQuery: _searchQuery,
       showMissingTracks: _showMissingTracks,
+      showExactCopies: _showExactCopies,
       sortOption: _sortOption,
       userStates: userStates,
     );
@@ -372,6 +415,7 @@ final class _HomeScreenState extends State<HomeScreen> {
     _visibleTracksSearchQueryInput = _searchQuery;
     _visibleTracksSortOptionInput = _sortOption;
     _visibleTracksShowMissingInput = _showMissingTracks;
+    _visibleTracksShowExactCopiesInput = _showExactCopies;
     _cachedVisibleTracks = visibleTracks;
     return visibleTracks;
   }
@@ -393,6 +437,7 @@ final class _HomeScreenState extends State<HomeScreen> {
     _visibleTracksSearchQueryInput = null;
     _visibleTracksSortOptionInput = null;
     _visibleTracksShowMissingInput = null;
+    _visibleTracksShowExactCopiesInput = null;
     _cachedVisibleTracks = null;
     _missingCountInput = null;
     _cachedMissingCount = null;
@@ -407,103 +452,47 @@ final class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  Future<void> _addMusicFolder(AppDependencies dependencies) async {
-    final folderPath = await dependencies.directoryPicker.pickMusicFolder();
-    if (folderPath == null || folderPath.isEmpty) {
-      return;
-    }
-
-    await _runScan(
-      () => dependencies.libraryScanner.scanFolder(folderPath),
-    );
-  }
-
-  Future<void> _rescanLibrary(AppDependencies dependencies) async {
-    await _runScan(
-      () => _libraryManagement(dependencies).rescanEnabledFolders(),
-    );
-  }
-
-  Future<void> _rescanFolder(
-    AppDependencies dependencies,
-    LibraryFolder folder,
-  ) async {
-    await _runScan(
-      () => _libraryManagement(dependencies).rescanFolder(folder),
-    );
-  }
-
-  Future<void> _toggleFolderEnabled(
-    AppDependencies dependencies,
-    LibraryFolder folder,
-  ) async {
-    try {
-      await _libraryManagement(dependencies).setFolderEnabled(
-        folder,
-        isEnabled: !folder.isEnabled,
-      );
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _lastError = null;
-      });
-    } on Object catch (error) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _lastError = error;
-      });
-    }
-  }
-
   Future<void> _confirmAndRemoveFolder(
     AppDependencies dependencies,
     LibraryFolder folder,
   ) async {
-    final shouldRemove = await showDialog<bool>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Удалить папку из библиотеки?'),
-          content: const Text(
-            'Папка и импортированные из неё треки будут удалены только из '
-            'базы приложения.\n\n'
-            'Аудиофайлы на диске не будут удалены.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Отмена'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('Удалить из библиотеки'),
-            ),
-          ],
-        );
-      },
-    );
-    if (shouldRemove != true) {
+    if (_confirmingFolderRemoval ||
+        dependencies.libraryController.state.isBusy) {
       return;
     }
-
+    _confirmingFolderRemoval = true;
     try {
-      await _libraryManagement(dependencies).removeFolderFromLibrary(folder);
-      if (!mounted) {
+      final shouldRemove = await showDialog<bool>(
+        context: context,
+        builder: (context) {
+          return AlertDialog(
+            title: const Text('Удалить папку из библиотеки?'),
+            content: const Text(
+              'Папка и импортированные из неё треки будут удалены только из '
+              'базы приложения.\n\n'
+              'Аудиофайлы на диске не будут удалены.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('Отмена'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('Удалить из библиотеки'),
+              ),
+            ],
+          );
+        },
+      );
+      if (shouldRemove != true ||
+          !mounted ||
+          !identical(_libraryController, dependencies.libraryController)) {
         return;
       }
-      setState(() {
-        _lastError = null;
-      });
-    } on Object catch (error) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _lastError = error;
-      });
+      await dependencies.libraryController.removeFolder(folder);
+    } finally {
+      _confirmingFolderRemoval = false;
     }
   }
 
@@ -568,25 +557,6 @@ final class _HomeScreenState extends State<HomeScreen> {
           _isResettingLearningState = false;
         });
       }
-    }
-  }
-
-  Future<void> _openDiagnosticsFolder() async {
-    try {
-      final supportDirectory = await getApplicationSupportDirectory();
-      final diagnosticsDirectory = Directory(
-        p.join(supportDirectory.path, 'CleverMusicPlayer'),
-      );
-      await diagnosticsDirectory.create(recursive: true);
-      await _openDirectoryInFileManager(diagnosticsDirectory);
-    } on Object catch (error) {
-      if (!mounted) {
-        return;
-      }
-      _showErrorSnack(
-        context,
-        'Не удалось открыть папку диагностики: $error',
-      );
     }
   }
 
@@ -763,47 +733,6 @@ final class _HomeScreenState extends State<HomeScreen> {
       });
       _showErrorSnack(context, 'Не удалось добавить трек в плейлист: $error');
     }
-  }
-
-  Future<void> _runScan(
-    Future<LibraryScanResult> Function() scan,
-  ) async {
-    setState(() {
-      _isScanning = true;
-      _lastError = null;
-    });
-
-    try {
-      final result = await scan();
-
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _lastScanResult = result;
-      });
-    } on Object catch (error) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _lastError = error;
-      });
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isScanning = false;
-        });
-      }
-    }
-  }
-
-  LibraryManagementService _libraryManagement(AppDependencies dependencies) {
-    return LibraryManagementService(
-      libraryRepository: dependencies.repositories.libraryFolders,
-      trackRepository: dependencies.repositories.tracks,
-      scanFolder: dependencies.libraryScanner.scanFolder,
-    );
   }
 }
 
@@ -1111,9 +1040,9 @@ final class _HomeWavePage extends StatelessWidget {
     required this.playerState,
     required this.playerService,
     required this.queueService,
-    required this.scanResult,
+    required this.scanController,
     required this.scanError,
-    required this.isScanning,
+    required this.isLibraryBusy,
     required this.onPageSelected,
     required this.onAddFolder,
     required this.onRescanLibrary,
@@ -1122,9 +1051,9 @@ final class _HomeWavePage extends StatelessWidget {
   final PlayerState playerState;
   final PlayerService playerService;
   final PlaybackQueueService queueService;
-  final LibraryScanResult? scanResult;
+  final LibraryController scanController;
   final Object? scanError;
-  final bool isScanning;
+  final bool isLibraryBusy;
   final ValueChanged<int> onPageSelected;
   final VoidCallback onAddFolder;
   final VoidCallback onRescanLibrary;
@@ -1145,17 +1074,16 @@ final class _HomeWavePage extends StatelessWidget {
                 ),
                 const SizedBox(height: 20),
                 _HomeQuickActions(
-                  isScanning: isScanning,
+                  isLibraryBusy: isLibraryBusy,
                   onAddFolder: onAddFolder,
                   onRescanLibrary: onRescanLibrary,
                   onOpenLibrary: () => onPageSelected(_myMusicPageIndex),
                 ),
                 const SizedBox(height: 14),
                 Center(
-                  child: _ScanStatus(
-                    result: scanResult,
+                  child: LibraryScanStatus(
+                    controller: scanController,
                     error: scanError,
-                    isScanning: isScanning,
                   ),
                 ),
               ],
@@ -1184,10 +1112,12 @@ final class _MyMusicPage extends StatelessWidget {
     required this.searchQuery,
     required this.sortOption,
     required this.showMissingTracks,
+    required this.showExactCopies,
     required this.onSearchChanged,
     required this.onClearSearch,
     required this.onSortChanged,
     required this.onShowMissingChanged,
+    required this.onShowExactCopiesChanged,
     required this.onPlayTrack,
     required this.onLikeTrack,
     required this.onDislikeTrack,
@@ -1210,10 +1140,12 @@ final class _MyMusicPage extends StatelessWidget {
   final String searchQuery;
   final LibraryTrackSortOption sortOption;
   final bool showMissingTracks;
+  final bool showExactCopies;
   final ValueChanged<String> onSearchChanged;
   final VoidCallback onClearSearch;
   final ValueChanged<LibraryTrackSortOption> onSortChanged;
   final ValueChanged<bool> onShowMissingChanged;
+  final ValueChanged<bool> onShowExactCopiesChanged;
   final ValueChanged<Track> onPlayTrack;
   final ValueChanged<Track> onLikeTrack;
   final ValueChanged<Track> onDislikeTrack;
@@ -1255,7 +1187,7 @@ final class _MyMusicPage extends StatelessWidget {
                     }
                     return Padding(
                       padding: const EdgeInsets.only(top: 18),
-                      child: _QueuePanel(
+                      child: QueuePanel(
                         queueState: queueState,
                         onRemoveQueuedTrack: queueService.removeQueuedTrack,
                         onClearQueue: queueService.clearQueue,
@@ -1271,10 +1203,12 @@ final class _MyMusicPage extends StatelessWidget {
                   searchQuery: searchQuery,
                   sortOption: sortOption,
                   showMissingTracks: showMissingTracks,
+                  showExactCopies: showExactCopies,
                   onSearchChanged: onSearchChanged,
                   onClearSearch: onClearSearch,
                   onSortChanged: onSortChanged,
                   onShowMissingChanged: onShowMissingChanged,
+                  onShowExactCopiesChanged: onShowExactCopiesChanged,
                 ),
                 const SizedBox(height: 8),
                 _LibraryStats(
@@ -1369,7 +1303,7 @@ final class _PlaylistsPage extends StatelessWidget {
                     }
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 18),
-                      child: _QueuePanel(
+                      child: QueuePanel(
                         queueState: queueState,
                         onRemoveQueuedTrack: queueService.removeQueuedTrack,
                         onClearQueue: queueService.clearQueue,
@@ -1405,34 +1339,36 @@ final class _SettingsPage extends StatelessWidget {
   const _SettingsPage({
     required this.folders,
     required this.folderLoadError,
-    required this.scanResult,
+    required this.scanController,
     required this.scanError,
-    required this.isScanning,
+    required this.isLibraryBusy,
     required this.isResettingLearningState,
     required this.queueService,
+    required this.playerService,
     required this.onAddFolder,
     required this.onRescanLibrary,
     required this.onRescanFolder,
     required this.onToggleEnabled,
     required this.onRemoveFolder,
     required this.onResetLearningState,
-    required this.onOpenDiagnosticsFolder,
+    required this.diagnostics,
   });
 
   final List<LibraryFolder> folders;
   final Object? folderLoadError;
-  final LibraryScanResult? scanResult;
+  final LibraryController scanController;
   final Object? scanError;
-  final bool isScanning;
+  final bool isLibraryBusy;
   final bool isResettingLearningState;
   final PlaybackQueueService queueService;
+  final PlayerService playerService;
   final VoidCallback onAddFolder;
   final VoidCallback onRescanLibrary;
   final ValueChanged<LibraryFolder> onRescanFolder;
   final ValueChanged<LibraryFolder> onToggleEnabled;
   final ValueChanged<LibraryFolder> onRemoveFolder;
   final VoidCallback onResetLearningState;
-  final VoidCallback onOpenDiagnosticsFolder;
+  final DiagnosticsService diagnostics;
 
   @override
   Widget build(BuildContext context) {
@@ -1448,10 +1384,19 @@ final class _SettingsPage extends StatelessWidget {
                   subtitle: 'Управление библиотекой и служебная информация',
                 ),
                 const SizedBox(height: 22),
+                if (playerService is PlaybackTransitions) ...[
+                  _SettingsSection(
+                    title: 'Переходы между треками',
+                    child: PlaybackTransitionSettings(
+                      transitions: playerService as PlaybackTransitions,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
                 _SettingsSection(
                   title: 'Управление библиотекой',
                   child: _LibraryActions(
-                    isScanning: isScanning,
+                    isLibraryBusy: isLibraryBusy,
                     onAddFolder: onAddFolder,
                     onRescanLibrary: onRescanLibrary,
                   ),
@@ -1460,7 +1405,7 @@ final class _SettingsPage extends StatelessWidget {
                 _LibraryFoldersPanel(
                   folders: folders,
                   error: folderLoadError,
-                  isScanning: isScanning,
+                  isLibraryBusy: isLibraryBusy,
                   onRescanFolder: onRescanFolder,
                   onToggleEnabled: onToggleEnabled,
                   onRemoveFolder: onRemoveFolder,
@@ -1468,10 +1413,9 @@ final class _SettingsPage extends StatelessWidget {
                 const SizedBox(height: 16),
                 _SettingsSection(
                   title: 'Статус сканирования',
-                  child: _ScanStatus(
-                    result: scanResult,
+                  child: LibraryScanStatus(
+                    controller: scanController,
                     error: scanError,
-                    isScanning: isScanning,
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -1499,8 +1443,9 @@ final class _SettingsPage extends StatelessWidget {
                 const SizedBox(height: 16),
                 _SettingsSection(
                   title: 'Диагностика',
-                  child: _DiagnosticsActions(
-                    onOpenDiagnosticsFolder: onOpenDiagnosticsFolder,
+                  child: DiagnosticsSettings(
+                    diagnostics: diagnostics,
+                    openDirectory: _openDirectoryInFileManager,
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -1565,13 +1510,13 @@ final class _ShellHeader extends StatelessWidget {
 
 final class _HomeQuickActions extends StatelessWidget {
   const _HomeQuickActions({
-    required this.isScanning,
+    required this.isLibraryBusy,
     required this.onAddFolder,
     required this.onRescanLibrary,
     required this.onOpenLibrary,
   });
 
-  final bool isScanning;
+  final bool isLibraryBusy;
   final VoidCallback onAddFolder;
   final VoidCallback onRescanLibrary;
   final VoidCallback onOpenLibrary;
@@ -1585,12 +1530,12 @@ final class _HomeQuickActions extends StatelessWidget {
       runSpacing: 12,
       children: [
         FilledButton.icon(
-          onPressed: isScanning ? null : onAddFolder,
+          onPressed: isLibraryBusy ? null : onAddFolder,
           icon: const Icon(Icons.create_new_folder_outlined),
           label: const Text('Добавить папку с музыкой'),
         ),
         OutlinedButton.icon(
-          onPressed: isScanning ? null : onRescanLibrary,
+          onPressed: isLibraryBusy ? null : onRescanLibrary,
           icon: const Icon(Icons.refresh_outlined),
           label: const Text('Пересканировать'),
         ),
@@ -1599,7 +1544,7 @@ final class _HomeQuickActions extends StatelessWidget {
           icon: const Icon(Icons.library_music_outlined),
           label: const Text('Моя музыка'),
         ),
-        if (isScanning)
+        if (isLibraryBusy)
           const SizedBox.square(
             dimension: 20,
             child: CircularProgressIndicator(strokeWidth: 2),
@@ -1676,12 +1621,12 @@ final class _DevInfoPanel extends StatelessWidget {
 
 final class _LibraryActions extends StatelessWidget {
   const _LibraryActions({
-    required this.isScanning,
+    required this.isLibraryBusy,
     required this.onAddFolder,
     required this.onRescanLibrary,
   });
 
-  final bool isScanning;
+  final bool isLibraryBusy;
   final VoidCallback onAddFolder;
   final VoidCallback onRescanLibrary;
 
@@ -1693,16 +1638,16 @@ final class _LibraryActions extends StatelessWidget {
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
         FilledButton.icon(
-          onPressed: isScanning ? null : onAddFolder,
+          onPressed: isLibraryBusy ? null : onAddFolder,
           icon: const Icon(Icons.create_new_folder_outlined),
           label: const Text('Добавить папку с музыкой'),
         ),
         OutlinedButton.icon(
-          onPressed: isScanning ? null : onRescanLibrary,
+          onPressed: isLibraryBusy ? null : onRescanLibrary,
           icon: const Icon(Icons.refresh_outlined),
           label: const Text('Пересканировать библиотеку'),
         ),
-        if (isScanning)
+        if (isLibraryBusy)
           const SizedBox.square(
             dimension: 20,
             child: CircularProgressIndicator(strokeWidth: 2),
@@ -1760,50 +1705,30 @@ final class _ResetActions extends StatelessWidget {
   }
 }
 
-final class _DiagnosticsActions extends StatelessWidget {
-  const _DiagnosticsActions({
-    required this.onOpenDiagnosticsFolder,
-  });
-
-  final VoidCallback onOpenDiagnosticsFolder;
-
-  @override
-  Widget build(BuildContext context) {
-    return Wrap(
-      spacing: 12,
-      runSpacing: 12,
-      crossAxisAlignment: WrapCrossAlignment.center,
-      children: [
-        OutlinedButton.icon(
-          onPressed: onOpenDiagnosticsFolder,
-          icon: const Icon(Icons.folder_open_outlined),
-          label: const Text('Открыть папку диагностики'),
-        ),
-      ],
-    );
-  }
-}
-
 final class _TrackListControls extends StatelessWidget {
   const _TrackListControls({
     required this.searchController,
     required this.searchQuery,
     required this.sortOption,
     required this.showMissingTracks,
+    required this.showExactCopies,
     required this.onSearchChanged,
     required this.onClearSearch,
     required this.onSortChanged,
     required this.onShowMissingChanged,
+    required this.onShowExactCopiesChanged,
   });
 
   final TextEditingController searchController;
   final String searchQuery;
   final LibraryTrackSortOption sortOption;
   final bool showMissingTracks;
+  final bool showExactCopies;
   final ValueChanged<String> onSearchChanged;
   final VoidCallback onClearSearch;
   final ValueChanged<LibraryTrackSortOption> onSortChanged;
   final ValueChanged<bool> onShowMissingChanged;
+  final ValueChanged<bool> onShowExactCopiesChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -1899,6 +1824,15 @@ final class _TrackListControls extends StatelessWidget {
             child: sortDropdown,
           ),
           missingToggle,
+          Tooltip(
+            message: 'Точные копии определяются по всему содержимому файла. '
+                'Файлы и сохранённые оценки каждой копии остаются на месте.',
+            child: FilterChip(
+              label: const Text('Показывать точные копии'),
+              selected: showExactCopies,
+              onSelected: onShowExactCopiesChanged,
+            ),
+          ),
         ];
 
         return Card(
@@ -2194,7 +2128,7 @@ final class _PlaylistListRow extends StatelessWidget {
                     const SizedBox(height: 3),
                     Text(
                       [
-                        _trackCountLabel(playlist.trackCount),
+                        trackCountLabel(playlist.trackCount),
                         'Обновлено $dateLabel',
                         if (description != null && description.isNotEmpty)
                           description,
@@ -2368,7 +2302,7 @@ final class _PlaylistDetailsView extends StatelessWidget {
           ),
         ),
         Text(
-          '${_trackCountLabel(entries.length)} · '
+          '${trackCountLabel(entries.length)} · '
           'доступно: $playableCount',
           style: textTheme.bodySmall?.copyWith(
             color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -2438,7 +2372,7 @@ final class _PlaylistDetailsView extends StatelessWidget {
                 padding: const EdgeInsets.only(bottom: 8),
                 child: _PlaylistEntryTile(
                   entry: entry,
-                  isCurrent: _isSameTrack(entry.track, currentTrack),
+                  isCurrent: isSameTrack(entry.track, currentTrack),
                   dragHandle: ReorderableDragStartListener(
                     index: index,
                     child: const Tooltip(
@@ -2573,7 +2507,7 @@ final class _PlaylistDetailsView extends StatelessWidget {
 
     final message = queuedCount == 0
         ? 'В этом плейлисте нет треков для воспроизведения.'
-        : 'Добавлено в очередь: ${_trackCountLabel(queuedCount)}.';
+        : 'Добавлено в очередь: ${trackCountLabel(queuedCount)}.';
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message)),
     );
@@ -2839,7 +2773,7 @@ final class _AddTrackToPlaylistDialog extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
-                    subtitle: Text(_trackCountLabel(playlist.trackCount)),
+                    subtitle: Text(trackCountLabel(playlist.trackCount)),
                     onTap: playlist.id == null
                         ? null
                         : () {
@@ -3191,29 +3125,8 @@ final class _PlaylistFormDialogState extends State<_PlaylistFormDialog> {
   }
 }
 
-String _trackCountLabel(int count) {
-  return '$count ${_ruPlural(count, one: 'трек', few: 'трека', many: 'треков')}';
-}
-
 String _shortDateTimeLabel(DateTime value) {
   return value.toLocal().toString().split('.').first;
-}
-
-String _ruPlural(
-  int count, {
-  required String one,
-  required String few,
-  required String many,
-}) {
-  final mod100 = count.abs() % 100;
-  if (mod100 >= 11 && mod100 <= 14) {
-    return many;
-  }
-  return switch (count.abs() % 10) {
-    1 => one,
-    >= 2 && <= 4 => few,
-    _ => many,
-  };
 }
 
 void _showErrorSnack(BuildContext context, String message) {
@@ -3254,7 +3167,7 @@ final class _LibraryFoldersPanel extends StatelessWidget {
   const _LibraryFoldersPanel({
     required this.folders,
     required this.error,
-    required this.isScanning,
+    required this.isLibraryBusy,
     required this.onRescanFolder,
     required this.onToggleEnabled,
     required this.onRemoveFolder,
@@ -3262,7 +3175,7 @@ final class _LibraryFoldersPanel extends StatelessWidget {
 
   final List<LibraryFolder> folders;
   final Object? error;
-  final bool isScanning;
+  final bool isLibraryBusy;
   final ValueChanged<LibraryFolder> onRescanFolder;
   final ValueChanged<LibraryFolder> onToggleEnabled;
   final ValueChanged<LibraryFolder> onRemoveFolder;
@@ -3299,7 +3212,7 @@ final class _LibraryFoldersPanel extends StatelessWidget {
               if (index > 0) const Divider(height: 24),
               _LibraryFolderRow(
                 folder: folders[index],
-                isScanning: isScanning,
+                isLibraryBusy: isLibraryBusy,
                 onRescanFolder: onRescanFolder,
                 onToggleEnabled: onToggleEnabled,
                 onRemoveFolder: onRemoveFolder,
@@ -3325,14 +3238,14 @@ final class _LibraryFoldersPanel extends StatelessWidget {
 final class _LibraryFolderRow extends StatelessWidget {
   const _LibraryFolderRow({
     required this.folder,
-    required this.isScanning,
+    required this.isLibraryBusy,
     required this.onRescanFolder,
     required this.onToggleEnabled,
     required this.onRemoveFolder,
   });
 
   final LibraryFolder folder;
-  final bool isScanning;
+  final bool isLibraryBusy;
   final ValueChanged<LibraryFolder> onRescanFolder;
   final ValueChanged<LibraryFolder> onToggleEnabled;
   final ValueChanged<LibraryFolder> onRemoveFolder;
@@ -3395,12 +3308,12 @@ final class _LibraryFolderRow extends StatelessWidget {
           children: [
             if (folder.isEnabled)
               OutlinedButton.icon(
-                onPressed: isScanning ? null : () => onRescanFolder(folder),
+                onPressed: isLibraryBusy ? null : () => onRescanFolder(folder),
                 icon: const Icon(Icons.refresh_outlined),
                 label: const Text('Пересканировать'),
               ),
             TextButton.icon(
-              onPressed: folder.id == null || isScanning
+              onPressed: folder.id == null || isLibraryBusy
                   ? null
                   : () => onToggleEnabled(folder),
               icon: Icon(
@@ -3412,7 +3325,7 @@ final class _LibraryFolderRow extends StatelessWidget {
             ),
             if (!folder.isEnabled)
               TextButton.icon(
-                onPressed: folder.id == null || isScanning
+                onPressed: folder.id == null || isLibraryBusy
                     ? null
                     : () => onRemoveFolder(folder),
                 icon: const Icon(Icons.delete_outline),
@@ -3481,7 +3394,7 @@ final class _TrackListSliver extends StatelessWidget {
               child: _TrackListTile(
                 track: track,
                 userState: track.id == null ? null : userStates[track.id],
-                isCurrent: _isSameTrack(track, currentTrack),
+                isCurrent: isSameTrack(track, currentTrack),
                 onTap: track.isMissing ? null : () => onPlayTrack(track),
                 onLike: () => onLikeTrack(track),
                 onDislike: () => onDislikeTrack(track),
@@ -3505,21 +3418,11 @@ final class _TrackListSliver extends StatelessWidget {
   }
 }
 
-bool _isSameTrack(Track track, Track? other) {
-  if (other == null) {
-    return false;
-  }
-  if (track.id != null && other.id != null) {
-    return track.id == other.id;
-  }
-  return track.filePath == other.filePath;
-}
-
 bool _isSameNullableTrack(Track? left, Track? right) {
   if (left == null || right == null) {
     return left == right;
   }
-  return _isSameTrack(left, right);
+  return isSameTrack(left, right);
 }
 
 bool _isSamePagePlayerState(PlayerState left, PlayerState right) {
@@ -3533,7 +3436,7 @@ List<int> _trackIds(List<Track> tracks) {
   return [
     for (final track in tracks)
       if (track.id != null) track.id!,
-  ];
+  ]..sort();
 }
 
 bool _intListsEqual(List<int> left, List<int> right) {
@@ -3759,7 +3662,7 @@ final class _WaveHeroSection extends StatelessWidget {
                         ConstrainedBox(
                           constraints: const BoxConstraints(maxWidth: 520),
                           child: Text(
-                            '${track.displayTitle} - ${_artistLabel(track)}',
+                            '${track.displayTitle} - ${artistLabel(track)}',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             textAlign: TextAlign.center,
@@ -4080,1066 +3983,6 @@ final class _WaveModeSelector extends StatelessWidget {
   }
 }
 
-final class _BottomPlayerBar extends StatefulWidget {
-  const _BottomPlayerBar({
-    required this.playerService,
-    required this.queueService,
-    required this.tracksStream,
-    required this.onOpenSettings,
-  });
-
-  final PlayerService playerService;
-  final PlaybackQueueService queueService;
-  final Stream<List<Track>> tracksStream;
-  final VoidCallback onOpenSettings;
-
-  @override
-  State<_BottomPlayerBar> createState() => _BottomPlayerBarState();
-}
-
-final class _BottomPlayerBarState extends State<_BottomPlayerBar> {
-  Duration? _dragPosition;
-  Object? _dragTrackKey;
-
-  @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<List<Track>>(
-      stream: widget.tracksStream,
-      initialData: const [],
-      builder: (context, trackSnapshot) {
-        final libraryTracks = trackSnapshot.data ?? const <Track>[];
-
-        return StreamBuilder<QueueState>(
-          stream: widget.queueService.stateStream,
-          initialData: widget.queueService.state,
-          builder: (context, queueSnapshot) {
-            final queueState = queueSnapshot.data ?? QueueState();
-
-            return StreamBuilder<PlayerState>(
-              stream: widget.playerService.stateStream,
-              initialData: widget.playerService.state,
-              builder: (context, playerSnapshot) {
-                final playerState =
-                    playerSnapshot.data ?? const PlayerState.idle();
-                final track = _latestTrackFor(
-                  playerState.currentTrack ?? queueState.currentTrack,
-                  libraryTracks,
-                );
-
-                return _buildBarContent(
-                  context,
-                  playerState: playerState,
-                  queueState: queueState,
-                  track: track,
-                );
-              },
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Widget _buildBarContent(
-    BuildContext context, {
-    required PlayerState playerState,
-    required QueueState queueState,
-    required Track? track,
-  }) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final duration = playerState.duration;
-    final trackKey = _trackKey(track);
-    final activeDragPosition = _dragTrackKey == trackKey ? _dragPosition : null;
-    final progress = PlayerProgress(
-      position: playerState.position,
-      duration: duration,
-      dragPosition: activeDragPosition,
-    );
-    final canSeek = track != null &&
-        progress.canSeek &&
-        playerState.status != PlayerPlaybackStatus.loading;
-    final canGoNext = !queueState.isChoosingNext && queueState.canAdvance;
-    final canGoPrevious = !queueState.isChoosingNext && track != null;
-    final isBusy = playerState.status == PlayerPlaybackStatus.loading ||
-        queueState.isChoosingNext;
-
-    return ClipRRect(
-      borderRadius: const BorderRadius.vertical(
-        top: Radius.circular(_cardRadius),
-      ),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(
-          sigmaX: _bottomPlayerBarBlurSigma,
-          sigmaY: _bottomPlayerBarBlurSigma,
-        ),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: colorScheme.surfaceContainer.withValues(
-              alpha: _bottomPlayerBarBackgroundOpacity,
-            ),
-            border: Border(
-              top: BorderSide(
-                color: colorScheme.outlineVariant.withValues(alpha: 0.22),
-              ),
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.28),
-                blurRadius: 24,
-                offset: const Offset(0, -10),
-              ),
-            ],
-          ),
-          child: Material(
-            type: MaterialType.transparency,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(18, 12, 18, 14),
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final useWideLayout = constraints.maxWidth >= 720;
-                  final sideWidth = (constraints.maxWidth * 0.30)
-                      .clamp(220.0, 344.0)
-                      .toDouble();
-                  final summary = _NowPlayingSummary(
-                    track: track,
-                    queueCount: queueState.manualQueue.length,
-                    playbackContext: queueState.activeSource ==
-                                PlaybackSource.playlist ||
-                            queueState.activeSource == PlaybackSource.library
-                        ? queueState.playbackContext
-                        : null,
-                  );
-                  final progressRow = _BottomProgressRow(
-                    progress: progress,
-                    canSeek: canSeek,
-                    onChanged: (value) {
-                      setState(() {
-                        _dragTrackKey = trackKey;
-                        _dragPosition = PlayerProgress.fromSliderValue(
-                          value,
-                          duration!,
-                        );
-                      });
-                    },
-                    onChangeEnd: (value) {
-                      final target = PlayerProgress.fromSliderValue(
-                        value,
-                        duration!,
-                      );
-                      unawaited(widget.playerService.seek(target));
-                      setState(() {
-                        _dragPosition = null;
-                        _dragTrackKey = null;
-                      });
-                    },
-                  );
-                  final controls = _BottomPlaybackButtons(
-                    isPlaying: playerState.isPlaying,
-                    canGoPrevious: canGoPrevious,
-                    canGoNext: canGoNext,
-                    repeatMode: queueState.repeatMode,
-                    canUseRepeat: queueState.canUseRepeat,
-                    canUseShuffle: queueState.canUseShuffle,
-                    isShuffleEnabled: queueState.isPlaylistShuffleEnabled,
-                    activeSource: queueState.activeSource,
-                    onPlayPause: track == null
-                        ? null
-                        : () {
-                            unawaited(
-                              playerState.isPlaying
-                                  ? widget.playerService.pause()
-                                  : widget.playerService.play(),
-                            );
-                          },
-                    onPrevious: canGoPrevious
-                        ? () {
-                            unawaited(widget.queueService.previous());
-                          }
-                        : null,
-                    onNext: canGoNext
-                        ? () {
-                            unawaited(widget.queueService.next());
-                          }
-                        : null,
-                    onRepeat: queueState.canUseRepeat
-                        ? () {
-                            widget.queueService.cycleRepeatMode();
-                          }
-                        : null,
-                    onShuffle: queueState.canUseShuffle
-                        ? widget.queueService.togglePlaylistShuffle
-                        : null,
-                  );
-                  final rightActions = _BottomPlayerActions(
-                    hasTrack: track != null,
-                    isLiked: queueState.isCurrentTrackLiked,
-                    isDisliked: queueState.isCurrentTrackDisliked,
-                    volume: playerState.volume,
-                    showVolumeSlider: sideWidth >= 344,
-                    onToggleMute: () {
-                      unawaited(widget.playerService.toggleMute());
-                    },
-                    onVolumeChanged: (value) {
-                      unawaited(widget.playerService.setVolume(value));
-                    },
-                    onLike: () {
-                      unawaited(widget.queueService.likeCurrentTrack());
-                    },
-                    onDislike: () {
-                      unawaited(widget.queueService.dislikeCurrentTrack());
-                    },
-                    onOpenSettings: widget.onOpenSettings,
-                  );
-
-                  return Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (useWideLayout)
-                        Row(
-                          children: [
-                            SizedBox(width: sideWidth, child: summary),
-                            const SizedBox(width: 18),
-                            Expanded(
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  controls,
-                                  const SizedBox(height: 6),
-                                  progressRow,
-                                ],
-                              ),
-                            ),
-                            const SizedBox(width: 18),
-                            SizedBox(
-                              width: sideWidth,
-                              child: Align(
-                                alignment: Alignment.centerRight,
-                                child: rightActions,
-                              ),
-                            ),
-                          ],
-                        )
-                      else ...[
-                        summary,
-                        const SizedBox(height: 8),
-                        Center(child: controls),
-                        const SizedBox(height: 8),
-                        progressRow,
-                        const SizedBox(height: 6),
-                        Center(child: rightActions),
-                      ],
-                      if (isBusy) ...[
-                        const SizedBox(height: 8),
-                        const LinearProgressIndicator(),
-                      ],
-                      if (playerState.hasError ||
-                          queueState.lastError != null) ...[
-                        const SizedBox(height: 8),
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text(
-                            playerState.errorMessage ??
-                                queueState.lastError ??
-                                'Воспроизведение не удалось.',
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(color: colorScheme.error),
-                          ),
-                        ),
-                      ],
-                    ],
-                  );
-                },
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-final class _NowPlayingSummary extends StatelessWidget {
-  const _NowPlayingSummary({
-    required this.track,
-    required this.queueCount,
-    required this.playbackContext,
-  });
-
-  final Track? track;
-  final int queueCount;
-  final PlaybackContext? playbackContext;
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
-
-    return Row(
-      children: [
-        DecoratedBox(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: colorScheme.outlineVariant.withValues(alpha: 0.45),
-            ),
-          ),
-          child: TrackArtwork(
-            track: track,
-            size: 54,
-            borderRadius: 12,
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                track?.displayTitle ?? 'Трек не играет',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: textTheme.titleSmall,
-              ),
-              Text(
-                _summarySubtitle(track, playbackContext),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: textTheme.bodySmall,
-              ),
-            ],
-          ),
-        ),
-        if (queueCount > 0) ...[
-          const SizedBox(width: 8),
-          Tooltip(
-            message: 'В ручной очереди: ${_trackCountLabel(queueCount)}',
-            child: Chip(
-              visualDensity: VisualDensity.compact,
-              avatar: const Icon(Icons.queue_music_outlined, size: 16),
-              label: Text('$queueCount'),
-            ),
-          ),
-        ],
-      ],
-    );
-  }
-}
-
-final class _BottomProgressRow extends StatelessWidget {
-  const _BottomProgressRow({
-    required this.progress,
-    required this.canSeek,
-    required this.onChanged,
-    required this.onChangeEnd,
-  });
-
-  final PlayerProgress progress;
-  final bool canSeek;
-  final ValueChanged<double> onChanged;
-  final ValueChanged<double> onChangeEnd;
-
-  @override
-  Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
-
-    return Row(
-      children: [
-        SizedBox(
-          width: 46,
-          child: Text(
-            PlayerProgress.formatDuration(progress.displayPosition),
-            maxLines: 1,
-            style: textTheme.bodySmall,
-          ),
-        ),
-        Expanded(
-          child: Slider(
-            value: progress.valueMilliseconds,
-            min: 0,
-            max: progress.maxMilliseconds,
-            onChanged: canSeek ? onChanged : null,
-            onChangeEnd: canSeek ? onChangeEnd : null,
-          ),
-        ),
-        SizedBox(
-          width: 46,
-          child: Text(
-            PlayerProgress.formatDuration(progress.displayDuration),
-            maxLines: 1,
-            textAlign: TextAlign.end,
-            style: textTheme.bodySmall,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-final class _BottomPlaybackButtons extends StatelessWidget {
-  const _BottomPlaybackButtons({
-    required this.isPlaying,
-    required this.canGoPrevious,
-    required this.canGoNext,
-    required this.repeatMode,
-    required this.canUseRepeat,
-    required this.canUseShuffle,
-    required this.isShuffleEnabled,
-    required this.activeSource,
-    required this.onPlayPause,
-    required this.onPrevious,
-    required this.onNext,
-    required this.onRepeat,
-    required this.onShuffle,
-  });
-
-  final bool isPlaying;
-  final bool canGoPrevious;
-  final bool canGoNext;
-  final PlaybackRepeatMode repeatMode;
-  final bool canUseRepeat;
-  final bool canUseShuffle;
-  final bool isShuffleEnabled;
-  final PlaybackSource activeSource;
-  final VoidCallback? onPlayPause;
-  final VoidCallback? onPrevious;
-  final VoidCallback? onNext;
-  final VoidCallback? onRepeat;
-  final VoidCallback? onShuffle;
-
-  @override
-  Widget build(BuildContext context) {
-    final repeatButton = repeatMode == PlaybackRepeatMode.none
-        ? IconButton.outlined(
-            tooltip: _repeatTooltip(repeatMode, activeSource),
-            onPressed: canUseRepeat ? onRepeat : null,
-            icon: Icon(_repeatIcon(repeatMode)),
-          )
-        : IconButton.filledTonal(
-            tooltip: _repeatTooltip(repeatMode, activeSource),
-            onPressed: canUseRepeat ? onRepeat : null,
-            icon: Icon(_repeatIcon(repeatMode)),
-          );
-    final shuffleButton = isShuffleEnabled
-        ? IconButton.filledTonal(
-            tooltip: 'Перемешать плейлист',
-            onPressed: canUseShuffle ? onShuffle : null,
-            icon: const Icon(Icons.shuffle_outlined),
-          )
-        : IconButton.outlined(
-            tooltip: 'Перемешать плейлист',
-            onPressed: canUseShuffle ? onShuffle : null,
-            icon: const Icon(Icons.shuffle_outlined),
-          );
-
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        IconButton.outlined(
-          tooltip: 'Предыдущий',
-          onPressed: canGoPrevious ? onPrevious : null,
-          icon: const Icon(Icons.skip_previous_outlined),
-        ),
-        const SizedBox(width: 4),
-        IconButton.filled(
-          tooltip: isPlaying ? 'Пауза' : 'Воспроизвести',
-          onPressed: onPlayPause,
-          style: IconButton.styleFrom(
-            fixedSize: const Size(48, 48),
-          ),
-          icon: Icon(
-            isPlaying ? Icons.pause_outlined : Icons.play_arrow_outlined,
-          ),
-        ),
-        const SizedBox(width: 4),
-        IconButton.outlined(
-          tooltip: 'Следующий / пропустить',
-          onPressed: canGoNext ? onNext : null,
-          icon: const Icon(Icons.skip_next_outlined),
-        ),
-        if (canUseRepeat) ...[
-          const SizedBox(width: 4),
-          repeatButton,
-        ],
-        if (canUseShuffle) ...[
-          const SizedBox(width: 4),
-          shuffleButton,
-        ],
-      ],
-    );
-  }
-}
-
-final class _BottomPlayerActions extends StatelessWidget {
-  const _BottomPlayerActions({
-    required this.hasTrack,
-    required this.isLiked,
-    required this.isDisliked,
-    required this.volume,
-    required this.showVolumeSlider,
-    required this.onToggleMute,
-    required this.onVolumeChanged,
-    required this.onLike,
-    required this.onDislike,
-    required this.onOpenSettings,
-  });
-
-  final bool hasTrack;
-  final bool isLiked;
-  final bool isDisliked;
-  final double volume;
-  final bool showVolumeSlider;
-  final VoidCallback onToggleMute;
-  final ValueChanged<double> onVolumeChanged;
-  final VoidCallback onLike;
-  final VoidCallback onDislike;
-  final VoidCallback onOpenSettings;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        _BottomVolumeControl(
-          volume: volume,
-          showSlider: showVolumeSlider,
-          onToggleMute: onToggleMute,
-          onChanged: onVolumeChanged,
-        ),
-        const SizedBox(width: 8),
-        _TrackFeedbackIconButton(
-          isActive: isLiked,
-          onPressed: hasTrack ? onLike : null,
-          activeIcon: Icons.thumb_up,
-          inactiveIcon: Icons.thumb_up_outlined,
-          activeTooltip: 'Убрать лайк',
-          inactiveTooltip: 'Лайк',
-        ),
-        const SizedBox(width: 4),
-        _TrackFeedbackIconButton(
-          isActive: isDisliked,
-          onPressed: hasTrack ? onDislike : null,
-          activeIcon: Icons.thumb_down,
-          inactiveIcon: Icons.thumb_down_outlined,
-          activeTooltip: 'Убрать дизлайк',
-          inactiveTooltip: 'Дизлайк',
-        ),
-        const SizedBox(width: 4),
-        IconButton(
-          tooltip: 'Настройки',
-          onPressed: onOpenSettings,
-          icon: const Icon(Icons.settings_outlined),
-        ),
-      ],
-    );
-  }
-}
-
-final class _BottomVolumeControl extends StatefulWidget {
-  const _BottomVolumeControl({
-    required this.volume,
-    required this.showSlider,
-    required this.onToggleMute,
-    required this.onChanged,
-  });
-
-  final double volume;
-  final bool showSlider;
-  final VoidCallback onToggleMute;
-  final ValueChanged<double> onChanged;
-
-  @override
-  State<_BottomVolumeControl> createState() => _BottomVolumeControlState();
-}
-
-final class _BottomVolumeControlState extends State<_BottomVolumeControl> {
-  static const double _popupWidth = 44;
-  static const double _popupHeight = 154;
-  static const double _popupGap = 3;
-
-  OverlayEntry? _overlayEntry;
-  Timer? _hideOverlayTimer;
-  Rect? _buttonOverlayRect;
-  bool _isButtonHovered = false;
-  bool _isPopupHovered = false;
-  bool _isPopupDragging = false;
-
-  @override
-  void didUpdateWidget(_BottomVolumeControl oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (widget.showSlider) {
-      _hideOverlayNow();
-      return;
-    }
-    _scheduleOverlayRebuild();
-  }
-
-  @override
-  void dispose() {
-    _hideOverlayTimer?.cancel();
-    _overlayEntry?.remove();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final normalizedVolume = _normalizedVolumeForDisplay(widget.volume);
-    final volumeIcon = _volumeIcon(normalizedVolume);
-
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        MouseRegion(
-          onEnter: (_) => _handleButtonHoverChanged(isHovered: true),
-          onExit: (_) => _handleButtonHoverChanged(isHovered: false),
-          child: IconButton(
-            key: const ValueKey('bottom-player-volume-button'),
-            visualDensity: VisualDensity.compact,
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints.tightFor(width: 32, height: 32),
-            tooltip: widget.showSlider
-                ? (normalizedVolume <= 0 ? 'Включить звук' : 'Выключить звук')
-                : null,
-            onPressed: widget.onToggleMute,
-            icon: Icon(volumeIcon, size: 20),
-          ),
-        ),
-        if (widget.showSlider) ...[
-          const SizedBox(width: 4),
-          SizedBox(
-            width: 140,
-            child: _VolumeSliderTheme(
-              child: Slider(
-                key: const ValueKey('bottom-player-volume-slider'),
-                value: normalizedVolume,
-                min: 0,
-                max: 1,
-                onChanged: widget.onChanged,
-              ),
-            ),
-          ),
-        ],
-      ],
-    );
-  }
-
-  void _handleButtonHoverChanged({required bool isHovered}) {
-    _isButtonHovered = isHovered;
-    if (isHovered) {
-      _hideOverlayTimer?.cancel();
-      _showOverlay();
-      return;
-    }
-
-    _scheduleOverlayHide();
-  }
-
-  void _handlePopupHoverChanged({required bool isHovered}) {
-    _isPopupHovered = isHovered;
-    if (isHovered) {
-      _hideOverlayTimer?.cancel();
-      return;
-    }
-
-    _scheduleOverlayHide();
-  }
-
-  void _showOverlay() {
-    if (widget.showSlider || _overlayEntry != null) {
-      return;
-    }
-    if (!_updateButtonOverlayRect()) {
-      return;
-    }
-
-    final overlay = Overlay.of(context);
-    _overlayEntry = OverlayEntry(builder: _buildOverlay);
-    overlay.insert(_overlayEntry!);
-  }
-
-  Widget _buildOverlay(BuildContext context) {
-    final normalizedVolume = _normalizedVolumeForDisplay(widget.volume);
-    final overlaySize = MediaQuery.sizeOf(context);
-    final buttonRect = _buttonOverlayRect;
-    if (buttonRect == null) {
-      return const SizedBox.shrink();
-    }
-
-    final left = (buttonRect.center.dx - (_popupWidth / 2))
-        .clamp(8.0, overlaySize.width - _popupWidth - 8)
-        .toDouble();
-    final top = (buttonRect.top - _popupHeight - _popupGap)
-        .clamp(8.0, overlaySize.height - _popupHeight - 8)
-        .toDouble();
-
-    return Positioned(
-      left: left,
-      top: top,
-      child: SizedBox(
-        width: _popupWidth,
-        height: _popupHeight,
-        child: MouseRegion(
-          onEnter: (_) => _handlePopupHoverChanged(isHovered: true),
-          onExit: (_) => _handlePopupHoverChanged(isHovered: false),
-          child: _VolumePopupSlider(
-            value: normalizedVolume,
-            onChanged: widget.onChanged,
-            onChangeStart: (_) {
-              _isPopupDragging = true;
-              _hideOverlayTimer?.cancel();
-            },
-            onChangeEnd: (_) {
-              _isPopupDragging = false;
-              _scheduleOverlayHide();
-            },
-          ),
-        ),
-      ),
-    );
-  }
-
-  void _scheduleOverlayHide() {
-    _hideOverlayTimer?.cancel();
-    _hideOverlayTimer = Timer(const Duration(milliseconds: 140), () {
-      if (_isButtonHovered || _isPopupHovered || _isPopupDragging) {
-        return;
-      }
-      _hideOverlayNow();
-    });
-  }
-
-  void _hideOverlayNow() {
-    _hideOverlayTimer?.cancel();
-    _hideOverlayTimer = null;
-    _isPopupHovered = false;
-    _isPopupDragging = false;
-    _overlayEntry?.remove();
-    _overlayEntry = null;
-  }
-
-  void _scheduleOverlayRebuild() {
-    if (_overlayEntry == null) {
-      return;
-    }
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) {
-        return;
-      }
-      _updateButtonOverlayRect();
-      _overlayEntry?.markNeedsBuild();
-    });
-  }
-
-  bool _updateButtonOverlayRect() {
-    final renderBox = context.findRenderObject();
-    final overlayRenderBox = Overlay.of(context).context.findRenderObject();
-    if (renderBox is! RenderBox ||
-        overlayRenderBox is! RenderBox ||
-        !renderBox.attached ||
-        !overlayRenderBox.attached) {
-      return false;
-    }
-
-    final topLeft = renderBox.localToGlobal(
-      Offset.zero,
-      ancestor: overlayRenderBox,
-    );
-    _buttonOverlayRect = topLeft & renderBox.size;
-    return true;
-  }
-}
-
-final class _VolumePopupSlider extends StatelessWidget {
-  const _VolumePopupSlider({
-    required this.value,
-    required this.onChanged,
-    required this.onChangeStart,
-    required this.onChangeEnd,
-  });
-
-  final double value;
-  final ValueChanged<double> onChanged;
-  final ValueChanged<double> onChangeStart;
-  final ValueChanged<double> onChangeEnd;
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-
-    return Center(
-      child: Material(
-        key: const ValueKey('bottom-player-volume-popup'),
-        color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.94),
-        elevation: 10,
-        shadowColor: Colors.black.withValues(alpha: 0.34),
-        borderRadius: BorderRadius.circular(10),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: colorScheme.outlineVariant.withValues(alpha: 0.32),
-            ),
-          ),
-          child: SizedBox(
-            width: 36,
-            height: 144,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 10),
-              child: RotatedBox(
-                quarterTurns: -1,
-                child: _VolumeSliderTheme(
-                  child: Slider(
-                    key: const ValueKey('bottom-player-volume-popup-slider'),
-                    value: value,
-                    min: 0,
-                    max: 1,
-                    onChanged: onChanged,
-                    onChangeStart: onChangeStart,
-                    onChangeEnd: onChangeEnd,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-final class _VolumeSliderTheme extends StatelessWidget {
-  const _VolumeSliderTheme({
-    required this.child,
-  });
-
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return SliderTheme(
-      data: SliderTheme.of(context).copyWith(
-        trackHeight: 2.5,
-        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5.5),
-        overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
-      ),
-      child: child,
-    );
-  }
-}
-
-String _summarySubtitle(Track? track, PlaybackContext? playbackContext) {
-  if (playbackContext != null && playbackContext.isPlaylist) {
-    final name = playbackContext.playlistName?.trim();
-    if (name != null && name.isNotEmpty) {
-      return 'Играет из: $name';
-    }
-  }
-  if (playbackContext != null && playbackContext.isLibrary) {
-    return 'Играет из: Все треки';
-  }
-  return _artistLabel(track);
-}
-
-String _repeatTooltip(PlaybackRepeatMode mode, PlaybackSource source) {
-  final listName = source == PlaybackSource.library ? 'библиотеку' : 'плейлист';
-  return switch (mode) {
-    PlaybackRepeatMode.none => 'Без повтора',
-    PlaybackRepeatMode.playlist => 'Повторять $listName',
-    PlaybackRepeatMode.track => 'Повторять трек',
-  };
-}
-
-IconData _repeatIcon(PlaybackRepeatMode mode) {
-  return switch (mode) {
-    PlaybackRepeatMode.none => Icons.repeat,
-    PlaybackRepeatMode.playlist => Icons.repeat,
-    PlaybackRepeatMode.track => Icons.repeat_one,
-  };
-}
-
-IconData _volumeIcon(double volume) {
-  if (volume <= 0) {
-    return Icons.volume_off_outlined;
-  }
-  if (volume < 0.5) {
-    return Icons.volume_down_outlined;
-  }
-  return Icons.volume_up_outlined;
-}
-
-double _normalizedVolumeForDisplay(double volume) {
-  if (volume.isNaN) {
-    return 1;
-  }
-  if (volume == double.infinity) {
-    return 1;
-  }
-  if (volume == double.negativeInfinity) {
-    return 0;
-  }
-  return volume.clamp(0.0, 1.0).toDouble();
-}
-
-String _artistLabel(Track? track) {
-  final artist = track?.artist?.trim();
-  if (artist != null && artist.isNotEmpty) {
-    return artist;
-  }
-  return track == null
-      ? 'Выберите локальный трек для воспроизведения'
-      : 'Неизвестный исполнитель';
-}
-
-Object? _trackKey(Track? track) {
-  return track?.id ?? track?.filePath;
-}
-
-Track? _latestTrackFor(Track? currentTrack, List<Track> libraryTracks) {
-  if (currentTrack == null) {
-    return null;
-  }
-
-  for (final track in libraryTracks) {
-    if (_isSameTrack(track, currentTrack)) {
-      return track;
-    }
-  }
-  return currentTrack;
-}
-
-final class _QueuePanel extends StatelessWidget {
-  const _QueuePanel({
-    required this.queueState,
-    required this.onRemoveQueuedTrack,
-    required this.onClearQueue,
-    required this.onPlayQueuedTrackNow,
-  });
-
-  final QueueState queueState;
-  final ValueChanged<int> onRemoveQueuedTrack;
-  final VoidCallback onClearQueue;
-  final ValueChanged<int> onPlayQueuedTrackNow;
-
-  @override
-  Widget build(BuildContext context) {
-    final hasManualQueue = queueState.manualQueue.isNotEmpty;
-    if (!hasManualQueue) {
-      return const SizedBox.shrink();
-    }
-
-    final colorScheme = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
-
-    return Card(
-      color: colorScheme.surfaceContainerLow,
-      child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text('Очередь', style: textTheme.titleMedium),
-                ),
-                TextButton.icon(
-                  onPressed: onClearQueue,
-                  icon: const Icon(Icons.clear_all_outlined),
-                  label: const Text('Очистить очередь'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            for (var index = 0;
-                index < queueState.manualQueue.length;
-                index++) ...[
-              _QueueTrackRow(
-                track: queueState.manualQueue[index],
-                leading: '${index + 1}',
-                onPlayNow: () => onPlayQueuedTrackNow(index),
-                onRemove: () => onRemoveQueuedTrack(index),
-              ),
-              if (index < queueState.manualQueue.length - 1)
-                const Divider(height: 12),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-final class _QueueTrackRow extends StatelessWidget {
-  const _QueueTrackRow({
-    required this.track,
-    required this.leading,
-    this.onPlayNow,
-    this.onRemove,
-  });
-
-  final Track track;
-  final String leading;
-  final VoidCallback? onPlayNow;
-  final VoidCallback? onRemove;
-
-  @override
-  Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
-
-    return Row(
-      children: [
-        SizedBox(
-          width: 24,
-          child: Text(
-            leading,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: textTheme.labelMedium,
-          ),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                track.displayTitle,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: textTheme.bodyMedium,
-              ),
-              Text(
-                _artistLabel(track),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: textTheme.bodySmall,
-              ),
-            ],
-          ),
-        ),
-        if (onPlayNow != null) ...[
-          const SizedBox(width: 4),
-          IconButton(
-            tooltip: 'Воспроизвести сейчас',
-            onPressed: onPlayNow,
-            icon: const Icon(Icons.play_arrow_outlined),
-          ),
-        ],
-        if (onRemove != null) ...[
-          const SizedBox(width: 4),
-          IconButton(
-            tooltip: 'Удалить из очереди',
-            onPressed: onRemove,
-            icon: const Icon(Icons.close_outlined),
-          ),
-        ],
-      ],
-    );
-  }
-}
-
 final class _RecommendationDebugPanel extends StatelessWidget {
   const _RecommendationDebugPanel({
     required this.result,
@@ -5306,69 +4149,6 @@ final class _WeightedRecommendationCandidate {
   final double weight;
 }
 
-final class _ScanStatus extends StatelessWidget {
-  const _ScanStatus({
-    required this.result,
-    required this.error,
-    required this.isScanning,
-  });
-
-  final LibraryScanResult? result;
-  final Object? error;
-  final bool isScanning;
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
-    final subtleStyle = textTheme.bodySmall?.copyWith(
-      color: colorScheme.onSurfaceVariant,
-    );
-
-    if (isScanning) {
-      return Text('Сканируются локальные папки...', style: subtleStyle);
-    }
-
-    if (error != null) {
-      return Text(
-        error.toString(),
-        style: TextStyle(color: colorScheme.error),
-      );
-    }
-
-    final result = this.result;
-    if (result == null) {
-      return Text('Сканирование ещё не запускалось.', style: subtleStyle);
-    }
-
-    if (!result.hasErrors) {
-      return Text(result.summary, style: subtleStyle);
-    }
-
-    final visibleErrors = result.errors.take(3).toList(growable: false);
-    final remainingErrors = result.errors.length - visibleErrors.length;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(result.summary, style: subtleStyle),
-        const SizedBox(height: 4),
-        for (final error in visibleErrors)
-          Text(
-            '${error.path}: ${error.message}',
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(color: colorScheme.error),
-          ),
-        if (remainingErrors > 0)
-          Text(
-            'Ещё ошибок сканирования: $remainingErrors.',
-            style: TextStyle(color: colorScheme.error),
-          ),
-      ],
-    );
-  }
-}
-
 final class _InlineMessage extends StatelessWidget {
   const _InlineMessage({
     required this.message,
@@ -5442,7 +4222,7 @@ final class _TrackListTile extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _TrackFeedbackIconButton(
+          TrackFeedbackIconButton(
             isActive: (userState?.isFavorite ?? false) &&
                 !(userState?.isHidden ?? false),
             onPressed: track.id == null ? null : onLike,
@@ -5452,7 +4232,7 @@ final class _TrackListTile extends StatelessWidget {
             inactiveTooltip: 'Лайк',
           ),
           const SizedBox(width: 2),
-          _TrackFeedbackIconButton(
+          TrackFeedbackIconButton(
             isActive: userState?.isHidden ?? false,
             onPressed: track.id == null ? null : onDislike,
             activeIcon: Icons.thumb_down,
@@ -5598,41 +4378,6 @@ final class _TrackListTile extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
-}
-
-final class _TrackFeedbackIconButton extends StatelessWidget {
-  const _TrackFeedbackIconButton({
-    required this.isActive,
-    required this.onPressed,
-    required this.activeIcon,
-    required this.inactiveIcon,
-    required this.activeTooltip,
-    required this.inactiveTooltip,
-  });
-
-  final bool isActive;
-  final VoidCallback? onPressed;
-  final IconData activeIcon;
-  final IconData inactiveIcon;
-  final String activeTooltip;
-  final String inactiveTooltip;
-
-  @override
-  Widget build(BuildContext context) {
-    if (isActive) {
-      return IconButton.filledTonal(
-        tooltip: activeTooltip,
-        onPressed: onPressed,
-        icon: Icon(activeIcon),
-      );
-    }
-
-    return IconButton(
-      tooltip: inactiveTooltip,
-      onPressed: onPressed,
-      icon: Icon(inactiveIcon),
     );
   }
 }

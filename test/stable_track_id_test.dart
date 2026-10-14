@@ -50,4 +50,27 @@ void main() {
 
     expect(second, first);
   });
+
+  test('normalization preserves letters and digits from other writing systems',
+      () {
+    expect(
+        normalizeStableIdPart('  Кино--Группа_крови!!  '), 'кино группа крови');
+    expect(normalizeStableIdPart('東京 音楽 １２'), '東京 音楽 １２');
+    expect(normalizeStableIdPart('العربية ١٢'), 'العربية ١٢');
+    expect(normalizeStableIdPart('Cafe\u0301'), 'cafe\u0301');
+    expect(normalizeStableIdPart('Кино\t  Группа\nкрови'), 'кино группа крови');
+  });
+
+  test('different Cyrillic titles do not have the same metadata signature', () {
+    String signature(String title) => generateStableTrackId(
+          filePath: '/music/song.mp3',
+          title: title,
+          artist: 'Кино',
+          album: 'Группа крови',
+          fileSizeBytes: 1234,
+          durationMs: 5000,
+        );
+
+    expect(signature('Группа крови'), isNot(signature('Перемен')));
+  });
 }

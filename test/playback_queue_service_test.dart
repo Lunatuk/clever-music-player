@@ -14,6 +14,8 @@ import 'package:clever_music_player/src/library/library_scanner_service.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/learning_repository_helpers.dart';
+
 void main() {
   test('selection weights favor negative scores closer to zero', () {
     final now = DateTime(2026);
@@ -970,6 +972,25 @@ void main() {
     expect(player.seekCalls, isEmpty);
     expect(queue.state.playbackContext.source, PlaybackSource.none);
 
+    await queue.dispose();
+    await player.dispose();
+  });
+
+  test('nonfatal player message does not discard the Wave history seed',
+      () async {
+    final now = DateTime(2026);
+    final last = _track(id: 1, title: 'Last', artist: 'A', now: now);
+    final other = _track(id: 2, title: 'Other', artist: 'B', now: now);
+    final player = _FakePlayerService();
+    final queue = _queue(
+        player: player, tracks: _FakeTrackRepository([last, other]), now: now);
+    await _startLibrary(queue, [last], startTrack: last);
+    player.emit(_playingState(last, position: Duration.zero).copyWith(
+        errorMessage: 'History write failed; audio is still playing.'));
+    await queue.next();
+    expect(player.currentTrack!.id, other.id);
+    await queue.previous();
+    expect(player.currentTrack!.id, last.id);
     await queue.dispose();
     await player.dispose();
   });
@@ -2103,7 +2124,6 @@ void main() {
     );
     final service = LibraryManagementService(
       libraryRepository: repositories.libraryFolders,
-      trackRepository: repositories.tracks,
       scanFolder: (path) async => LibraryScanResult(
         folderPath: path,
         scannedFiles: 0,
@@ -2142,6 +2162,36 @@ void main() {
 
     await queue.dispose();
     await player.dispose();
+  });
+
+  test('next does not count an unstarted loading track as a skip', () async {
+    final now = DateTime(2026);
+    final current = _track(id: 1, title: 'Loading', now: now);
+    final next = _track(id: 2, title: 'Next', now: now);
+    final player = _FakePlayerService();
+    final events = _FakePlaybackEventRepository();
+    final userState = _FakeTrackUserStateRepository();
+    final queue = _queue(
+      player: player,
+      tracks: _FakeTrackRepository([current, next]),
+      events: events,
+      userState: userState,
+      now: now,
+    );
+    addTearDown(player.dispose);
+    addTearDown(queue.dispose);
+    await queue.addToQueue(next);
+    player.emit(PlayerState(
+      currentTrack: current,
+      isPlaying: true,
+      status: PlayerPlaybackStatus.loading,
+    ));
+
+    await queue.next();
+    expect(events.events.where((e) => e.type == PlaybackEventType.skipped),
+        isEmpty);
+    expect(userState.states[1], isNull);
+    expect(player.playedTracks.single.id, 2);
   });
 
   test('next records skipped event when current track is interrupted',
@@ -2914,6 +2964,7 @@ PlaybackQueueService _queue({
 }) {
   final stateRepository = userState ?? _FakeTrackUserStateRepository();
   final eventRepository = events ?? _FakePlaybackEventRepository();
+  eventRepository.userState = stateRepository;
   final recommendation = RecommendationService(
     tracks: tracks,
     trackUserState: stateRepository,
@@ -3237,6 +3288,11 @@ final class _FakeTrackUserStateRepository implements TrackUserStateRepository {
   final Map<int, TrackUserState> states;
 
   @override
+  Future<TrackUserState> toggleFeedback(int trackId, TrackFeedback feedback,
+          {required DateTime updatedAt}) =>
+      toggleTestFeedback(this, trackId, feedback, updatedAt);
+
+  @override
   Future<void> upsertState(TrackUserState state) async {
     states[state.trackId] = state;
   }
@@ -3282,6 +3338,12 @@ final class _FakePlaybackEventRepository implements PlaybackEventRepository {
       : events = events ?? [];
 
   final List<PlaybackEvent> events;
+
+  TrackUserStateRepository? userState;
+
+  @override
+  Future<int> recordEvent(PlaybackEvent event) =>
+      recordTestEvent(this, userState, event);
 
   @override
   Future<int> addEvent(PlaybackEvent event) async {

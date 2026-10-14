@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'wave_mode.dart';
 
 enum PlaybackEventType {
@@ -22,6 +24,7 @@ enum PlaybackEventType {
 final class PlaybackEvent {
   const PlaybackEvent({
     this.id,
+    this.operationId,
     required this.trackId,
     required this.type,
     required this.occurredAt,
@@ -31,7 +34,35 @@ final class PlaybackEvent {
     this.metadataJson,
   });
 
+  /// Create once, then reuse this event (including its ID) for retries.
+  factory PlaybackEvent.recording({
+    required int trackId,
+    required PlaybackEventType type,
+    required DateTime occurredAt,
+    Duration? position,
+    Duration? trackDuration,
+    WaveMode? waveMode,
+    String? metadataJson,
+  }) {
+    return PlaybackEvent(
+      operationId: List.generate(
+        16,
+        (_) => _random.nextInt(256).toRadixString(16).padLeft(2, '0'),
+      ).join(),
+      trackId: trackId,
+      type: type,
+      occurredAt: occurredAt,
+      position: position,
+      trackDuration: trackDuration,
+      waveMode: waveMode,
+      metadataJson: metadataJson,
+    );
+  }
+
+  static final Random _random = Random.secure();
+
   final int? id;
+  final String? operationId;
   final int trackId;
   final PlaybackEventType type;
   final DateTime occurredAt;
@@ -45,6 +76,7 @@ final class PlaybackEvent {
     return identical(this, other) ||
         other is PlaybackEvent &&
             other.id == id &&
+            other.operationId == operationId &&
             other.trackId == trackId &&
             other.type == type &&
             other.occurredAt == occurredAt &&
@@ -58,6 +90,7 @@ final class PlaybackEvent {
   int get hashCode {
     return Object.hash(
       id,
+      operationId,
       trackId,
       type,
       occurredAt,

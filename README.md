@@ -10,12 +10,198 @@ Local-first Flutter smart music player architecture.
 - Repository contracts with Drift implementations
 - Recommendation service skeleton with score reasons
 - Local recursive library scanning
+- Exact file copies are hidden in My Music and Wave using full-file SHA-256;
+  same-title tracks with different bytes remain separate
 - Fallback metadata extraction from file information
 - Placeholder UI for folder scanning and track listing
 - Playback queue is session-local in v1 and is not persisted across restarts
-- Smart Wave chooses the next track at transition time; recommendation debug explains the selected track
+- Smart Wave prepares the next candidate in advance; recommendation debug explains the selected track
+- Silent next-track preloading and automatic crossfade (default 3 seconds, configurable 0–10)
 
 Server sync is intentionally not implemented yet.
+
+## Reliability work
+
+See the [roadmap](docs/ROADMAP.md), [implementation log](docs/IMPLEMENTATION_LOG.md)
+and [targeted manual checks](docs/MANUAL_CHECKS.md) for completed changes,
+verification results and remaining work.
+
+Database schema v9 preserves existing track IDs and history. Metadata signatures
+are non-unique, feedback changes preserve listening counters, and playback events
+and their counters commit together. Retrying an event's operation ID does not
+count it twice. Keep a consistent SQLite backup before upgrading; use a
+compatible backup when returning to an older app version.
+
+Desktop CI checks formatting, analysis, tests and release builds on Windows
+and macOS with Flutter 3.41.9. The optional real-library migration test is
+documented in the implementation log and always uses a temporary copy.
+
+## Application assembly
+
+`bootstrapApplication` builds the shared player, queue and library controller
+through `AppPlatformAdapters`; `main.dart` only starts the application and installs
+diagnostics. Current native construction lives in `DefaultAppPlatformAdapters`.
+Startup failures release already acquired resources and preserve the original
+error. Dependency disposal shares one completion future and attempts later
+resources even if an earlier cleanup fails. System media disposal waits for
+initialization and active commands/state writes before closing the native client.
+
+Player and queue disposal reject new work, drain accepted history/feedback/settings
+writes, and stop selection reads after shutdown. Media, queue and player shutdown
+start together so native disposal can interrupt a command waiting for a decoder;
+SQLite stays open until all owners settle. Both decoders and public streams are
+attempted even after a native cleanup failure. Native Play waits are cancelled
+without waiting for the recording to end; late results cannot restart database
+work. Native window-close interception is still a separate host integration.
+
+See [ownership and remaining lifecycle limits](docs/architecture/application-bootstrap-and-lifecycle.md).
+Android now has a small SAF document prototype using the same runtime. The first
+target device is a Xiaomi Redmi Note 14 Pro (8/512 GB, Android 16). Package 18
+was manually verified on Android and Windows. Package 19 adds Android background
+playback and media controls, pending verification on that phone.
+
+## Audio source references
+
+`Track.source` exposes a typed `FileAudioSource` or `ContentUriAudioSource`;
+`Track.fromSource` and `copyWith(source: ...)` keep the existing storage and IDs.
+Schema v9 retains literal desktop paths or the original content URI in the legacy
+`file_path` column. URI identity is never lowercased or filesystem-normalized.
+
+The player passes content URIs through `LocalAudioEngine.setSource` without
+File.exists/stat or the Windows playback cache. Installed just_audio receives a
+progressive URI on Android; desktop rejects content before native loading. The
+existing preload, crossfade, cancellation and queue logic is shared. The scanner
+still reads regular files. Android SAF grants and native metadata/cover reading
+are available in the prototype; URI hashing and bulk library import remain
+separate work. Background audio uses the existing shared runtime.
+See [the source reference contract](docs/architecture/audio-source-references.md).
+
+## Android preview (package 19)
+
+`dist/clever-music-player-core-19-android-arm64.apk` updates **Clever Music Preview**
+in its own Android sandbox. The compact screen selects up to 64 audio documents
+at a time through the system picker, stores read-only persistent grants and uses
+the shared database/player/queue. Re-selecting the same URI keeps the existing
+record and manual edits. Audio files are not copied into app storage.
+
+Playback continues in the background using audio_service and the same player,
+queue and Wave history. Notification/lock-screen/headset commands control this
+runtime. Audio interruptions and headphone removal pause both crossfade decks;
+resume explicitly with Play. Stop ends playback and removes the notification.
+This is a debug-signed release-mode prototype, not the final design or store release.
+Windows has a matching core-19 regression ZIP; its playback behavior is unchanged.
+See [targeted checks](docs/MANUAL_CHECKS.md)
+and [background playback contract](docs/architecture/android-background-playback.md).
+
+## Wave navigation
+
+Finishing a library/playlist still continues with Wave. The queue keeps a
+session-only timeline of six track references, allowing five previous visits.
+The first Wave visit can return to the last track of the finished list. Forward
+navigation retraces played visits before asking Wave for a fresh recommendation;
+manual queued items retain priority. Explicit list/single/queued playback starts
+a new timeline. After five seconds, Previous restarts the current track first,
+as before; a second press returns to history. No audio buffers or database schema
+changes are involved. See [history rules and tests](docs/architecture/wave-history.md).
+
+## Playback transitions
+
+The next track opens in a second silent decoder while the current track plays.
+Automatic transitions can overlap their audio; manual selections switch directly.
+Settings → «Переходы между треками» controls the overlap (0 disables it while
+keeping preloading). Volume, mute and pause apply to both outputs. Seeking or
+manually choosing a track cancels the outgoing tail. Preloading does not count as
+listening, and both open Windows cache files are protected from cleanup.
+
+This reduces source preparation at the boundary; sample-accurate gapless playback
+has not been measured on real hardware. Unknown native duration and unsuccessful
+preloading use the regular end-of-track path. Android/macOS audio validation remains
+part of their platform stages.
+
+## Unavailable files and playback cache
+
+Automatic playback bypasses unavailable/failed sources with a 20-attempt bound;
+explicit selections report the failure. Manual selection, pause and stop cancel
+recovery. Failures of transport/volume controls do not trigger source recovery.
+
+Windows cache copies are staged, checked against the source size/modification time,
+flushed, and renamed into place. Open decoder files remain protected. The 250 MiB
+retention target may be exceeded temporarily by active/prepared large recordings;
+cleanup runs when their decoder references are released. Source files are unchanged.
+
+## Exact copies in the library
+
+Scanning computes full-file SHA-256 in a worker isolate with streamed reads.
+Rescan existing folders once to detect copies imported by older versions.
+Explicit rescans read bytes again, including files whose size/date are unchanged,
+so scanning large collections takes longer. File stats are checked around hashing
+and after metadata reads; failed checks leave the entry visible separately.
+
+My Music hides verified exact copies by default. «Показывать точные копии» reveals
+every record; searching by an alternate copy's path still finds it. Available
+enabled-folder entries take precedence over missing entries. The original imported
+ID is preferred otherwise. The toggle lasts for the current app session.
+
+Each copy keeps its ID, edits, feedback, history and playlist memberships. Feedback
+is still per record; a different representative can show different saved feedback.
+Existing playlists and explicit queues retain their selected entries. Wave omits
+exact copies without changing its scoring rules. No source files are removed.
+Different encodings or files with different embedded tags/covers remain separate;
+recognizing the same recording across such files is outside this exact-copy check.
+
+## Scan progress and stopping
+
+Home/Settings show the current folder, completed-file counters and processing
+stage during scanning. The progress bar is for the current file's hash when its
+size is known; total library size is not pre-counted. Progress has its own UI
+subscription, coalesced at 100 ms, independent of library-list rebuilding.
+
+«Остановить сканирование» retains completed work and stops further folders. An
+incomplete traversal does not mark unseen tracks missing or advance the folder's
+last complete-scan timestamp. Retry scans from the beginning without creating
+duplicate path records. Completed folders in a bulk operation keep their results.
+
+Hash workers stop cooperatively between bounded reads (up to 256 KiB) and close their file before
+returning. An already started OS read, metadata operation or database write must
+finish, so stopping may take time on slow/unavailable storage. Commands remain
+reserved until cleanup is done. Shutdown requests cancellation and drains work
+before SQLite closes. This is not a persisted resume cursor or a rollback of the
+whole scan. Source files remain unchanged.
+
+## Import performance
+
+Windows hashes use system CNG SHA-256 with a portable Dart fallback. They produce
+the same full-file/content-cache keys; duplicate detection still reads and checks
+all bytes. Tag parsing runs in a worker isolate, and artwork lookup probes the
+known content-addressed filenames instead of enumerating the cache directory.
+The local `audio_metadata_reader` override guarantees reader cleanup on failed
+format/picture parsing; its source snapshot and license are in `third_party`.
+
+Prepared scan records are saved in short atomic batches (up to 64), including a
+final flush on cancellation. Latest manual tags and custom covers survive
+concurrent imports; files are rechecked before committing buffered identities.
+The indexed-file counter uses COUNT instead of a second full metadata list.
+Each folder scan owns one lazy sequential hash worker and drains it before
+returning. ReadInto reuses a bounded buffer within each file; SHA-256 keys stay
+compatible. Concurrent worker requests are rejected instead of queued.
+
+Scan progress/results include time, files/s and verified MiB/s. Local diagnostics
+include aggregate hash/tag/artwork/database timings in microseconds, verified
+bytes/files, native-hash count and tag-read count, without paths or tags. Timings
+include awaits and worker startup. Detailed hash IO/digester/worker/transport
+and database lookup/import/maintenance fields are nested within the aggregate
+phases, not additional independent totals. Remaining delays stay in elapsed.
+
+Reproduce synthetic operation benchmarks (fresh temporary data, likely warm OS
+cache; not full-library throughput):
+
+```sh
+dart compile exe tool/benchmark_file_hash.dart -o <output-path>
+dart compile exe tool/benchmark_hash_worker.dart -o <worker-benchmark-output>
+# Run the resulting executable.
+flutter test --no-pub tool/benchmark_artwork_cache_test.dart --reporter expanded
+flutter test --no-pub tool/benchmark_import_database_test.dart --reporter expanded
+```
 
 ## Development
 
@@ -40,3 +226,55 @@ Windows builds intentionally use the local `third_party/just_audio_windows`
 override. The patch disables the WinRT MediaPlayer's built-in system media
 session so the app-owned `smtc_windows` session is the only source of Windows
 media metadata and next/previous command handling.
+
+
+## Local diagnostics
+
+Settings → «Диагностика» creates a local JSON report and opens its folder.
+Release builds retain structured startup, database/migration, scan, audio-load,
+cache and system-media outcomes. Only fixed event names, numeric/boolean fields
+and fixed exception categories are accepted: paths, titles, artists, URLs,
+exception messages and stack traces are excluded. Export validates stored fields
+again and skips damaged journal lines; it does not include the library database.
+Nothing is sent automatically.
+
+The journal retains four files of up to 256 KiB and three reports. Writes are
+asynchronous with a 128-record queue; I/O failures and overflow drop diagnostic
+events instead of stopping playback. The report includes the dropped-record
+count for the current session. An OS lock and in-isolate serialization coordinate
+journal access; a busy lock does not block playback. Reports are published after
+writing and flushing a temporary file. Release export, folder opening and persistence across app launches were
+confirmed by the user and two release reports on 13 October 2026.
+
+
+## Playback UI and Windows first play
+
+The bottom player, volume control, queue panel and feedback button now live in
+separate UI components and keep using the existing shared player/queue services.
+See [the architecture note](docs/architecture/playback-ui-and-windows-transport.md).
+
+The vendored Windows adapter reports native processing state separately from
+just_audio's requested `playing` state. This prevents a late preparation event
+from cancelling the first play during audio-session activation. The regression
+uses the installed just_audio library and its method/event channels. On Windows,
+run `./tool/check_windows_audio_contract.ps1 -FlutterRoot '<Flutter SDK path>'`
+to compile the native payload builder and validate the checked-in protocol
+fixture; Windows CI runs this before Flutter tests. Actual cold-start sound and
+system media keys remain part of package 7's targeted manual checks.
+
+
+## Library operation ownership
+
+One app-scoped `LibraryController` handles folder selection, scans, enable/disable
+and confirmed source removal. It reserves the library before opening a picker;
+competing commands return a busy result rather than running later. UI state
+survives page/widget changes. App dependency disposal rejects new commands,
+ignores late picker results and drains active database work before closing SQLite.
+This is graceful disposal, not a promise to finish work after process termination.
+
+Removing a disabled source checks its current database state and removes its
+owned tracks, feedback/history and playlist memberships in one transaction.
+A failure rolls everything back; an already removed source is a successful no-op.
+Adapters without atomic removal support fail before changing rows. Source audio
+files are preserved. This gate coordinates commands in the current app instance;
+future download/background adapters must join the operation coordinator explicitly.

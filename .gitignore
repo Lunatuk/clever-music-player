@@ -9,6 +9,10 @@ dist/
 # IDEs
 .idea/
 .vscode/
+*.iml
+
+# Local crash/build logs can contain machine paths.
+*.log
 
 # OS
 .DS_Store

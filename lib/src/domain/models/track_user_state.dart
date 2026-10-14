@@ -1,5 +1,7 @@
 import 'wave_mode.dart';
 
+enum TrackFeedback { like, dislike }
+
 final class TrackUserState {
   const TrackUserState({
     required this.trackId,

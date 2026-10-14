@@ -784,6 +784,180 @@ void main() {
     expect(updatedTrack.isMissing, isFalse);
   });
 
+  test('a new copy with identical metadata cannot replace a known file',
+      () async {
+    final directory =
+        await Directory.systemTemp.createTemp('clever_copy_identity_');
+    addTearDown(() => directory.delete(recursive: true));
+    final first = File(p.join(directory.path, 'song.mp3'));
+    final copy = File(p.join(directory.path, 'copy.mp3'));
+    await first.writeAsBytes([1, 2, 3]);
+    final database = AppDatabase(NativeDatabase.memory());
+    addTearDown(database.close);
+    final repositories = DriftRepositories(database);
+    final scanner = LibraryScannerService(
+      libraryRepository: repositories.libraryFolders,
+      trackRepository: repositories.tracks,
+      metadataReader: _CountingMetadataReader(
+        title: 'Same title',
+        artist: 'Same artist',
+        modifiedAt: DateTime(2026),
+      ),
+    );
+    await scanner.scanFolder(directory.path);
+    final original = (await repositories.tracks.listTracks()).single;
+    await repositories.trackUserState.upsertState(
+      TrackUserState(
+        trackId: original.id!,
+        isFavorite: true,
+        updatedAt: DateTime(2026),
+      ),
+    );
+    await copy.writeAsBytes([1, 2, 3]);
+
+    final result = await scanner.scanFolder(directory.path);
+
+    expect(result.errors, isEmpty);
+    expect(result.addedTracks, 1);
+    expect(result.updatedTracks, 1);
+    expect(result.missingTracks, 0);
+    final tracks = await repositories.tracks.listTracks();
+    expect(tracks, hasLength(2));
+    expect(tracks.map((track) => track.filePath).toSet(),
+        {p.normalize(first.path), p.normalize(copy.path)});
+    expect((await repositories.tracks.findById(original.id!))?.filePath,
+        p.normalize(first.path));
+    expect(
+        (await repositories.trackUserState.findByTrackId(original.id!))
+            ?.isFavorite,
+        isTrue);
+    expect(tracks.map((track) => track.stableId).toSet(), hasLength(1));
+  });
+
+  test('overlapping folder scans preserve ownership and manual metadata',
+      () async {
+    final directory =
+        await Directory.systemTemp.createTemp('clever_overlapping_sources_');
+    addTearDown(() => directory.delete(recursive: true));
+    final nested = await Directory(p.join(directory.path, 'nested')).create();
+    final file = File(p.join(nested.path, 'song.mp3'));
+    await file.writeAsBytes([1, 2, 3]);
+    final database = AppDatabase(NativeDatabase.memory());
+    addTearDown(database.close);
+    final repositories = DriftRepositories(database);
+    final scanner = LibraryScannerService(
+      libraryRepository: repositories.libraryFolders,
+      trackRepository: repositories.tracks,
+      metadataReader: const FallbackMetadataReaderService(),
+    );
+    await scanner.scanFolder(directory.path);
+    final original = (await repositories.tracks.listTracks()).single;
+    await repositories.tracks.updateTrackMetadata(
+      TrackMetadataUpdate(
+        trackId: original.id!,
+        title: 'Manual title',
+        artist: 'Manual artist',
+        album: null,
+        albumArtist: null,
+        genre: null,
+        year: null,
+        trackNumber: null,
+        discNumber: null,
+        updatedAt: DateTime(2026),
+      ),
+    );
+    await file.writeAsBytes([4, 5, 6, 7]);
+
+    final result = await scanner.scanFolder(nested.path);
+
+    expect(result.errors, isEmpty);
+    expect(result.addedTracks, 0);
+    final updated = (await repositories.tracks.listTracks()).single;
+    expect(updated.id, original.id);
+    expect(updated.libraryFolderId, original.libraryFolderId);
+    expect(updated.addedAt, original.addedAt);
+    expect(updated.title, 'Manual title');
+    expect(updated.artist, 'Manual artist');
+    expect(updated.metadataSource, MetadataSource.manual);
+    expect(updated.fileSizeBytes, 4);
+  });
+
+  test('a metadata error does not mark an observed known file missing',
+      () async {
+    final directory =
+        await Directory.systemTemp.createTemp('clever_observed_error_');
+    addTearDown(() => directory.delete(recursive: true));
+    final file = File(p.join(directory.path, 'bad.mp3'));
+    await file.writeAsBytes([1, 2, 3]);
+    final database = AppDatabase(NativeDatabase.memory());
+    addTearDown(database.close);
+    final repositories = DriftRepositories(database);
+    final folder = await _seedKnownFolder(repositories, directory.path);
+    await _seedKnownTrack(
+      repositories,
+      folderId: folder.id!,
+      filePath: file.path,
+    );
+    await _seedKnownTrack(
+      repositories,
+      folderId: folder.id!,
+      filePath: p.join(directory.path, 'deleted.mp3'),
+    );
+    final now = DateTime(2026, 10, 12);
+    final scanner = LibraryScannerService(
+      libraryRepository: repositories.libraryFolders,
+      trackRepository: repositories.tracks,
+      metadataReader: _SelectiveFailingMetadataReader(failingPath: file.path),
+      clock: () => now,
+    );
+
+    final result = await scanner.scanFolder(directory.path);
+
+    expect(result.errors, hasLength(1));
+    expect(result.missingTracks, 1);
+    final observed = (await repositories.tracks.findByPath(file.path))!;
+    expect(observed.isMissing, isFalse);
+    expect(observed.lastSeenAt, now);
+    expect(observed.title, 'Known');
+    expect(
+        (await repositories.tracks
+                .findByPath(p.join(directory.path, 'deleted.mp3')))
+            ?.isMissing,
+        isTrue);
+  });
+
+  test('an observed missing track is restored even if its metadata fails',
+      () async {
+    final directory =
+        await Directory.systemTemp.createTemp('clever_observed_recovered_');
+    addTearDown(() => directory.delete(recursive: true));
+    final file = File(p.join(directory.path, 'bad.mp3'));
+    await file.writeAsBytes([1, 2, 3]);
+    final database = AppDatabase(NativeDatabase.memory());
+    addTearDown(database.close);
+    final repositories = DriftRepositories(database);
+    final folder = await _seedKnownFolder(repositories, directory.path);
+    await _seedKnownTrack(
+      repositories,
+      folderId: folder.id!,
+      filePath: file.path,
+    );
+    final existing = (await repositories.tracks.findByPath(file.path))!;
+    await repositories.tracks.upsertTrack(existing.copyWith(isMissing: true));
+    final scanner = LibraryScannerService(
+      libraryRepository: repositories.libraryFolders,
+      trackRepository: repositories.tracks,
+      metadataReader: _SelectiveFailingMetadataReader(failingPath: file.path),
+    );
+
+    final result = await scanner.scanFolder(directory.path);
+
+    expect(result.errors, hasLength(1));
+    expect(result.missingTracks, 0);
+    expect(
+        (await repositories.tracks.findById(existing.id!))?.isMissing, isFalse);
+  });
+
   test('metadata reader failure records an error and continues scanning',
       () async {
     final tempDirectory = await Directory.systemTemp.createTemp(

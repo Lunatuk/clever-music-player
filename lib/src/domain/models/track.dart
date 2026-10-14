@@ -1,4 +1,5 @@
 import 'metadata_source.dart';
+import 'audio_source_reference.dart';
 
 final class Track {
   const Track({
@@ -33,10 +34,79 @@ final class Track {
     required this.updatedAt,
   });
 
+  /// Construct a track from a validated typed address without changing storage.
+  factory Track.fromSource({
+    int? id,
+    int? libraryFolderId,
+    String? stableId,
+    required AudioSourceReference source,
+    String? contentHash,
+    String? title,
+    String? artist,
+    String? album,
+    String? albumArtist,
+    String? genre,
+    String? artworkPath,
+    String? artworkHash,
+    String? artworkMimeType,
+    String? customArtworkPath,
+    String? customArtworkHash,
+    String? customArtworkMimeType,
+    String? codec,
+    Duration? duration,
+    int? trackNumber,
+    int? discNumber,
+    int? year,
+    MetadataSource? metadataSource,
+    double? metadataConfidence,
+    int? fileSizeBytes,
+    DateTime? modifiedAt,
+    DateTime? lastSeenAt,
+    bool isMissing = false,
+    required DateTime addedAt,
+    required DateTime updatedAt,
+  }) =>
+      Track(
+        id: id,
+        libraryFolderId: libraryFolderId,
+        stableId: stableId,
+        filePath: source.storageValue,
+        contentHash: contentHash,
+        title: title,
+        artist: artist,
+        album: album,
+        albumArtist: albumArtist,
+        genre: genre,
+        artworkPath: artworkPath,
+        artworkHash: artworkHash,
+        artworkMimeType: artworkMimeType,
+        customArtworkPath: customArtworkPath,
+        customArtworkHash: customArtworkHash,
+        customArtworkMimeType: customArtworkMimeType,
+        codec: codec,
+        duration: duration,
+        trackNumber: trackNumber,
+        discNumber: discNumber,
+        year: year,
+        metadataSource: metadataSource,
+        metadataConfidence: metadataConfidence,
+        fileSizeBytes: fileSizeBytes,
+        modifiedAt: modifiedAt,
+        lastSeenAt: lastSeenAt,
+        isMissing: isMissing,
+        addedAt: addedAt,
+        updatedAt: updatedAt,
+      );
+
   final int? id;
   final int? libraryFolderId;
+
+  /// A non-unique metadata signature, separate from the persisted [id].
   final String? stableId;
+
+  /// Legacy storage column: a local path or a content URI. Use [source] for IO.
   final String filePath;
+  AudioSourceReference get source => AudioSourceReference.fromStorage(filePath);
   final String? contentHash;
   final String? title;
   final String? artist;
@@ -69,6 +139,7 @@ final class Track {
       return trimmedTitle;
     }
 
+    if (AudioSourceReference.isContentUriValue(filePath)) return 'Без названия';
     return filePath.split(RegExp(r'[/\\]')).last;
   }
 
@@ -82,7 +153,8 @@ final class Track {
     int? libraryFolderId,
     String? stableId,
     String? filePath,
-    String? contentHash,
+    AudioSourceReference? source,
+    Object? contentHash = _unset,
     String? title,
     String? artist,
     String? album,
@@ -108,12 +180,17 @@ final class Track {
     DateTime? addedAt,
     DateTime? updatedAt,
   }) {
+    if (source != null && filePath != null) {
+      throw ArgumentError('Укажите один источник: source или filePath.');
+    }
     return Track(
       id: id ?? this.id,
       libraryFolderId: libraryFolderId ?? this.libraryFolderId,
       stableId: stableId ?? this.stableId,
-      filePath: filePath ?? this.filePath,
-      contentHash: contentHash ?? this.contentHash,
+      filePath: source?.storageValue ?? filePath ?? this.filePath,
+      contentHash: identical(contentHash, _unset)
+          ? this.contentHash
+          : contentHash as String?,
       title: title ?? this.title,
       artist: artist ?? this.artist,
       album: album ?? this.album,

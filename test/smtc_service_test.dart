@@ -1,4 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:clever_music_player/src/diagnostics/diagnostics_service.dart';
 
 import 'package:clever_music_player/src/domain/models/models.dart';
 import 'package:clever_music_player/src/player/player_service.dart';
@@ -8,6 +12,39 @@ import 'package:clever_music_player/src/smtc/smtc_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test(
+      'native media initialization failure enters the local report without message',
+      () async {
+    final directory =
+        await Directory.systemTemp.createTemp('cmp-smtc-diagnostics-');
+    final diagnostics =
+        LocalDiagnosticsService(directoryProvider: () async => directory);
+    final player = _FakePlayerService();
+    final client = _FakeSmtcClient()
+      ..initializeError = StateError('PRIVATE native error');
+    final service = WindowsSmtcService(
+        playerService: player,
+        onNext: () async {},
+        onPrevious: () async {},
+        client: client,
+        diagnostics: diagnostics);
+    try {
+      await service.initialize();
+      final file = await diagnostics.exportReport();
+      final contents = await file.readAsString();
+      final entries = jsonDecode(contents)['events'] as List;
+      expect(entries.single['event'], 'systemMediaFailed');
+      expect(entries.single['errorKind'], 'state');
+      expect(contents, isNot(contains('PRIVATE')));
+      expect(player.state.status, PlayerPlaybackStatus.idle);
+    } finally {
+      await service.dispose();
+      await player.dispose();
+      await diagnostics.flush();
+      await directory.delete(recursive: true);
+    }
+  });
+
   test('metadata mapper uses title and artist fallbacks', () {
     final metadata = smtcMetadataForTrack(
       _track(
@@ -268,6 +305,181 @@ void main() {
     await service.dispose();
     await player.dispose();
   });
+
+  test('close during native initialization prevents late subscriptions',
+      () async {
+    final gate = Completer<void>();
+    final player = _FakePlayerService();
+    final client = _FakeSmtcClient()..initializeHandler = () => gate.future;
+    final service = WindowsSmtcService(
+      playerService: player,
+      onNext: () async {},
+      onPrevious: () async {},
+      client: client,
+    );
+    final starting = service.initialize();
+    expect(identical(starting, service.initialize()), isTrue);
+    final closing = service.dispose();
+    var closed = false;
+    final completion = closing.then((_) => closed = true);
+    try {
+      client.addButton(SmtcButton.play);
+      await Future<void>.delayed(Duration.zero);
+      expect(client.configs, hasLength(1));
+      expect(closed, isFalse);
+      expect(client.disposeCalls, 0);
+      gate.complete();
+      await Future.wait([starting, completion]);
+      expect(client.disposeCalls, 1);
+      expect(player.playCalls, 0);
+      expect(client.statuses, isEmpty);
+      expect(client.hasButtonListener, isFalse);
+      await service.initialize();
+      expect(client.configs, hasLength(1));
+    } finally {
+      if (!gate.isCompleted) gate.complete();
+      await service.dispose();
+      await player.dispose();
+    }
+  });
+
+  test('dispose drains the running command and skips queued commands',
+      () async {
+    var nextCalls = 0;
+    final gate = Completer<void>();
+    final player = _FakePlayerService()..playBlocker = gate;
+    final client = _FakeSmtcClient();
+    final service = WindowsSmtcService(
+      playerService: player,
+      onNext: () async {
+        nextCalls++;
+      },
+      onPrevious: () async {},
+      client: client,
+    );
+    try {
+      await service.initialize();
+      client
+        ..addButton(SmtcButton.play)
+        ..addButton(SmtcButton.next);
+      await _waitUntil(() => player.playCalls == 1);
+      final closing = service.dispose();
+      expect(identical(closing, service.dispose()), isTrue);
+      var closed = false;
+      final completion = closing.then((_) => closed = true);
+      client.addButton(SmtcButton.pause);
+      await Future<void>.delayed(Duration.zero);
+      expect(closed, isFalse);
+      expect(client.disposeCalls, 0);
+      gate.complete();
+      await completion;
+      expect(client.disposeCalls, 1);
+      expect(nextCalls, 0);
+      expect(player.pauseCalls, 0);
+    } finally {
+      if (!gate.isCompleted) gate.complete();
+      await service.dispose();
+      await player.dispose();
+    }
+  });
+
+  test('dispose waits for an active native state write before closing client',
+      () async {
+    final gate = Completer<void>();
+    final player = _FakePlayerService();
+    final client = _FakeSmtcClient()..metadataHandler = () => gate.future;
+    final service = WindowsSmtcService(
+      playerService: player,
+      onNext: () async {},
+      onPrevious: () async {},
+      client: client,
+      fileExists: (_) => false,
+    );
+    try {
+      await service.initialize();
+      player.emit(PlayerState(
+          currentTrack: _track(),
+          isPlaying: true,
+          status: PlayerPlaybackStatus.playing));
+      await _waitUntil(() => client.metadataUpdates.isNotEmpty);
+      final closing = service.dispose();
+      var closed = false;
+      final completion = closing.then((_) => closed = true);
+      player.emit(PlayerState(
+          currentTrack: _track(title: 'Late'),
+          status: PlayerPlaybackStatus.paused));
+      await Future<void>.delayed(Duration.zero);
+      expect(closed, isFalse);
+      expect(client.disposeCalls, 0);
+      gate.complete();
+      await completion;
+      expect(client.disposeCalls, 1);
+      expect(client.metadataUpdates, hasLength(1));
+      expect(client.statuses.last, SmtcPlaybackStatus.playing);
+      expect(client.timelines, hasLength(1));
+      expect(client.callsAfterDispose, 0);
+    } finally {
+      if (!gate.isCompleted) gate.complete();
+      await service.dispose();
+      await player.dispose();
+    }
+  });
+
+  test('concurrent initialize waits for the initial native state write',
+      () async {
+    final gate = Completer<void>();
+    final player = _FakePlayerService()
+      ..emit(PlayerState(
+          currentTrack: _track(),
+          isPlaying: true,
+          status: PlayerPlaybackStatus.playing));
+    final client = _FakeSmtcClient()..metadataHandler = () => gate.future;
+    final service = WindowsSmtcService(
+      playerService: player,
+      onNext: () async {},
+      onPrevious: () async {},
+      client: client,
+      fileExists: (_) => false,
+    );
+    try {
+      final starting = service.initialize();
+      await _waitUntil(() => client.metadataUpdates.isNotEmpty);
+      expect(identical(starting, service.initialize()), isTrue);
+      expect(client.configs, hasLength(1));
+      gate.complete();
+      await starting;
+      expect(client.statuses.last, SmtcPlaybackStatus.playing);
+    } finally {
+      if (!gate.isCompleted) gate.complete();
+      await service.dispose();
+      await player.dispose();
+    }
+  });
+
+  test('failed native initialization can be retried before disposal', () async {
+    final player = _FakePlayerService();
+    final client = _FakeSmtcClient()
+      ..initializeError = StateError('native failure');
+    final service = WindowsSmtcService(
+      playerService: player,
+      onNext: () async {},
+      onPrevious: () async {},
+      client: client,
+    );
+    try {
+      await service.initialize();
+      expect(client.hasButtonListener, isFalse);
+      client.initializeError = null;
+      await service.initialize();
+      expect(client.configs, hasLength(1));
+      expect(client.hasButtonListener, isTrue);
+      client.addButton(SmtcButton.play);
+      await _waitUntil(() => player.playCalls == 1);
+    } finally {
+      await service.dispose();
+      await player.dispose();
+    }
+  });
 }
 
 Track _track({
@@ -314,6 +526,11 @@ final class _FakeSmtcClient implements SmtcPlatformClient {
   final List<SmtcMetadata> metadataUpdates = [];
   final List<SmtcTimeline> timelines = [];
   final List<SmtcPlaybackStatus> statuses = [];
+  Object? initializeError;
+  Future<void> Function()? initializeHandler;
+  Future<void> Function()? metadataHandler;
+  int callsAfterDispose = 0;
+  bool get hasButtonListener => _buttonController.hasListener;
   bool throwOnMetadataWithThumbnail = false;
   int enableCalls = 0;
   int disableCalls = 0;
@@ -325,7 +542,9 @@ final class _FakeSmtcClient implements SmtcPlatformClient {
 
   @override
   Future<void> initialize(SmtcButtonConfig config) async {
+    if (initializeError != null) throw initializeError!;
     configs.add(config);
+    await initializeHandler?.call();
   }
 
   @override
@@ -341,6 +560,7 @@ final class _FakeSmtcClient implements SmtcPlatformClient {
   @override
   Future<void> updateMetadata(SmtcMetadata metadata) async {
     metadataUpdates.add(metadata);
+    await metadataHandler?.call();
     if (throwOnMetadataWithThumbnail && metadata.thumbnail != null) {
       throw StateError('thumbnail rejected');
     }
@@ -348,6 +568,7 @@ final class _FakeSmtcClient implements SmtcPlatformClient {
 
   @override
   Future<void> updateTimeline(SmtcTimeline timeline) async {
+    if (disposeCalls > 0) callsAfterDispose++;
     timelines.add(timeline);
   }
 
@@ -358,6 +579,7 @@ final class _FakeSmtcClient implements SmtcPlatformClient {
 
   @override
   Future<void> setPlaybackStatus(SmtcPlaybackStatus status) async {
+    if (disposeCalls > 0) callsAfterDispose++;
     statuses.add(status);
   }
 

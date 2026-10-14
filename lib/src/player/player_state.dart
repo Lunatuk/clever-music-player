@@ -10,6 +10,8 @@ enum PlayerPlaybackStatus {
   error,
 }
 
+enum PlayerFailureKind { source, operation }
+
 const Object _unset = Object();
 
 final class PlayerState {
@@ -21,6 +23,7 @@ final class PlayerState {
     this.volume = 1,
     this.status = PlayerPlaybackStatus.idle,
     this.errorMessage,
+    this.failureKind,
   });
 
   const PlayerState.idle()
@@ -30,15 +33,20 @@ final class PlayerState {
         duration = null,
         volume = 1,
         status = PlayerPlaybackStatus.idle,
-        errorMessage = null;
+        errorMessage = null,
+        failureKind = null;
 
   final Track? currentTrack;
+
+  /// Playback is requested, including buffering/loading. A paused source can
+  /// finish loading without automatically starting audio.
   final bool isPlaying;
   final Duration position;
   final Duration? duration;
   final double volume;
   final PlayerPlaybackStatus status;
   final String? errorMessage;
+  final PlayerFailureKind? failureKind;
 
   bool get hasError => errorMessage != null && errorMessage!.isNotEmpty;
 
@@ -50,6 +58,7 @@ final class PlayerState {
     double? volume,
     PlayerPlaybackStatus? status,
     Object? errorMessage = _unset,
+    Object? failureKind = _unset,
   }) {
     return PlayerState(
       currentTrack: identical(currentTrack, _unset)
@@ -64,6 +73,9 @@ final class PlayerState {
       errorMessage: identical(errorMessage, _unset)
           ? this.errorMessage
           : errorMessage as String?,
+      failureKind: identical(failureKind, _unset)
+          ? (errorMessage == null ? null : this.failureKind)
+          : failureKind as PlayerFailureKind?,
     );
   }
 
@@ -77,7 +89,8 @@ final class PlayerState {
             other.duration == duration &&
             other.volume == volume &&
             other.status == status &&
-            other.errorMessage == errorMessage;
+            other.errorMessage == errorMessage &&
+            other.failureKind == failureKind;
   }
 
   @override
@@ -90,6 +103,7 @@ final class PlayerState {
       volume,
       status,
       errorMessage,
+      failureKind,
     );
   }
 }

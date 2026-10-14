@@ -5,6 +5,8 @@ import 'package:drift/native.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import '../../diagnostics/diagnostics_service.dart';
+
 part 'app_database.g.dart';
 
 @DataClassName('LibraryFolderRow')
@@ -79,6 +81,7 @@ class PlaylistTracks extends Table {
 @DataClassName('PlaybackEventRow')
 class PlaybackEvents extends Table {
   IntColumn get id => integer().autoIncrement()();
+  TextColumn get operationId => text().nullable()();
   IntColumn get trackId =>
       integer().references(Tracks, #id, onDelete: KeyAction.cascade)();
   TextColumn get eventType => text()();
@@ -135,53 +138,114 @@ class AppSettings extends Table {
   ],
 )
 class AppDatabase extends _$AppDatabase {
-  AppDatabase(super.executor);
+  AppDatabase(super.executor,
+      {this.diagnostics = const NoopDiagnosticsService()});
 
-  factory AppDatabase.open() => AppDatabase(_openConnection());
+  final DiagnosticsService diagnostics;
+
+  factory AppDatabase.open(
+          {DiagnosticsService diagnostics = const NoopDiagnosticsService()}) =>
+      AppDatabase(_openConnection(diagnostics), diagnostics: diagnostics);
 
   @override
-  int get schemaVersion => 7;
+  int get schemaVersion => 9;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
-        onCreate: (migrator) async {
-          await migrator.createAll();
-          await _createIndexes();
-        },
-        onUpgrade: (migrator, from, to) async {
-          if (from < 2) {
-            await migrator.addColumn(tracks, tracks.stableId);
-            await migrator.addColumn(tracks, tracks.codec);
-            await migrator.addColumn(tracks, tracks.lastSeenAt);
-            await migrator.addColumn(tracks, tracks.isMissing);
-          }
-          if (from < 3) {
-            await migrator.addColumn(
-              trackUserStates,
-              trackUserStates.completeCount,
-            );
-          }
-          if (from < 4) {
-            await migrator.addColumn(tracks, tracks.metadataSource);
-            await migrator.addColumn(tracks, tracks.metadataConfidence);
-          }
-          if (from < 5) {
-            await migrator.createTable(playlists);
-            await migrator.createTable(playlistTracks);
-          }
-          if (from < 6) {
-            await migrator.addColumn(tracks, tracks.artworkPath);
-            await migrator.addColumn(tracks, tracks.artworkHash);
-            await migrator.addColumn(tracks, tracks.artworkMimeType);
-          }
-          if (from < 7) {
-            await migrator.addColumn(tracks, tracks.customArtworkPath);
-            await migrator.addColumn(tracks, tracks.customArtworkHash);
-            await migrator.addColumn(tracks, tracks.customArtworkMimeType);
-          }
-          await _createIndexes();
+        onCreate: (migrator) => _migrate(
+            0,
+            schemaVersion,
+            () => transaction(() async {
+                  await migrator.createAll();
+                  await _createIndexes();
+                  await customStatement(
+                      'PRAGMA user_version = $schemaVersion;');
+                })),
+        onUpgrade: (migrator, from, to) => _migrate(
+            from,
+            to,
+            () => transaction(() async {
+                  if (from > to) {
+                    throw StateError(
+                      'Медиатека создана более новой версией приложения: $from > $to.',
+                    );
+                  }
+                  if (from < 2) {
+                    await migrator.addColumn(tracks, tracks.stableId);
+                    await migrator.addColumn(tracks, tracks.codec);
+                    await migrator.addColumn(tracks, tracks.lastSeenAt);
+                    await migrator.addColumn(tracks, tracks.isMissing);
+                  }
+                  if (from < 3) {
+                    await migrator.addColumn(
+                      trackUserStates,
+                      trackUserStates.completeCount,
+                    );
+                  }
+                  if (from < 4) {
+                    await migrator.addColumn(tracks, tracks.metadataSource);
+                    await migrator.addColumn(tracks, tracks.metadataConfidence);
+                  }
+                  if (from < 5) {
+                    await migrator.createTable(playlists);
+                    await migrator.createTable(playlistTracks);
+                  }
+                  if (from < 6) {
+                    await migrator.addColumn(tracks, tracks.artworkPath);
+                    await migrator.addColumn(tracks, tracks.artworkHash);
+                    await migrator.addColumn(tracks, tracks.artworkMimeType);
+                  }
+                  if (from < 7) {
+                    await migrator.addColumn(tracks, tracks.customArtworkPath);
+                    await migrator.addColumn(tracks, tracks.customArtworkHash);
+                    await migrator.addColumn(
+                        tracks, tracks.customArtworkMimeType);
+                  }
+                  if (from < 8) {
+                    // Metadata signatures are not unique: copies and unrelated tracks
+                    // can share them. Keep all existing rows and their foreign keys.
+                    await customStatement(
+                        'DROP INDEX IF EXISTS idx_tracks_stable_id;');
+                  }
+                  if (from < 9) {
+                    await migrator.addColumn(
+                        playbackEvents, playbackEvents.operationId);
+                  }
+                  await _createIndexes();
+                  // Commit the version marker with the DDL so an interruption cannot
+                  // leave new columns with an old version and break the next upgrade.
+                  await customStatement('PRAGMA user_version = $to;');
+                })),
+        beforeOpen: (details) async {
+          diagnostics.record(DiagnosticEvent.databaseOpened,
+              fields: {DiagnosticField.schemaTo: schemaVersion});
         },
       );
+
+  Future<void> _migrate(
+      int from, int to, Future<void> Function() operation) async {
+    final timer = Stopwatch()..start();
+    final fields = {
+      DiagnosticField.schemaFrom: from,
+      DiagnosticField.schemaTo: to
+    };
+    diagnostics.record(DiagnosticEvent.migrationStarted, fields: fields);
+    try {
+      await operation();
+      diagnostics.record(DiagnosticEvent.migrationCompleted, fields: {
+        ...fields,
+        DiagnosticField.elapsedMs: timer.elapsedMilliseconds
+      });
+    } on Object catch (error) {
+      diagnostics.record(DiagnosticEvent.migrationFailed,
+          error: error,
+          fields: {
+            ...fields,
+            DiagnosticField.elapsedMs: timer.elapsedMilliseconds
+          });
+      rethrow;
+    }
+  }
 
   Future<void> _createIndexes() async {
     await customStatement(
@@ -189,7 +253,7 @@ class AppDatabase extends _$AppDatabase {
       'ON tracks(library_folder_id);',
     );
     await customStatement(
-      'CREATE UNIQUE INDEX IF NOT EXISTS idx_tracks_stable_id '
+      'CREATE INDEX IF NOT EXISTS idx_tracks_stable_id '
       'ON tracks(stable_id) WHERE stable_id IS NOT NULL;',
     );
     await customStatement(
@@ -213,25 +277,34 @@ class AppDatabase extends _$AppDatabase {
       'ON playback_events(track_id, occurred_at);',
     );
     await customStatement(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_playback_events_operation '
+      'ON playback_events(operation_id) WHERE operation_id IS NOT NULL;',
+    );
+    await customStatement(
       'CREATE INDEX IF NOT EXISTS idx_track_user_state_updated '
       'ON track_user_state(updated_at);',
     );
   }
 }
 
-LazyDatabase _openConnection() {
+LazyDatabase _openConnection(DiagnosticsService diagnostics) {
   return LazyDatabase(() async {
-    final supportDirectory = await getApplicationSupportDirectory();
-    final databaseDirectory = Directory(
-      p.join(supportDirectory.path, 'CleverMusicPlayer'),
-    );
+    try {
+      final supportDirectory = await getApplicationSupportDirectory();
+      final databaseDirectory = Directory(
+        p.join(supportDirectory.path, 'CleverMusicPlayer'),
+      );
 
-    await databaseDirectory.create(recursive: true);
+      await databaseDirectory.create(recursive: true);
 
-    final databaseFile = File(
-      p.join(databaseDirectory.path, 'clever_music_player.sqlite'),
-    );
+      final databaseFile = File(
+        p.join(databaseDirectory.path, 'clever_music_player.sqlite'),
+      );
 
-    return NativeDatabase.createInBackground(databaseFile);
+      return NativeDatabase.createInBackground(databaseFile);
+    } on Object catch (error) {
+      diagnostics.record(DiagnosticEvent.databaseFailure, error: error);
+      rethrow;
+    }
   });
 }

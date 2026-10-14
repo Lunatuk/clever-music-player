@@ -6,6 +6,8 @@ import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart' as just_audio;
 import 'package:path/path.dart' as p;
 
+import '../diagnostics/diagnostics_service.dart';
+import '../core/async_lifecycle.dart';
 import '../domain/models/models.dart';
 import '../domain/repositories/repositories.dart';
 import 'player_service.dart';
@@ -43,7 +45,8 @@ abstract interface class LocalAudioEngine {
 
   Duration? get duration;
 
-  Future<Duration?> setFilePath(String filePath, {bool preload = true});
+  Future<Duration?> setSource(AudioSourceReference source,
+      {bool preload = true});
 
   Future<void> play();
 
@@ -59,10 +62,16 @@ abstract interface class LocalAudioEngine {
 }
 
 final class JustAudioEngine implements LocalAudioEngine {
-  JustAudioEngine([just_audio.AudioPlayer? player])
-      : _player = player ?? just_audio.AudioPlayer();
+  JustAudioEngine(
+      {just_audio.AudioPlayer? player,
+      bool? isAndroid,
+      bool handleInterruptions = true})
+      : _player = player ??
+            just_audio.AudioPlayer(handleInterruptions: handleInterruptions),
+        _isAndroid = isAndroid ?? Platform.isAndroid;
 
   final just_audio.AudioPlayer _player;
+  final bool _isAndroid;
 
   @override
   Stream<AudioEngineState> get stateStream {
@@ -90,8 +99,23 @@ final class JustAudioEngine implements LocalAudioEngine {
   Duration? get duration => _player.duration;
 
   @override
+  Future<Duration?> setSource(AudioSourceReference source,
+      {bool preload = true}) {
+    switch (source) {
+      case FileAudioSource(:final path):
+        return _player.setFilePath(path, preload: preload);
+      case ContentUriAudioSource(:final uri):
+        if (!_isAndroid) {
+          return Future.error(UnsupportedError('Content URI требует Android.'));
+        }
+        return _player.setAudioSource(just_audio.ProgressiveAudioSource(uri),
+            preload: preload);
+    }
+  }
+
+  /// Convenience for the existing native protocol tests and path callers.
   Future<Duration?> setFilePath(String filePath, {bool preload = true}) {
-    return _player.setFilePath(filePath, preload: preload);
+    return setSource(FileAudioSource(filePath), preload: preload);
   }
 
   @override
@@ -153,8 +177,8 @@ const _playbackLoadFailureMessage =
 final class JustAudioPlayerService implements PlayerService {
   JustAudioPlayerService({
     required PlaybackEventRepository playbackEvents,
-    required TrackUserStateRepository trackUserState,
     SettingsRepository? settings,
+    this.diagnostics = const NoopDiagnosticsService(),
     LocalAudioEngine? audioEngine,
     bool Function(String filePath)? fileExists,
     bool? isWindows,
@@ -166,7 +190,6 @@ final class JustAudioPlayerService implements PlayerService {
   })  : assert(windowsProgressRecoveryInterval > Duration.zero),
         assert(windowsSyntheticProgressGrace >= Duration.zero),
         _playbackEvents = playbackEvents,
-        _trackUserState = trackUserState,
         _settings = settings,
         _audioEngine = audioEngine ?? JustAudioEngine(),
         _isWindows = isWindows ?? Platform.isWindows,
@@ -182,8 +205,8 @@ final class JustAudioPlayerService implements PlayerService {
       ..add(_audioEngine.errorStream.listen(_handleAudioError));
   }
 
+  final DiagnosticsService diagnostics;
   final PlaybackEventRepository _playbackEvents;
-  final TrackUserStateRepository _trackUserState;
   final SettingsRepository? _settings;
   final LocalAudioEngine _audioEngine;
   final bool _isWindows;
@@ -197,7 +220,20 @@ final class JustAudioPlayerService implements PlayerService {
 
   PlayerState _state = const PlayerState.idle();
   bool _isDisposed = false;
+  final _operations = AsyncOperationTracker();
+  final Set<Completer<void>> _playWaiters = {};
+  Future<void>? _closing;
   bool _didRecordCompletion = false;
+  int _sessionGeneration = 0;
+  int _transportRevision = 0;
+  int? _pendingTransportRevision;
+  int _seekRevision = 0;
+  int? _loadingGeneration;
+  int? _engineGeneration;
+  bool _wantsToPlay = false;
+  bool _hasStartedSession = false;
+  Duration? _pendingSeek;
+  Future<void> _engineCommands = Future<void>.value();
   int _positionEventsSinceLoad = 0;
   int _durationEventsSinceLoad = 0;
   Timer? _positionDiagnosticsTimer;
@@ -206,6 +242,8 @@ final class JustAudioPlayerService implements PlayerService {
   DateTime? _windowsSyntheticAnchorTime;
   Duration _windowsSyntheticAnchorPosition = Duration.zero;
   Duration? _lastWindowsPolledPosition;
+  String? _leasedCachePath;
+  double _outputGain = 1;
   double _previousVolumeBeforeMute = _defaultVolume;
   final Set<String> _windowsDirectLoadFailures = <String>{};
 
@@ -231,218 +269,357 @@ final class JustAudioPlayerService implements PlayerService {
   Stream<PlayerState> get stateStream => _stateController.stream;
 
   @override
-  Future<void> playTrack(Track track) async {
-    if (_isDisposed) {
-      return;
+  Future<void> playTrack(Track track) => _loadTrack(track, startPlaying: true);
+
+  /// Load and open the decoder without playing or recording a listening event.
+  Future<void> prepareTrack(Track track) =>
+      _loadTrack(track, startPlaying: false);
+
+  /// Only the audio engine's timeline is used to trigger early transitions.
+  /// Metadata duration and the Windows UI clock can be approximate.
+  Duration? get transitionRemaining {
+    if (_state.status != PlayerPlaybackStatus.playing) return null;
+    final duration = _audioEngine.duration;
+    final position = _audioEngine.position;
+    if (duration == null ||
+        duration <= Duration.zero ||
+        position <= Duration.zero) {
+      return null;
     }
-
-    _resetPlaybackDiagnostics();
-    _resetWindowsProgressRecovery();
-    _didRecordCompletion = false;
-    final normalizedPath = _normalizedAbsolutePath(track.filePath);
-    _emit(
-      _state.copyWith(
-        currentTrack: track,
-        isPlaying: false,
-        position: Duration.zero,
-        duration: _effectiveDuration(null, track),
-        status: PlayerPlaybackStatus.loading,
-        errorMessage: null,
-      ),
-    );
-
-    _debugLogPlaybackDiagnostics(
-      originalPath: track.filePath,
-      sourcePath: normalizedPath,
-      strategy: _initialLoadStrategy(normalizedPath),
-      targetPath: _shouldUseWindowsPlaybackCache(normalizedPath)
-          ? null
-          : normalizedPath,
-    );
-
-    if (!_fileExists(normalizedPath)) {
-      _debugLogPlaybackDiagnostics(
-        originalPath: track.filePath,
-        sourcePath: normalizedPath,
-        strategy: _initialLoadStrategy(normalizedPath),
-        error: FileSystemException('File not found', normalizedPath),
-      );
-      await _stopAfterFailure(_playbackLoadFailureMessage);
-      return;
-    }
-
-    try {
-      await _audioEngine.stop();
-      final loadedAudio = await _loadTrackAudio(track, normalizedPath);
-      if (_isDisposed ||
-          _state.status == PlayerPlaybackStatus.error ||
-          _state.currentTrack != track) {
-        return;
-      }
-      _emit(
-        _state.copyWith(
-          currentTrack: track,
-          isPlaying: true,
-          position: Duration.zero,
-          duration: _effectiveDuration(loadedAudio.duration, track),
-          status: PlayerPlaybackStatus.playing,
-          errorMessage: null,
-        ),
-      );
-      _startWindowsProgressRecovery(anchorPosition: Duration.zero);
-      _scheduleWindowsPositionDiagnostics(track);
-      unawaited(_recordPlaybackStarted(track));
-      _playInBackground();
-    } on Object catch (error) {
-      _debugLogPlaybackDiagnostics(
-        originalPath: track.filePath,
-        sourcePath: normalizedPath,
-        strategy: _initialLoadStrategy(normalizedPath),
-        error: error,
-      );
-      await _stopAfterFailure(_playbackLoadFailureMessage);
-    }
+    return duration - position;
   }
 
-  @override
-  Future<void> play() async {
-    final track = _state.currentTrack;
-    if (track == null) {
-      _emit(
-        _state.copyWith(
-          status: PlayerPlaybackStatus.error,
-          errorMessage: 'Выберите трек для воспроизведения.',
-        ),
-      );
-      return;
-    }
+  Future<void> setOutputGain(double gain) => _operations.run(() async {
+        if (_isDisposed) return;
+        _outputGain = gain.clamp(0.0, 1.0);
+        final generation = _sessionGeneration;
+        try {
+          await _audioEngine.setVolume(_state.volume * _outputGain);
+        } on Object catch (error) {
+          if (_isCurrentSession(generation)) {
+            await _stopAfterFailure(generation,
+                'Не удалось изменить громкость перехода: ${_describeError(error)}');
+          }
+        }
+      });
 
-    if (_state.status == PlayerPlaybackStatus.error) {
-      await playTrack(track);
-      return;
-    }
+  /// A full automatic fade finishes the outgoing listening session once.
+  /// Interrupted fades (seek, manual selection, stop) use stop() instead.
+  Future<void> finishCrossfade() => _operations.run(() async {
+        final track = currentTrack;
+        final generation = _sessionGeneration;
+        if (!_isDisposed &&
+            track != null &&
+            _hasStartedSession &&
+            !_didRecordCompletion) {
+          _didRecordCompletion = true;
+          await _recordPlaybackCompleted(track);
+        }
+        if (_isCurrentSession(generation)) await stop();
+      });
 
-    try {
-      if (_state.status == PlayerPlaybackStatus.completed) {
-        _didRecordCompletion = false;
-        await _audioEngine.seek(Duration.zero);
-        _emit(_state.copyWith(position: Duration.zero));
+  Future<void> _loadTrack(Track track, {required bool startPlaying}) =>
+      _operations.run(() async {
+        if (_isDisposed) return;
+        final timer = Stopwatch()..start();
+        diagnostics.record(DiagnosticEvent.audioLoadStarted, fields: {
+          DiagnosticField.trackId: track.id,
+          DiagnosticField.preparing: !startPlaying,
+        });
+        final generation = ++_sessionGeneration;
+        _transportRevision++;
+        _pendingTransportRevision = null;
+        _seekRevision++;
+        _loadingGeneration = generation;
+        _engineGeneration = null;
+        _wantsToPlay = startPlaying;
+        _hasStartedSession = false;
+        _pendingSeek = null;
+        _resetPlaybackDiagnostics();
         _resetWindowsProgressRecovery();
-        unawaited(_recordPlaybackStarted(track));
-      } else if (_state.status == PlayerPlaybackStatus.paused) {
-        unawaited(_recordEvent(track, PlaybackEventType.resumed));
-      }
-
-      _emit(
-        _state.copyWith(
-          isPlaying: true,
-          status: PlayerPlaybackStatus.playing,
+        _didRecordCompletion = false;
+        String? normalizedPath;
+        _emit(_state.copyWith(
+          currentTrack: track,
+          isPlaying: startPlaying,
+          position: Duration.zero,
+          duration: _effectiveDuration(null, track),
+          status: PlayerPlaybackStatus.loading,
           errorMessage: null,
-        ),
-      );
-      _startWindowsProgressRecovery(anchorPosition: _state.position);
-      _playInBackground();
-    } on Object catch (error) {
-      _debugLogAudioError(error);
-      _emitPlaybackError(_playbackLoadFailureMessage);
-    }
-  }
+        ));
+
+        try {
+          final source = track.source;
+          final AudioSourceReference resolved;
+          if (source is FileAudioSource) {
+            normalizedPath = _normalizedAbsolutePath(source.path);
+            resolved = FileAudioSource(normalizedPath);
+            _debugLogPlaybackDiagnostics(
+              originalPath: source.path,
+              sourcePath: normalizedPath,
+              strategy: _initialLoadStrategy(normalizedPath),
+              targetPath: _shouldUseWindowsPlaybackCache(normalizedPath)
+                  ? null
+                  : normalizedPath,
+            );
+            if (!_fileExists(normalizedPath)) {
+              diagnostics.record(DiagnosticEvent.sourceMissing,
+                  fields: {DiagnosticField.trackId: track.id});
+              throw FileSystemException('File not found', normalizedPath);
+            }
+          } else {
+            resolved = source;
+          }
+          await _runEngineCommand(generation, () async {
+            await _stopEngine();
+            _checkSession(generation);
+            final loaded = await _loadTrackAudio(track, resolved, generation,
+                preload: true);
+            _checkSession(generation);
+            final duration = _effectiveDuration(loaded.duration, track);
+            // A seek can arrive while loading or while an earlier seek is pending.
+            // Apply the latest target before enabling playback of this source.
+            while (_pendingSeek != null) {
+              final revision = _seekRevision;
+              final target = _clampPosition(_pendingSeek!, duration);
+              await _audioEngine.seek(target);
+              _checkSession(generation);
+              if (revision == _seekRevision) {
+                _pendingSeek = null;
+                _emit(_state.copyWith(position: target));
+              }
+            }
+            _loadingGeneration = null;
+            _engineGeneration = generation;
+            if (!_wantsToPlay) _pendingTransportRevision = null;
+            _emit(_state.copyWith(
+              duration: duration,
+              isPlaying: _wantsToPlay,
+              status: _wantsToPlay
+                  ? PlayerPlaybackStatus.playing
+                  : PlayerPlaybackStatus.paused,
+              errorMessage: null,
+            ));
+            diagnostics.record(DiagnosticEvent.audioLoadCompleted, fields: {
+              DiagnosticField.trackId: track.id,
+              DiagnosticField.elapsedMs: timer.elapsedMilliseconds,
+              DiagnosticField.durationMs: duration?.inMilliseconds,
+              DiagnosticField.preparing: !startPlaying,
+              DiagnosticField.cached: _leasedCachePath != null,
+            });
+            if (_wantsToPlay) _startPlayback(generation, track);
+          });
+        } on Object catch (error) {
+          if (!_isCurrentSession(generation)) return;
+          diagnostics
+              .record(DiagnosticEvent.audioLoadFailed, error: error, fields: {
+            DiagnosticField.trackId: track.id,
+            DiagnosticField.elapsedMs: timer.elapsedMilliseconds,
+            if (error is just_audio.PlayerException)
+              DiagnosticField.nativeCode: error.code,
+          });
+          if (normalizedPath != null) {
+            _debugLogPlaybackDiagnostics(
+              originalPath: track.filePath,
+              sourcePath: normalizedPath,
+              strategy: _initialLoadStrategy(normalizedPath),
+              error: error,
+            );
+          }
+          await _stopAfterFailure(generation, _playbackLoadFailureMessage,
+              failureKind: PlayerFailureKind.source);
+        }
+      });
 
   @override
-  Future<void> pause() async {
-    final track = _state.currentTrack;
-    if (track == null || !_state.isPlaying) {
-      return;
-    }
+  Future<void> play() => _operations.run(() async {
+        if (_isDisposed) return;
+        final track = _state.currentTrack;
+        if (track == null) {
+          _emit(_state.copyWith(
+            status: PlayerPlaybackStatus.error,
+            errorMessage: 'Выберите трек для воспроизведения.',
+          ));
+          return;
+        }
+        if (_state.status == PlayerPlaybackStatus.error ||
+            _state.status == PlayerPlaybackStatus.completed) {
+          await playTrack(track);
+          return;
+        }
+        if (_wantsToPlay) return;
+        final generation = _sessionGeneration;
+        final revision = ++_transportRevision;
+        _pendingTransportRevision = revision;
+        _wantsToPlay = true;
+        _emit(_state.copyWith(
+          isPlaying: true,
+          status: _loadingGeneration == generation
+              ? PlayerPlaybackStatus.loading
+              : PlayerPlaybackStatus.playing,
+          errorMessage: null,
+        ));
+        if (_loadingGeneration == generation) return;
+        await _runEngineCommand(generation, () async {
+          if (revision != _transportRevision) return;
+          _startPlayback(generation, track);
+        });
+      });
 
-    try {
-      await _audioEngine.pause();
-      _resetWindowsProgressRecovery();
-      _emit(
-        _state.copyWith(
+  @override
+  Future<void> pause() => _operations.run(() async {
+        if (_isDisposed || _state.currentTrack == null || !_wantsToPlay) return;
+        diagnostics.record(DiagnosticEvent.audioPauseRequested,
+            fields: {DiagnosticField.trackId: currentTrack?.id});
+        final track = _state.currentTrack!;
+        final generation = _sessionGeneration;
+        final revision = ++_transportRevision;
+        _pendingTransportRevision = revision;
+        _wantsToPlay = false;
+        _resetWindowsProgressRecovery();
+        _emit(_state.copyWith(
           isPlaying: false,
           status: PlayerPlaybackStatus.paused,
           errorMessage: null,
-        ),
-      );
-      unawaited(_recordEvent(track, PlaybackEventType.paused));
-    } on Object catch (error) {
-      _emitPlaybackError(
-        'Не удалось поставить воспроизведение на паузу: '
-        '${_describeError(error)}',
-      );
+        ));
+        if (_loadingGeneration == generation) return;
+        try {
+          await _runEngineCommand(generation, () async {
+            if (revision != _transportRevision) return;
+            await _audioEngine.pause();
+            if (!_isCurrentSession(generation) ||
+                revision != _transportRevision) {
+              return;
+            }
+            if (_hasStartedSession) {
+              unawaited(_recordEvent(track, PlaybackEventType.paused));
+            }
+          });
+        } on Object catch (error) {
+          if (!_isCurrentSession(generation) ||
+              revision != _transportRevision) {
+            return;
+          }
+          await _stopAfterFailure(generation,
+              'Не удалось поставить воспроизведение на паузу: ${_describeError(error)}');
+        }
+      });
+
+  @override
+  Future<void> stop() => _operations.run(() async {
+        if (_isDisposed) return;
+        final generation = ++_sessionGeneration;
+        _transportRevision++;
+        _pendingTransportRevision = null;
+        _seekRevision++;
+        _loadingGeneration = null;
+        _engineGeneration = null;
+        _wantsToPlay = false;
+        _hasStartedSession = false;
+        _pendingSeek = null;
+        _resetPlaybackDiagnostics();
+        _resetWindowsProgressRecovery();
+        _didRecordCompletion = false;
+        _emit(PlayerState(
+            volume: _state.volume, status: PlayerPlaybackStatus.stopped));
+        try {
+          await _runEngineCommand(generation, _stopEngine);
+        } on Object catch (error) {
+          if (!_isCurrentSession(generation)) return;
+          await _stopAfterFailure(generation,
+              'Не удалось остановить воспроизведение: ${_describeError(error)}');
+        }
+      });
+
+  @override
+  Future<void> seek(Duration position) => _operations.run(() async {
+        if (_isDisposed || _state.currentTrack == null) return;
+        final generation = _sessionGeneration;
+        final revision = ++_seekRevision;
+        final target = _clampPosition(position, _state.duration);
+        _pendingSeek = target;
+        _resetWindowsProgressRecovery();
+        _emit(_state.copyWith(position: target, errorMessage: null));
+        if (_loadingGeneration == generation) return;
+        try {
+          await _runEngineCommand(generation, () async {
+            if (revision != _seekRevision) return;
+            await _audioEngine.seek(target);
+            if (!_isCurrentSession(generation) || revision != _seekRevision) {
+              return;
+            }
+            _pendingSeek = null;
+            _emit(_state.copyWith(position: target, errorMessage: null));
+            _startWindowsProgressRecovery(anchorPosition: target);
+          });
+        } on Object catch (error) {
+          if (!_isCurrentSession(generation) || revision != _seekRevision) {
+            return;
+          }
+          await _stopAfterFailure(generation,
+              'Не удалось перейти к позиции: ${_describeError(error)}');
+        }
+      });
+
+  bool _isCurrentSession(int generation) =>
+      !_isDisposed && generation == _sessionGeneration;
+
+  void _checkSession(int generation) {
+    if (!_isCurrentSession(generation)) throw const _ObsoletePlayback();
+  }
+
+  Future<void> _runEngineCommand(
+    int generation,
+    Future<void> Function() command,
+  ) {
+    final result = _engineCommands.then((_) async {
+      if (_isCurrentSession(generation)) await command();
+    });
+    // A failed command must not prevent later commands from being processed.
+    _engineCommands =
+        result.then((_) {}, onError: (Object _, StackTrace __) {});
+    return result;
+  }
+
+  void _startPlayback(int generation, Track track) {
+    if (!_isCurrentSession(generation) || !_wantsToPlay) return;
+    diagnostics.record(DiagnosticEvent.audioPlayRequested,
+        fields: {DiagnosticField.trackId: track.id});
+    if (_hasStartedSession) {
+      unawaited(_recordEvent(track, PlaybackEventType.resumed));
+    } else {
+      _hasStartedSession = true;
+      unawaited(_recordPlaybackStarted(track));
     }
+    _startWindowsProgressRecovery(anchorPosition: _state.position);
+    _scheduleWindowsPositionDiagnostics(track);
+    _pendingTransportRevision = _transportRevision;
+    unawaited(_playAndReportErrors(generation, _transportRevision));
   }
 
   @override
-  Future<void> stop() async {
-    if (_state.currentTrack == null && !_state.isPlaying) {
-      return;
-    }
-
-    try {
-      await _audioEngine.stop();
-      _resetWindowsProgressRecovery();
-      _didRecordCompletion = false;
-      _emit(
-        PlayerState(
-          volume: _state.volume,
-          status: PlayerPlaybackStatus.stopped,
-        ),
-      );
-    } on Object catch (error) {
-      _emitPlaybackError(
-        'Не удалось остановить воспроизведение: ${_describeError(error)}',
-      );
-    }
-  }
-
-  @override
-  Future<void> seek(Duration position) async {
-    final track = _state.currentTrack;
-    if (track == null) {
-      return;
-    }
-
-    final target = _clampPosition(position, _state.duration);
-    try {
-      await _audioEngine.seek(target);
-      _resetWindowsProgressRecovery();
-      _emit(
-        _state.copyWith(
-          position: target,
-          errorMessage: null,
-        ),
-      );
-      _startWindowsProgressRecovery(anchorPosition: target);
-    } on Object catch (error) {
-      _emitPlaybackError(
-        'Не удалось перейти к позиции: ${_describeError(error)}',
-      );
-    }
-  }
-
-  @override
-  Future<void> setVolume(double volume) async {
-    final normalizedVolume = _normalizeVolume(volume);
-    try {
-      await _audioEngine.setVolume(normalizedVolume);
-      if (normalizedVolume > 0) {
-        _previousVolumeBeforeMute = normalizedVolume;
-      }
-      _emit(
-        _state.copyWith(
-          volume: normalizedVolume,
-          errorMessage: null,
-        ),
-      );
-      await _persistVolume(normalizedVolume);
-    } on Object catch (error) {
-      _emitPlaybackError(
-        'Не удалось изменить громкость: ${_describeError(error)}',
-      );
-    }
-  }
+  Future<void> setVolume(double volume) => _operations.run(() async {
+        if (_isDisposed) return;
+        final normalizedVolume = _normalizeVolume(volume);
+        try {
+          await _audioEngine.setVolume(normalizedVolume * _outputGain);
+          if (_isDisposed) return;
+          if (normalizedVolume > 0) {
+            _previousVolumeBeforeMute = normalizedVolume;
+          }
+          _emit(
+            _state.copyWith(
+              volume: normalizedVolume,
+              errorMessage: null,
+            ),
+          );
+          await _persistVolume(normalizedVolume);
+        } on Object catch (error) {
+          _emitPlaybackError(
+            'Не удалось изменить громкость: ${_describeError(error)}',
+          );
+        }
+      });
 
   @override
   Future<void> increaseVolume() {
@@ -455,98 +632,132 @@ final class JustAudioPlayerService implements PlayerService {
   }
 
   @override
-  Future<void> toggleMute() async {
-    if (_state.volume > 0) {
-      _previousVolumeBeforeMute = _state.volume;
-      await _persistPreviousVolumeBeforeMute(_previousVolumeBeforeMute);
-      await setVolume(0);
-      return;
-    }
+  Future<void> toggleMute() => _operations.run(() async {
+        if (_isDisposed) return;
+        if (_state.volume > 0) {
+          _previousVolumeBeforeMute = _state.volume;
+          await _persistPreviousVolumeBeforeMute(_previousVolumeBeforeMute);
+          await setVolume(0);
+          return;
+        }
 
-    await setVolume(_volumeToRestoreAfterMute());
-  }
+        await setVolume(_volumeToRestoreAfterMute());
+      });
 
-  Future<void> restoreSavedVolume() async {
-    final settings = _settings;
-    if (settings == null || _isDisposed) {
-      return;
-    }
+  Future<void> restoreSavedVolume() => _operations.run(() async {
+        final settings = _settings;
+        if (settings == null || _isDisposed) {
+          return;
+        }
 
-    final savedPreviousVolume = _parseVolume(
-        await settings.readString(_previousVolumeBeforeMuteSettingKey));
-    if (savedPreviousVolume != null && savedPreviousVolume > 0) {
-      _previousVolumeBeforeMute = savedPreviousVolume;
-    }
+        final savedPreviousVolume = _parseVolume(
+            await settings.readString(_previousVolumeBeforeMuteSettingKey));
+        if (_isDisposed) return;
+        if (savedPreviousVolume != null && savedPreviousVolume > 0) {
+          _previousVolumeBeforeMute = savedPreviousVolume;
+        }
 
-    final savedVolume =
-        _parseVolume(await settings.readString(_volumeSettingKey));
-    if (savedVolume == null) {
-      return;
-    }
+        final savedVolume =
+            _parseVolume(await settings.readString(_volumeSettingKey));
+        if (_isDisposed) return;
+        if (savedVolume == null) {
+          return;
+        }
 
-    await setVolume(savedVolume);
-  }
+        await setVolume(savedVolume);
+      });
 
   @override
-  Future<void> dispose() async {
-    if (_isDisposed) {
-      return;
-    }
-
+  Future<void> dispose() {
+    if (_closing != null) return _closing!;
+    _isDisposed = true;
+    _operations.closeAdmission();
     _positionDiagnosticsTimer?.cancel();
     _resetWindowsProgressRecovery();
-    _isDisposed = true;
-    for (final subscription in _subscriptions) {
-      await subscription.cancel();
+    _sessionGeneration++;
+    _engineGeneration = null;
+    _loadingGeneration = null;
+    _wantsToPlay = false;
+    _pendingTransportRevision = null;
+    for (final waiter in _playWaiters.toList(growable: false)) {
+      if (!waiter.isCompleted) waiter.complete();
     }
-    await _audioEngine.dispose();
-    await _stateController.close();
+    return _closing = finishCleanup([
+      for (final subscription in _subscriptions) subscription.cancel,
+      // Dispose interrupts native play/load futures. Waiting for those first
+      // would deadlock on engines whose play completes only at track end.
+      _audioEngine.dispose,
+      _operations.drain,
+      () async {
+        _releaseCacheLease();
+      },
+      _stateController.close,
+    ]);
   }
 
+  bool get _canHandleEngineEvents =>
+      !_isDisposed &&
+      _engineGeneration == _sessionGeneration &&
+      _loadingGeneration == null &&
+      _state.currentTrack != null &&
+      _state.status != PlayerPlaybackStatus.error;
+
   void _handleAudioState(AudioEngineState audioState) {
-    if (_isDisposed) {
+    if (!_canHandleEngineEvents ||
+        _state.status == PlayerPlaybackStatus.completed) {
       return;
     }
-    if (_state.status == PlayerPlaybackStatus.error) {
-      return;
-    }
-
-    final status = switch (audioState.processingState) {
-      AudioEngineProcessingState.idle =>
-        _state.currentTrack == null ? PlayerPlaybackStatus.idle : _state.status,
-      AudioEngineProcessingState.loading ||
-      AudioEngineProcessingState.buffering =>
-        PlayerPlaybackStatus.loading,
-      AudioEngineProcessingState.ready => audioState.isPlaying
-          ? PlayerPlaybackStatus.playing
-          : _state.currentTrack == null
-              ? PlayerPlaybackStatus.idle
-              : PlayerPlaybackStatus.paused,
-      AudioEngineProcessingState.completed => PlayerPlaybackStatus.completed,
-    };
-
     final completed =
         audioState.processingState == AudioEngineProcessingState.completed;
-    final nextPosition = completed && _state.duration != null
-        ? _state.duration!
-        : _state.position;
-
-    _emit(
-      _state.copyWith(
-        isPlaying: completed ? false : audioState.isPlaying,
-        position: nextPosition,
-        status: status,
-      ),
-    );
-
-    if (completed) {
-      _resetWindowsProgressRecovery();
-    } else if (_shouldRunWindowsProgressRecovery) {
-      _startWindowsProgressRecovery(anchorPosition: _state.position);
-    } else if (status != PlayerPlaybackStatus.playing) {
-      _resetWindowsProgressRecovery();
+    var transportAcknowledged = false;
+    if (audioState.processingState == AudioEngineProcessingState.idle ||
+        (completed && (!_wantsToPlay || !_hasStartedSession))) {
+      return;
     }
-
+    if (completed) {
+      _wantsToPlay = false;
+      _pendingTransportRevision = null;
+      _transportRevision++;
+    } else if (_pendingTransportRevision != null) {
+      // Ignore a queued notification of the previous transport intent. Once
+      // the engine confirms this command, native interruptions can pause it.
+      if (audioState.isPlaying != _wantsToPlay) return;
+      _pendingTransportRevision = null;
+      transportAcknowledged = true;
+    } else if (audioState.isPlaying != _wantsToPlay) {
+      _wantsToPlay = audioState.isPlaying;
+      _transportRevision++;
+    }
+    final buffering =
+        audioState.processingState == AudioEngineProcessingState.loading ||
+            audioState.processingState == AudioEngineProcessingState.buffering;
+    final status = completed
+        ? PlayerPlaybackStatus.completed
+        : !_wantsToPlay
+            ? PlayerPlaybackStatus.paused
+            : buffering
+                ? PlayerPlaybackStatus.loading
+                : PlayerPlaybackStatus.playing;
+    if (transportAcknowledged ||
+        status != _state.status ||
+        _wantsToPlay != _state.isPlaying) {
+      diagnostics.record(DiagnosticEvent.audioStateChanged, fields: {
+        DiagnosticField.trackId: currentTrack?.id,
+        DiagnosticField.playing: _wantsToPlay,
+      });
+    }
+    _emit(_state.copyWith(
+      isPlaying: _wantsToPlay,
+      position: completed && _state.duration != null
+          ? _state.duration!
+          : _state.position,
+      status: status,
+    ));
+    if (completed || status != PlayerPlaybackStatus.playing) {
+      _resetWindowsProgressRecovery();
+    } else {
+      _startWindowsProgressRecovery(anchorPosition: _state.position);
+    }
     final track = _state.currentTrack;
     if (completed && track != null && !_didRecordCompletion) {
       _didRecordCompletion = true;
@@ -555,11 +766,12 @@ final class JustAudioPlayerService implements PlayerService {
   }
 
   void _handlePosition(Duration position) {
-    if (_isDisposed || _state.status == PlayerPlaybackStatus.completed) {
+    if (!_canHandleEngineEvents ||
+        _pendingSeek != null ||
+        _state.status == PlayerPlaybackStatus.completed) {
       return;
     }
-
-    _positionEventsSinceLoad += 1;
+    _positionEventsSinceLoad++;
     final previousPosition = _state.position;
     _emit(_state.copyWith(position: position));
     if (_isWindows && position != previousPosition) {
@@ -568,45 +780,53 @@ final class JustAudioPlayerService implements PlayerService {
   }
 
   void _handleDuration(Duration? duration) {
-    if (_isDisposed) {
-      return;
-    }
-
-    _durationEventsSinceLoad += 1;
-    final effectiveDuration = _effectiveDuration(duration, _state.currentTrack);
-    _emit(_state.copyWith(duration: effectiveDuration));
+    if (!_canHandleEngineEvents) return;
+    _durationEventsSinceLoad++;
+    _emit(_state.copyWith(
+        duration: _effectiveDuration(duration, _state.currentTrack)));
   }
 
   void _handleAudioError(Object error) {
-    if (_isDisposed || _state.currentTrack == null) {
+    if (!_canHandleEngineEvents ||
+        _state.status == PlayerPlaybackStatus.completed) {
       return;
     }
-
     _debugLogAudioError(error);
-    unawaited(
-      _stopAfterFailure(_playbackLoadFailureMessage),
-    );
+    unawaited(_stopAfterFailure(_sessionGeneration, _playbackLoadFailureMessage,
+        failureKind: PlayerFailureKind.source));
   }
 
   Future<_LoadedAudio> _loadTrackAudio(
     Track track,
-    String normalizedPath,
-  ) async {
+    AudioSourceReference source,
+    int generation, {
+    required bool preload,
+  }) async {
+    if (source is ContentUriAudioSource) {
+      final duration = await _audioEngine.setSource(source, preload: preload);
+      _checkSession(generation);
+      return _LoadedAudio(duration: duration);
+    }
+    final normalizedPath = (source as FileAudioSource).path;
     if (_shouldUseWindowsPlaybackCache(normalizedPath)) {
       return _loadFromWindowsCache(
         track: track,
         normalizedPath: normalizedPath,
         directError: null,
+        generation: generation,
+        preload: preload,
       );
     }
 
     try {
-      final duration = await _audioEngine.setFilePath(
-        normalizedPath,
-        preload: false,
+      final duration = await _audioEngine.setSource(
+        source,
+        preload: preload,
       );
+      _checkSession(generation);
       return _LoadedAudio(duration: duration);
     } on Object catch (directError) {
+      _checkSession(generation);
       _debugLogPlaybackDiagnostics(
         originalPath: track.filePath,
         sourcePath: normalizedPath,
@@ -623,6 +843,8 @@ final class JustAudioPlayerService implements PlayerService {
         track: track,
         normalizedPath: normalizedPath,
         directError: directError,
+        generation: generation,
+        preload: preload,
       );
     }
   }
@@ -631,12 +853,22 @@ final class JustAudioPlayerService implements PlayerService {
     required Track track,
     required String normalizedPath,
     required Object? directError,
+    required int generation,
+    required bool preload,
   }) async {
     PlaybackCacheEntry? cached;
     final strategy =
         directError == null ? 'cache' : 'cache_after_direct_failure';
     try {
-      cached = await _playbackCache.resolve(track, normalizedPath);
+      final cache = _playbackCache;
+      cached = cache is ProtectedPlaybackCache
+          ? await cache.acquire(track, normalizedPath)
+          : await cache.resolve(track, normalizedPath);
+      if (!_isCurrentSession(generation)) {
+        if (cache is ProtectedPlaybackCache) cache.release(cached.filePath);
+        _checkSession(generation);
+      }
+      if (cache is ProtectedPlaybackCache) _leasedCachePath = cached.filePath;
       _debugLogPlaybackDiagnostics(
         originalPath: track.filePath,
         sourcePath: normalizedPath,
@@ -644,12 +876,14 @@ final class JustAudioPlayerService implements PlayerService {
         targetPath: cached.filePath,
         cacheEntry: cached,
       );
-      final duration = await _audioEngine.setFilePath(
-        cached.filePath,
-        preload: false,
+      final duration = await _audioEngine.setSource(
+        FileAudioSource(cached.filePath),
+        preload: preload,
       );
+      _checkSession(generation);
       return _LoadedAudio(duration: duration);
     } on Object catch (cacheError) {
+      _checkSession(generation);
       _debugLogPlaybackDiagnostics(
         originalPath: track.filePath,
         sourcePath: normalizedPath,
@@ -662,48 +896,90 @@ final class JustAudioPlayerService implements PlayerService {
     }
   }
 
-  void _playInBackground() {
-    unawaited(_playAndReportErrors());
+  Future<void> _stopEngine() async {
+    await _audioEngine.stop();
+    _releaseCacheLease();
   }
 
-  Future<void> _playAndReportErrors() async {
-    try {
-      await _audioEngine.play();
-    } on Object catch (error) {
-      _debugLogAudioError(error);
-      _emitPlaybackError(_playbackLoadFailureMessage);
-    }
+  void _releaseCacheLease() {
+    final path = _leasedCachePath;
+    _leasedCachePath = null;
+    final cache = _playbackCache;
+    if (path != null && cache is ProtectedPlaybackCache) cache.release(path);
   }
 
-  Future<void> _stopAfterFailure(String message) async {
-    try {
-      await _audioEngine.stop();
-    } on Object {
-      // Keep the user-facing error focused on the original playback failure.
-    }
+  Future<void> _playAndReportErrors(int generation, int revision) =>
+      _operations.run(() async {
+        try {
+          // just_audio's Play may wait until playback ends (or remain pending
+          // after audio-session activation fails). Native disposal owns stopping
+          // sound; this signal ends only our wait and handles any late error.
+          await _waitForNativePlay();
+        } on Object catch (error) {
+          if (!_isCurrentSession(generation) ||
+              revision != _transportRevision) {
+            return;
+          }
+          _debugLogAudioError(error);
+          await _stopAfterFailure(generation, _playbackLoadFailureMessage,
+              failureKind: PlayerFailureKind.source);
+        }
+      });
 
-    _resetWindowsProgressRecovery();
-    _didRecordCompletion = false;
-    _emit(
-      PlayerState(
-        currentTrack: _state.currentTrack,
-        duration: _state.duration,
-        volume: _state.volume,
-        status: PlayerPlaybackStatus.error,
-        errorMessage: message,
-      ),
-    );
+  Future<void> _waitForNativePlay() {
+    final waiter = Completer<void>();
+    _playWaiters.add(waiter);
+    unawaited(Future<void>.sync(_audioEngine.play).then((_) {
+      if (!waiter.isCompleted) waiter.complete();
+    }, onError: (Object error, StackTrace stack) {
+      if (!waiter.isCompleted) waiter.completeError(error, stack);
+    }));
+    return waiter.future.whenComplete(() => _playWaiters.remove(waiter));
   }
+
+  Future<void> _stopAfterFailure(
+    int generation,
+    String message, {
+    PlayerFailureKind failureKind = PlayerFailureKind.operation,
+  }) =>
+      _operations.run(() async {
+        if (!_isCurrentSession(generation)) return;
+        if (failureKind == PlayerFailureKind.operation) {
+          diagnostics.record(DiagnosticEvent.audioOperationFailed,
+              fields: {DiagnosticField.trackId: currentTrack?.id});
+        }
+        _transportRevision++;
+        _pendingTransportRevision = null;
+        _loadingGeneration = null;
+        _engineGeneration = null;
+        _wantsToPlay = false;
+        _pendingSeek = null;
+        _resetWindowsProgressRecovery();
+        _didRecordCompletion = false;
+        _emit(PlayerState(
+          currentTrack: _state.currentTrack,
+          duration: _state.duration,
+          volume: _state.volume,
+          status: PlayerPlaybackStatus.error,
+          errorMessage: message,
+          failureKind: failureKind,
+        ));
+        try {
+          await _runEngineCommand(generation, _stopEngine);
+        } on Object {
+          // Keep the user-facing error focused on the original playback failure.
+        }
+      });
 
   void _emitPlaybackError(String message) {
+    if (_isDisposed) return;
     _resetWindowsProgressRecovery();
-    _emit(
-      _state.copyWith(
-        isPlaying: false,
-        status: PlayerPlaybackStatus.error,
-        errorMessage: message,
-      ),
-    );
+    _wantsToPlay = false;
+    _emit(_state.copyWith(
+      isPlaying: false,
+      status: PlayerPlaybackStatus.error,
+      errorMessage: message,
+    ));
   }
 
   void _emit(PlayerState state) {
@@ -832,24 +1108,13 @@ final class JustAudioPlayerService implements PlayerService {
 
     final now = DateTime.now();
     await _recordSafely(() async {
-      await _playbackEvents.addEvent(
-        PlaybackEvent(
+      await _playbackEvents.recordEvent(
+        PlaybackEvent.recording(
           trackId: trackId,
           type: PlaybackEventType.started,
           occurredAt: now,
-          position: Duration.zero,
+          position: _state.position,
           trackDuration: _state.duration ?? track.duration,
-        ),
-      );
-
-      final existing = await _trackUserState.findByTrackId(trackId);
-      await _trackUserState.upsertState(
-        _copyUserState(
-          existing,
-          trackId: trackId,
-          playCount: (existing?.playCount ?? 0) + 1,
-          lastPlayedAt: now,
-          updatedAt: now,
         ),
       );
     });
@@ -863,24 +1128,13 @@ final class JustAudioPlayerService implements PlayerService {
 
     final now = DateTime.now();
     await _recordSafely(() async {
-      await _playbackEvents.addEvent(
-        PlaybackEvent(
+      await _playbackEvents.recordEvent(
+        PlaybackEvent.recording(
           trackId: trackId,
           type: PlaybackEventType.completed,
           occurredAt: now,
           position: _state.position,
           trackDuration: _state.duration ?? track.duration,
-        ),
-      );
-
-      final existing = await _trackUserState.findByTrackId(trackId);
-      await _trackUserState.upsertState(
-        _copyUserState(
-          existing,
-          trackId: trackId,
-          completeCount: (existing?.completeCount ?? 0) + 1,
-          lastCompletedAt: now,
-          updatedAt: now,
         ),
       );
     });
@@ -896,8 +1150,8 @@ final class JustAudioPlayerService implements PlayerService {
     }
 
     await _recordSafely(() async {
-      await _playbackEvents.addEvent(
-        PlaybackEvent(
+      await _playbackEvents.recordEvent(
+        PlaybackEvent.recording(
           trackId: trackId,
           type: type,
           occurredAt: DateTime.now(),
@@ -908,44 +1162,21 @@ final class JustAudioPlayerService implements PlayerService {
     });
   }
 
-  Future<void> _recordSafely(Future<void> Function() write) async {
-    try {
-      await write();
-    } on Object catch (error) {
-      _emit(
-        _state.copyWith(
-          errorMessage: 'История воспроизведения не была сохранена: '
-              '${_describeError(error)}',
-        ),
-      );
-    }
-  }
-
-  TrackUserState _copyUserState(
-    TrackUserState? existing, {
-    required int trackId,
-    int? playCount,
-    int? completeCount,
-    DateTime? lastPlayedAt,
-    DateTime? lastCompletedAt,
-    required DateTime updatedAt,
-  }) {
-    return TrackUserState(
-      trackId: trackId,
-      isFavorite: existing?.isFavorite ?? false,
-      isHidden: existing?.isHidden ?? false,
-      rating: existing?.rating,
-      playCount: playCount ?? existing?.playCount ?? 0,
-      completeCount: completeCount ?? existing?.completeCount ?? 0,
-      skipCount: existing?.skipCount ?? 0,
-      lastPlayedAt: lastPlayedAt ?? existing?.lastPlayedAt,
-      lastSkippedAt: existing?.lastSkippedAt,
-      lastCompletedAt: lastCompletedAt ?? existing?.lastCompletedAt,
-      userScoreBoost: existing?.userScoreBoost ?? 0,
-      preferredWaveMode: existing?.preferredWaveMode,
-      updatedAt: updatedAt,
-    );
-  }
+  Future<void> _recordSafely(Future<void> Function() write) =>
+      _operations.run(() async {
+        try {
+          await write();
+        } on Object catch (error) {
+          diagnostics.record(DiagnosticEvent.playbackHistoryWriteFailed,
+              error: error);
+          _emit(
+            _state.copyWith(
+              errorMessage: 'История воспроизведения не была сохранена: '
+                  '${_describeError(error)}',
+            ),
+          );
+        }
+      });
 
   Duration _clampPosition(Duration position, Duration? duration) {
     if (position < Duration.zero) {
@@ -1013,6 +1244,7 @@ final class JustAudioPlayerService implements PlayerService {
     try {
       await settings.writeString(key, value);
     } on Object catch (error) {
+      diagnostics.record(DiagnosticEvent.settingsWriteFailed, error: error);
       if (kDebugMode) {
         debugPrint('JustAudioPlayerService settings write failed: $error');
       }
@@ -1068,6 +1300,12 @@ final class JustAudioPlayerService implements PlayerService {
   }
 
   void _debugLogAudioError(Object error) {
+    diagnostics
+        .record(DiagnosticEvent.audioEngineFailed, error: error, fields: {
+      DiagnosticField.trackId: currentTrack?.id,
+      if (error is just_audio.PlayerException)
+        DiagnosticField.nativeCode: error.code,
+    });
     if (!kDebugMode || !_isWindows) {
       return;
     }
@@ -1160,6 +1398,10 @@ final class JustAudioPlayerService implements PlayerService {
 
     return error.toString();
   }
+}
+
+final class _ObsoletePlayback implements Exception {
+  const _ObsoletePlayback();
 }
 
 final class _LoadedAudio {

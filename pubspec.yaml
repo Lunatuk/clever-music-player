@@ -8,7 +8,10 @@ environment:
   sdk: ^3.6.0
 
 dependencies:
+  audio_service: 0.18.19
+  audio_session: 0.2.3
   crypto: ^3.0.6
+  ffi: ^2.2.0
   file_picker: ^10.3.3
   flutter:
     sdk: flutter
@@ -29,6 +32,8 @@ dev_dependencies:
     sdk: flutter
 
 dependency_overrides:
+  audio_metadata_reader:
+    path: third_party/audio_metadata_reader
   just_audio_windows:
     path: third_party/just_audio_windows
   # smtc_windows 1.1.0 was generated with flutter_rust_bridge 2.11.1.

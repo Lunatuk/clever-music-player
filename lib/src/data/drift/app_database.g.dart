@@ -2381,6 +2381,12 @@ class $PlaybackEventsTable extends PlaybackEvents
       requiredDuringInsert: false,
       defaultConstraints:
           GeneratedColumn.constraintIsAlways('PRIMARY KEY AUTOINCREMENT'));
+  static const VerificationMeta _operationIdMeta =
+      const VerificationMeta('operationId');
+  @override
+  late final GeneratedColumn<String> operationId = GeneratedColumn<String>(
+      'operation_id', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
   static const VerificationMeta _trackIdMeta =
       const VerificationMeta('trackId');
   @override
@@ -2429,6 +2435,7 @@ class $PlaybackEventsTable extends PlaybackEvents
   @override
   List<GeneratedColumn> get $columns => [
         id,
+        operationId,
         trackId,
         eventType,
         occurredAt,
@@ -2449,6 +2456,12 @@ class $PlaybackEventsTable extends PlaybackEvents
     final data = instance.toColumns(true);
     if (data.containsKey('id')) {
       context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('operation_id')) {
+      context.handle(
+          _operationIdMeta,
+          operationId.isAcceptableOrUnknown(
+              data['operation_id']!, _operationIdMeta));
     }
     if (data.containsKey('track_id')) {
       context.handle(_trackIdMeta,
@@ -2503,6 +2516,8 @@ class $PlaybackEventsTable extends PlaybackEvents
     return PlaybackEventRow(
       id: attachedDatabase.typeMapping
           .read(DriftSqlType.int, data['${effectivePrefix}id'])!,
+      operationId: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}operation_id']),
       trackId: attachedDatabase.typeMapping
           .read(DriftSqlType.int, data['${effectivePrefix}track_id'])!,
       eventType: attachedDatabase.typeMapping
@@ -2529,6 +2544,7 @@ class $PlaybackEventsTable extends PlaybackEvents
 class PlaybackEventRow extends DataClass
     implements Insertable<PlaybackEventRow> {
   final int id;
+  final String? operationId;
   final int trackId;
   final String eventType;
   final DateTime occurredAt;
@@ -2538,6 +2554,7 @@ class PlaybackEventRow extends DataClass
   final String? metadataJson;
   const PlaybackEventRow(
       {required this.id,
+      this.operationId,
       required this.trackId,
       required this.eventType,
       required this.occurredAt,
@@ -2549,6 +2566,9 @@ class PlaybackEventRow extends DataClass
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
     map['id'] = Variable<int>(id);
+    if (!nullToAbsent || operationId != null) {
+      map['operation_id'] = Variable<String>(operationId);
+    }
     map['track_id'] = Variable<int>(trackId);
     map['event_type'] = Variable<String>(eventType);
     map['occurred_at'] = Variable<DateTime>(occurredAt);
@@ -2570,6 +2590,9 @@ class PlaybackEventRow extends DataClass
   PlaybackEventsCompanion toCompanion(bool nullToAbsent) {
     return PlaybackEventsCompanion(
       id: Value(id),
+      operationId: operationId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(operationId),
       trackId: Value(trackId),
       eventType: Value(eventType),
       occurredAt: Value(occurredAt),
@@ -2593,6 +2616,7 @@ class PlaybackEventRow extends DataClass
     serializer ??= driftRuntimeOptions.defaultSerializer;
     return PlaybackEventRow(
       id: serializer.fromJson<int>(json['id']),
+      operationId: serializer.fromJson<String?>(json['operationId']),
       trackId: serializer.fromJson<int>(json['trackId']),
       eventType: serializer.fromJson<String>(json['eventType']),
       occurredAt: serializer.fromJson<DateTime>(json['occurredAt']),
@@ -2607,6 +2631,7 @@ class PlaybackEventRow extends DataClass
     serializer ??= driftRuntimeOptions.defaultSerializer;
     return <String, dynamic>{
       'id': serializer.toJson<int>(id),
+      'operationId': serializer.toJson<String?>(operationId),
       'trackId': serializer.toJson<int>(trackId),
       'eventType': serializer.toJson<String>(eventType),
       'occurredAt': serializer.toJson<DateTime>(occurredAt),
@@ -2619,6 +2644,7 @@ class PlaybackEventRow extends DataClass
 
   PlaybackEventRow copyWith(
           {int? id,
+          Value<String?> operationId = const Value.absent(),
           int? trackId,
           String? eventType,
           DateTime? occurredAt,
@@ -2628,6 +2654,7 @@ class PlaybackEventRow extends DataClass
           Value<String?> metadataJson = const Value.absent()}) =>
       PlaybackEventRow(
         id: id ?? this.id,
+        operationId: operationId.present ? operationId.value : this.operationId,
         trackId: trackId ?? this.trackId,
         eventType: eventType ?? this.eventType,
         occurredAt: occurredAt ?? this.occurredAt,
@@ -2640,6 +2667,8 @@ class PlaybackEventRow extends DataClass
   PlaybackEventRow copyWithCompanion(PlaybackEventsCompanion data) {
     return PlaybackEventRow(
       id: data.id.present ? data.id.value : this.id,
+      operationId:
+          data.operationId.present ? data.operationId.value : this.operationId,
       trackId: data.trackId.present ? data.trackId.value : this.trackId,
       eventType: data.eventType.present ? data.eventType.value : this.eventType,
       occurredAt:
@@ -2659,6 +2688,7 @@ class PlaybackEventRow extends DataClass
   String toString() {
     return (StringBuffer('PlaybackEventRow(')
           ..write('id: $id, ')
+          ..write('operationId: $operationId, ')
           ..write('trackId: $trackId, ')
           ..write('eventType: $eventType, ')
           ..write('occurredAt: $occurredAt, ')
@@ -2671,13 +2701,14 @@ class PlaybackEventRow extends DataClass
   }
 
   @override
-  int get hashCode => Object.hash(id, trackId, eventType, occurredAt,
-      positionMs, durationMs, waveMode, metadataJson);
+  int get hashCode => Object.hash(id, operationId, trackId, eventType,
+      occurredAt, positionMs, durationMs, waveMode, metadataJson);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       (other is PlaybackEventRow &&
           other.id == this.id &&
+          other.operationId == this.operationId &&
           other.trackId == this.trackId &&
           other.eventType == this.eventType &&
           other.occurredAt == this.occurredAt &&
@@ -2689,6 +2720,7 @@ class PlaybackEventRow extends DataClass
 
 class PlaybackEventsCompanion extends UpdateCompanion<PlaybackEventRow> {
   final Value<int> id;
+  final Value<String?> operationId;
   final Value<int> trackId;
   final Value<String> eventType;
   final Value<DateTime> occurredAt;
@@ -2698,6 +2730,7 @@ class PlaybackEventsCompanion extends UpdateCompanion<PlaybackEventRow> {
   final Value<String?> metadataJson;
   const PlaybackEventsCompanion({
     this.id = const Value.absent(),
+    this.operationId = const Value.absent(),
     this.trackId = const Value.absent(),
     this.eventType = const Value.absent(),
     this.occurredAt = const Value.absent(),
@@ -2708,6 +2741,7 @@ class PlaybackEventsCompanion extends UpdateCompanion<PlaybackEventRow> {
   });
   PlaybackEventsCompanion.insert({
     this.id = const Value.absent(),
+    this.operationId = const Value.absent(),
     required int trackId,
     required String eventType,
     required DateTime occurredAt,
@@ -2720,6 +2754,7 @@ class PlaybackEventsCompanion extends UpdateCompanion<PlaybackEventRow> {
         occurredAt = Value(occurredAt);
   static Insertable<PlaybackEventRow> custom({
     Expression<int>? id,
+    Expression<String>? operationId,
     Expression<int>? trackId,
     Expression<String>? eventType,
     Expression<DateTime>? occurredAt,
@@ -2730,6 +2765,7 @@ class PlaybackEventsCompanion extends UpdateCompanion<PlaybackEventRow> {
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
+      if (operationId != null) 'operation_id': operationId,
       if (trackId != null) 'track_id': trackId,
       if (eventType != null) 'event_type': eventType,
       if (occurredAt != null) 'occurred_at': occurredAt,
@@ -2742,6 +2778,7 @@ class PlaybackEventsCompanion extends UpdateCompanion<PlaybackEventRow> {
 
   PlaybackEventsCompanion copyWith(
       {Value<int>? id,
+      Value<String?>? operationId,
       Value<int>? trackId,
       Value<String>? eventType,
       Value<DateTime>? occurredAt,
@@ -2751,6 +2788,7 @@ class PlaybackEventsCompanion extends UpdateCompanion<PlaybackEventRow> {
       Value<String?>? metadataJson}) {
     return PlaybackEventsCompanion(
       id: id ?? this.id,
+      operationId: operationId ?? this.operationId,
       trackId: trackId ?? this.trackId,
       eventType: eventType ?? this.eventType,
       occurredAt: occurredAt ?? this.occurredAt,
@@ -2766,6 +2804,9 @@ class PlaybackEventsCompanion extends UpdateCompanion<PlaybackEventRow> {
     final map = <String, Expression>{};
     if (id.present) {
       map['id'] = Variable<int>(id.value);
+    }
+    if (operationId.present) {
+      map['operation_id'] = Variable<String>(operationId.value);
     }
     if (trackId.present) {
       map['track_id'] = Variable<int>(trackId.value);
@@ -2795,6 +2836,7 @@ class PlaybackEventsCompanion extends UpdateCompanion<PlaybackEventRow> {
   String toString() {
     return (StringBuffer('PlaybackEventsCompanion(')
           ..write('id: $id, ')
+          ..write('operationId: $operationId, ')
           ..write('trackId: $trackId, ')
           ..write('eventType: $eventType, ')
           ..write('occurredAt: $occurredAt, ')
@@ -5513,6 +5555,7 @@ typedef $$PlaylistTracksTableProcessedTableManager = ProcessedTableManager<
 typedef $$PlaybackEventsTableCreateCompanionBuilder = PlaybackEventsCompanion
     Function({
   Value<int> id,
+  Value<String?> operationId,
   required int trackId,
   required String eventType,
   required DateTime occurredAt,
@@ -5524,6 +5567,7 @@ typedef $$PlaybackEventsTableCreateCompanionBuilder = PlaybackEventsCompanion
 typedef $$PlaybackEventsTableUpdateCompanionBuilder = PlaybackEventsCompanion
     Function({
   Value<int> id,
+  Value<String?> operationId,
   Value<int> trackId,
   Value<String> eventType,
   Value<DateTime> occurredAt,
@@ -5564,6 +5608,9 @@ class $$PlaybackEventsTableFilterComposer
   });
   ColumnFilters<int> get id => $composableBuilder(
       column: $table.id, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get operationId => $composableBuilder(
+      column: $table.operationId, builder: (column) => ColumnFilters(column));
 
   ColumnFilters<String> get eventType => $composableBuilder(
       column: $table.eventType, builder: (column) => ColumnFilters(column));
@@ -5616,6 +5663,9 @@ class $$PlaybackEventsTableOrderingComposer
   ColumnOrderings<int> get id => $composableBuilder(
       column: $table.id, builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<String> get operationId => $composableBuilder(
+      column: $table.operationId, builder: (column) => ColumnOrderings(column));
+
   ColumnOrderings<String> get eventType => $composableBuilder(
       column: $table.eventType, builder: (column) => ColumnOrderings(column));
 
@@ -5667,6 +5717,9 @@ class $$PlaybackEventsTableAnnotationComposer
   });
   GeneratedColumn<int> get id =>
       $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get operationId => $composableBuilder(
+      column: $table.operationId, builder: (column) => column);
 
   GeneratedColumn<String> get eventType =>
       $composableBuilder(column: $table.eventType, builder: (column) => column);
@@ -5732,6 +5785,7 @@ class $$PlaybackEventsTableTableManager extends RootTableManager<
               $$PlaybackEventsTableAnnotationComposer($db: db, $table: table),
           updateCompanionCallback: ({
             Value<int> id = const Value.absent(),
+            Value<String?> operationId = const Value.absent(),
             Value<int> trackId = const Value.absent(),
             Value<String> eventType = const Value.absent(),
             Value<DateTime> occurredAt = const Value.absent(),
@@ -5742,6 +5796,7 @@ class $$PlaybackEventsTableTableManager extends RootTableManager<
           }) =>
               PlaybackEventsCompanion(
             id: id,
+            operationId: operationId,
             trackId: trackId,
             eventType: eventType,
             occurredAt: occurredAt,
@@ -5752,6 +5807,7 @@ class $$PlaybackEventsTableTableManager extends RootTableManager<
           ),
           createCompanionCallback: ({
             Value<int> id = const Value.absent(),
+            Value<String?> operationId = const Value.absent(),
             required int trackId,
             required String eventType,
             required DateTime occurredAt,
@@ -5762,6 +5818,7 @@ class $$PlaybackEventsTableTableManager extends RootTableManager<
           }) =>
               PlaybackEventsCompanion.insert(
             id: id,
+            operationId: operationId,
             trackId: trackId,
             eventType: eventType,
             occurredAt: occurredAt,

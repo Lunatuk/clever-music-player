@@ -6,12 +6,20 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import '../diagnostics/diagnostics_service.dart';
 import '../domain/models/track.dart';
+import '../domain/models/audio_source_reference.dart';
 
 const int windowsPlaybackCacheMaxBytes = 250 * 1024 * 1024;
 
 abstract interface class PlaybackCache {
   Future<PlaybackCacheEntry> resolve(Track track, String sourcePath);
+}
+
+/// A decoder holds a reference until its source is stopped/disposed.
+abstract interface class ProtectedPlaybackCache implements PlaybackCache {
+  Future<PlaybackCacheEntry> acquire(Track track, String sourcePath);
+  void release(String cachedPath);
 }
 
 final class PlaybackCacheEntry {
@@ -52,24 +60,107 @@ final class PlaybackCacheException implements Exception {
 
 typedef AppSupportDirectoryProvider = Future<Directory> Function();
 typedef PlaybackCacheClock = DateTime Function();
+typedef PlaybackCacheCopy = Future<void> Function(File source, File staging);
 
-final class WindowsPlaybackCache implements PlaybackCache {
+final class WindowsPlaybackCache implements ProtectedPlaybackCache {
   WindowsPlaybackCache({
     AppSupportDirectoryProvider? appSupportDirectoryProvider,
     int maxBytes = windowsPlaybackCacheMaxBytes,
+    this.diagnostics = const NoopDiagnosticsService(),
     PlaybackCacheClock? clock,
+    @visibleForTesting PlaybackCacheCopy? copyFile,
   })  : assert(maxBytes > 0),
         _appSupportDirectoryProvider =
             appSupportDirectoryProvider ?? getApplicationSupportDirectory,
         _maxBytes = maxBytes,
-        _clock = clock ?? DateTime.now;
+        _clock = clock ?? DateTime.now,
+        _copyFile = copyFile ?? _copySource;
 
+  final DiagnosticsService diagnostics;
   final AppSupportDirectoryProvider _appSupportDirectoryProvider;
   final int _maxBytes;
   final PlaybackCacheClock _clock;
+  final PlaybackCacheCopy _copyFile;
+  static final Set<String> _activeStagingDirectories = {};
+
+  static Future<void> _copySource(File source, File staging) async {
+    await source.copy(staging.path);
+  }
+
+  final Map<String, int> _inUse = {};
+  Future<void> _operations = Future<void>.value();
 
   @override
-  Future<PlaybackCacheEntry> resolve(Track _, String sourcePath) async {
+  Future<PlaybackCacheEntry> resolve(Track track, String sourcePath) =>
+      _serialize(() => _resolve(sourcePath, forPlayback: false));
+
+  @override
+  Future<PlaybackCacheEntry> acquire(Track track, String sourcePath) =>
+      _serialize(() async {
+        final entry = await _resolve(sourcePath, forPlayback: true);
+        final key = _normalizedEntityPath(File(entry.filePath));
+        _inUse.update(key, (count) => count + 1, ifAbsent: () => 1);
+        return entry;
+      });
+
+  @override
+  void release(String cachedPath) {
+    final key = _normalizedEntityPath(File(cachedPath));
+    final count = _inUse[key] ?? 0;
+    if (count <= 1) {
+      _inUse.remove(key);
+    } else {
+      _inUse[key] = count - 1;
+    }
+    if (count > 0) {
+      final cleanup = _operations.then((_) async {
+        final directory = await _cacheDirectory();
+        await _cleanupToLimit(
+            cacheDirectory: directory,
+            protectedFile: File(p.join(directory.path, '.unused')),
+            maxBytes: _maxBytes);
+      });
+      _operations =
+          cleanup.then<void>((_) {}, onError: (Object error, StackTrace _) {
+        diagnostics.record(DiagnosticEvent.cacheFailed, error: error);
+        _log('deferred cleanup failed: $error');
+      });
+    }
+  }
+
+  @visibleForTesting
+  Future<void> waitForPendingOperations() => _operations;
+
+  Future<PlaybackCacheEntry> _serialize(
+      Future<PlaybackCacheEntry> Function() operation) {
+    final result = _operations.then((_) async {
+      final timer = Stopwatch()..start();
+      try {
+        final entry = await operation();
+        diagnostics.record(DiagnosticEvent.cacheResolved, fields: {
+          DiagnosticField.elapsedMs: timer.elapsedMilliseconds,
+          DiagnosticField.reused: entry.reusedExistingFile,
+          DiagnosticField.sourceBytes: entry.sourceSizeBytes,
+          DiagnosticField.cacheBytes: entry.cacheSizeAfterCleanupBytes,
+          DiagnosticField.deletedFiles: entry.cleanupDeletedFileCount,
+        });
+        return entry;
+      } on Object catch (error) {
+        diagnostics.record(DiagnosticEvent.cacheFailed,
+            error:
+                error is PlaybackCacheException ? error.cause ?? error : error);
+        rethrow;
+      }
+    });
+    _operations =
+        result.then<void>((_) {}, onError: (Object _, StackTrace __) {});
+    return result;
+  }
+
+  Future<PlaybackCacheEntry> _resolve(String sourcePath,
+      {required bool forPlayback}) async {
+    // This adapter owns filesystem copies only, never provider URIs.
+    FileAudioSource(sourcePath);
     final source = File(sourcePath);
     final exists = await source.exists();
     if (!exists) {
@@ -80,7 +171,11 @@ final class WindowsPlaybackCache implements PlaybackCache {
 
     final sourceStat = await source.stat();
     final sourceSize = sourceStat.size;
-    if (sourceSize > _maxBytes) {
+    if (sourceStat.type != FileSystemEntityType.file || sourceSize <= 0) {
+      throw const PlaybackCacheException(
+          'Аудиофайл пуст или не является обычным файлом.');
+    }
+    if (sourceSize > _maxBytes && !forPlayback) {
       throw PlaybackCacheException(
         'Аудиофайл больше лимита кэша воспроизведения Windows: '
         '$sourceSize > $_maxBytes bytes.',
@@ -88,6 +183,7 @@ final class WindowsPlaybackCache implements PlaybackCache {
     }
 
     final cacheDirectory = await _cacheDirectory();
+    await _cleanupOrphanStaging(cacheDirectory);
     final extension = _sourceExtension(sourcePath);
     final cachedFile = File(
       p.join(
@@ -100,6 +196,22 @@ final class WindowsPlaybackCache implements PlaybackCache {
         ),
       ),
     );
+    // The retention budget is soft only for decoder-held sources. It must not
+    // forbid a long recording or evict the other deck during preloading.
+    var pinnedBytes = 0;
+    for (final path in _inUse.keys.toList()) {
+      try {
+        pinnedBytes += await File(path).length();
+      } on FileSystemException {
+        continue;
+      }
+    }
+    final requiredBytes = pinnedBytes +
+        (_inUse.containsKey(_normalizedEntityPath(cachedFile))
+            ? 0
+            : sourceSize);
+    final limit =
+        forPlayback && requiredBytes > _maxBytes ? requiredBytes : _maxBytes;
     final cacheSizeBeforeCleanup = await _cacheDirectorySize(cacheDirectory);
     final deletedPaths = <String>[];
 
@@ -108,13 +220,13 @@ final class WindowsPlaybackCache implements PlaybackCache {
       final cleanup = await _cleanupToLimit(
         cacheDirectory: cacheDirectory,
         protectedFile: cachedFile,
-        maxBytes: _maxBytes,
+        maxBytes: limit,
       );
       deletedPaths.addAll(cleanup.deletedPaths);
-      if (cleanup.sizeAfterBytes > _maxBytes) {
+      if (cleanup.sizeAfterBytes > limit) {
         throw PlaybackCacheException(
           'Кэш воспроизведения Windows превышает лимит после очистки: '
-          '${cleanup.sizeAfterBytes} > $_maxBytes bytes.',
+          '${cleanup.sizeAfterBytes} > $limit bytes.',
         );
       }
       return PlaybackCacheEntry(
@@ -132,19 +244,18 @@ final class WindowsPlaybackCache implements PlaybackCache {
     final preCopyCleanup = await _cleanupToLimit(
       cacheDirectory: cacheDirectory,
       protectedFile: cachedFile,
-      maxBytes: _maxBytes - sourceSize,
+      maxBytes: limit - sourceSize,
     );
     deletedPaths.addAll(preCopyCleanup.deletedPaths);
-    if (preCopyCleanup.sizeAfterBytes > _maxBytes - sourceSize) {
+    if (preCopyCleanup.sizeAfterBytes > limit - sourceSize) {
       throw PlaybackCacheException(
         'Не удалось освободить место в кэше воспроизведения Windows: '
-        '${preCopyCleanup.sizeAfterBytes} > ${_maxBytes - sourceSize} bytes.',
+        '${preCopyCleanup.sizeAfterBytes} > ${limit - sourceSize} bytes.',
       );
     }
 
     try {
-      await source.copy(cachedFile.path);
-      await _markRecentlyUsed(cachedFile);
+      await _publishCopy(source, sourceStat, cachedFile, cacheDirectory);
     } on Object catch (error) {
       throw PlaybackCacheException(
         'Не удалось скопировать аудиофайл в кэш воспроизведения Windows.',
@@ -162,13 +273,13 @@ final class WindowsPlaybackCache implements PlaybackCache {
     final postCopyCleanup = await _cleanupToLimit(
       cacheDirectory: cacheDirectory,
       protectedFile: cachedFile,
-      maxBytes: _maxBytes,
+      maxBytes: limit,
     );
     deletedPaths.addAll(postCopyCleanup.deletedPaths);
-    if (postCopyCleanup.sizeAfterBytes > _maxBytes) {
+    if (postCopyCleanup.sizeAfterBytes > limit) {
       throw PlaybackCacheException(
         'Кэш воспроизведения Windows превышает лимит после очистки: '
-        '${postCopyCleanup.sizeAfterBytes} > $_maxBytes bytes.',
+        '${postCopyCleanup.sizeAfterBytes} > $limit bytes.',
       );
     }
 
@@ -181,6 +292,83 @@ final class WindowsPlaybackCache implements PlaybackCache {
       cleanupDeletedPaths: List.unmodifiable(deletedPaths),
       sourceSizeBytes: sourceSize,
     );
+  }
+
+  Future<void> _publishCopy(
+      File source, FileStat original, File target, Directory directory) async {
+    final staging = await directory.createTemp('.pending-');
+    _activeStagingDirectories.add(staging.path);
+    RandomAccessFile? lock;
+    try {
+      lock = await File(p.join(staging.path, 'owner.lock'))
+          .open(mode: FileMode.append);
+      await lock.lock(FileLock.exclusive);
+      final temporary = File(p.join(staging.path, 'audio.tmp'));
+      await _copyFile(source, temporary);
+      final after = await source.stat();
+      if (after.type != FileSystemEntityType.file ||
+          after.size != original.size ||
+          after.modified != original.modified ||
+          !await _isValidCachedFile(temporary, original.size)) {
+        throw const PlaybackCacheException(
+            'Исходный файл изменился или копирование завершилось не полностью.');
+      }
+      final handle = await temporary.open(mode: FileMode.append);
+      try {
+        await handle.flush();
+      } finally {
+        await handle.close();
+      }
+      await _markRecentlyUsed(temporary);
+      // Same-volume rename publishes only a complete, validated copy.
+      await temporary.rename(target.path);
+    } finally {
+      await lock?.close();
+      _activeStagingDirectories.remove(staging.path);
+      try {
+        await staging.delete(recursive: true);
+      } on FileSystemException catch (error) {
+        _log('staging cleanup failed: $error');
+      }
+    }
+  }
+
+  Future<void> _cleanupOrphanStaging(Directory directory) async {
+    await for (final entity in directory.list(followLinks: false)) {
+      if (entity is! Directory ||
+          !p.basename(entity.path).startsWith('.pending-') ||
+          _activeStagingDirectories.contains(entity.path)) {
+        continue;
+      }
+      RandomAccessFile? lock;
+      try {
+        final stat = await entity.stat();
+        if (_clock().difference(stat.modified) < const Duration(minutes: 1)) {
+          continue;
+        }
+        final marker = File(p.join(entity.path, 'owner.lock'));
+        if (!await marker.exists()) continue;
+        lock = await marker.open(mode: FileMode.append);
+        await lock.lock(FileLock
+            .exclusive); // A live copy in another process is left alone.
+        final contents = await entity.list(followLinks: false).toList();
+        if (contents.any((file) =>
+            !{'owner.lock', 'audio.tmp'}.contains(p.basename(file.path)))) {
+          continue;
+        }
+        final audio = File(p.join(entity.path, 'audio.tmp'));
+        if (await audio.exists()) await audio.delete();
+        await lock.close();
+        lock = null;
+        await marker.delete();
+        await entity.delete();
+      } on FileSystemException {
+        // Locked, removed concurrently, or inaccessible: retry on a later load.
+        continue;
+      } finally {
+        await lock?.close();
+      }
+    }
   }
 
   Future<Directory> _cacheDirectory() async {
@@ -209,6 +397,10 @@ final class WindowsPlaybackCache implements PlaybackCache {
     File cachedFile,
     List<String> deletedPaths,
   ) async {
+    if (_inUse.containsKey(_normalizedEntityPath(cachedFile))) {
+      throw const PlaybackCacheException(
+          'Повреждённая копия ещё используется другим декодером.');
+    }
     try {
       final stat = await cachedFile.stat();
       if (stat.type != FileSystemEntityType.file) {
@@ -259,7 +451,8 @@ final class WindowsPlaybackCache implements PlaybackCache {
           continue;
         }
         totalSize += stat.size;
-        if (_normalizedEntityPath(entity) != protectedPath) {
+        if (_normalizedEntityPath(entity) != protectedPath &&
+            !_inUse.containsKey(_normalizedEntityPath(entity))) {
           files.add(
             _CacheFile(
               file: entity,

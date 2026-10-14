@@ -1,4 +1,5 @@
 import '../domain/models/models.dart';
+import 'exact_track_copies.dart';
 
 enum LibraryTrackSortOption {
   title,
@@ -28,6 +29,7 @@ List<Track> buildVisibleLibraryTracks({
   required String searchQuery,
   required bool showMissingTracks,
   required LibraryTrackSortOption sortOption,
+  bool showExactCopies = false,
   Map<int, TrackUserState> userStates = const {},
 }) {
   final visible = tracks.where((track) {
@@ -38,7 +40,7 @@ List<Track> buildVisibleLibraryTracks({
   }).toList(growable: false);
 
   return sortLibraryTracks(
-    visible,
+    showExactCopies ? visible : withoutExactTrackCopies(visible),
     sortOption: sortOption,
     userStates: userStates,
   );

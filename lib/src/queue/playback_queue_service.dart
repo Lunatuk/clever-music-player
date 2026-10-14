@@ -1,14 +1,18 @@
 import 'dart:async';
 import 'dart:math';
 
+import 'package:flutter/foundation.dart';
+
+import '../core/async_lifecycle.dart';
+import '../diagnostics/diagnostics_service.dart';
 import '../domain/models/models.dart';
 import '../domain/repositories/repositories.dart';
 import '../player/player_service.dart';
+import '../player/playback_transitions.dart';
 import '../player/player_state.dart';
 import '../recommendation/recommendation_service.dart';
 import 'queue_state.dart';
 
-const Object _unsetFeedbackValue = Object();
 const int recommendationSelectionPoolLimit = 10;
 const double negativeScoreSelectionTolerance = 10.0;
 const double _maxSelectionWeightBoost = 12;
@@ -128,6 +132,7 @@ final class PlaybackQueueService {
     required TrackUserStateRepository trackUserState,
     required PlaybackEventRepository playbackEvents,
     required RecommendationService recommendationService,
+    this.diagnostics = const NoopDiagnosticsService(),
     DateTime Function()? clock,
     double Function()? randomDouble,
   })  : _playerService = playerService,
@@ -138,12 +143,23 @@ final class PlaybackQueueService {
         _clock = clock ?? DateTime.now,
         _randomDouble = randomDouble ?? Random().nextDouble {
     _playerSubscription = _playerService.stateStream.listen(_handlePlayerState);
+    final transitions = _transitions;
+    if (transitions != null) {
+      _transitionSubscription =
+          transitions.automaticTransitionStream.listen((track) {
+        if (_nextPlan?.track == track &&
+            _matchesNextSelection(_nextPlanState, _state)) {
+          unawaited(_advanceToNext(recordSkip: false));
+        }
+      });
+    }
     final currentTrack = _playerService.currentTrack;
     _emit(_state.copyWith(currentTrack: currentTrack));
     unawaited(_loadCurrentTrackUserState(currentTrack));
   }
 
   final PlayerService _playerService;
+  final DiagnosticsService diagnostics;
   final TrackRepository _tracks;
   final TrackUserStateRepository _trackUserState;
   final PlaybackEventRepository _playbackEvents;
@@ -162,12 +178,43 @@ final class PlaybackQueueService {
   List<int> _playlistShuffleBag = const [];
   bool _isAdvancingToNext = false;
   bool _isDisposed = false;
+  final _operations = AsyncOperationTracker();
+  Future<void>? _closing;
+
+  PlaybackTransitions? get _transitions {
+    final player = _playerService;
+    return player is PlaybackTransitions ? player as PlaybackTransitions : null;
+  }
+
+  StreamSubscription<Track>? _transitionSubscription;
+  _NextTrackPlan? _nextPlan;
+  _NextSelectionSnapshot? _nextPlanState;
+  int _nextPlanRevision = 0;
+  bool _preparationScheduled = false;
+  bool _automaticAdvance = false;
+  _AutomaticRecovery? _automaticRecovery;
+
+  /// Includes the microtask gap between failed automatic candidates. Media
+  /// services must keep playback active while this coordinator can still retry.
+  bool get isRecoveringAutomatically =>
+      !_isDisposed &&
+      (_automaticRecovery?.pending == true ||
+          _recoveryScheduled ||
+          (_automaticAdvance && _automaticRecovery != null));
+  Completer<void>? _transitionDone;
+  int _manualRequestRevision = 0;
+  bool _recoveryScheduled = false;
+  static const automaticRecoveryAttemptLimit = 20;
+  static const waveHistoryPreviousLimit = 5;
+  final _waveHistory = _WaveHistory();
 
   QueueState get state => _state;
 
   Stream<QueueState> get stateStream => _stateController.stream;
 
   void clearLearningStateSnapshot() {
+    if (_isDisposed) return;
+    _invalidateNextPreparation();
     _currentTrackStateGeneration += 1;
     _emit(
       _state.copyWith(
@@ -181,32 +228,34 @@ final class PlaybackQueueService {
     );
   }
 
-  Future<void> playTrackManually(Track track) async {
-    if (_isDisposed) {
-      return;
-    }
+  Future<void> playTrackManually(Track track) => _operations.run(() async {
+        _cancelAutomaticRecovery();
+        if (_isDisposed) {
+          return;
+        }
 
-    _playlistShuffleBag = const [];
-    _emit(
-      _state.copyWith(
-        currentTrack: track,
-        currentTrackUserState: null,
-        playbackContext: PlaybackContext.none(),
-        activeSource: PlaybackSource.singleTrack,
-        repeatMode: PlaybackRepeatMode.none,
-        isPlaylistShuffleEnabled: false,
-        lastRecommendationResult: null,
-        recommendationCandidates: const [],
-        repeatGuardMessage: null,
-        selectionPoolMessage: null,
-        lastError: null,
-      ),
-    );
-    unawaited(_loadCurrentTrackUserState(track));
+        _waveHistory.clear();
+        _playlistShuffleBag = const [];
+        _emit(
+          _state.copyWith(
+            currentTrack: track,
+            currentTrackUserState: null,
+            playbackContext: PlaybackContext.none(),
+            activeSource: PlaybackSource.singleTrack,
+            repeatMode: PlaybackRepeatMode.none,
+            isPlaylistShuffleEnabled: false,
+            lastRecommendationResult: null,
+            recommendationCandidates: const [],
+            repeatGuardMessage: null,
+            selectionPoolMessage: null,
+            lastError: null,
+          ),
+        );
+        unawaited(_loadCurrentTrackUserState(track));
 
-    await _playerService.playTrack(track);
-    _syncPlayerError();
-  }
+        await _playerService.playTrack(track);
+        _syncPlayerError();
+      });
 
   Future<void> playLibraryTrack({
     required Track track,
@@ -232,7 +281,7 @@ final class PlaybackQueueService {
         repeatMode: PlaybackRepeatMode.none,
         isPlaylistShuffleEnabled: false,
       );
-    });
+    }, userInitiated: true);
   }
 
   Future<void> playSmartNext() {
@@ -267,85 +316,87 @@ final class PlaybackQueueService {
         repeatMode: PlaybackRepeatMode.none,
         isPlaylistShuffleEnabled: false,
       );
-    });
+    }, userInitiated: true);
   }
 
   Future<void> refreshPlaylistContextOrder({
     required int playlistId,
     required Iterable<PlaylistEntry> entries,
-  }) async {
-    if (_isDisposed) {
-      return;
-    }
+  }) =>
+      _operations.run(() async {
+        if (_isDisposed) {
+          return;
+        }
 
-    final context = _state.playbackContext;
-    if (!context.isPlaylist || context.playlistId != playlistId) {
-      return;
-    }
+        final context = _state.playbackContext;
+        if (!context.isPlaylist || context.playlistId != playlistId) {
+          return;
+        }
 
-    final currentTrackId = (_state.currentTrack ?? context.currentTrack)?.id;
-    if (currentTrackId == null) {
-      return;
-    }
+        final currentTrackId =
+            (_state.currentTrack ?? context.currentTrack)?.id;
+        if (currentTrackId == null) {
+          return;
+        }
 
-    final playableTracks = <Track>[];
-    var currentIndex = -1;
-    for (final entry in _orderedPlaylistEntries(entries)) {
-      if (!entry.isPlayable) {
-        continue;
-      }
-      final playableTrack = await _resolvePlayableTrack(entry.track);
-      if (playableTrack == null) {
-        continue;
-      }
-      if (entry.trackId == currentTrackId) {
-        currentIndex = playableTracks.length;
-      }
-      playableTracks.add(playableTrack);
-    }
+        final playableTracks = <Track>[];
+        var currentIndex = -1;
+        for (final entry in _orderedPlaylistEntries(entries)) {
+          if (!entry.isPlayable) {
+            continue;
+          }
+          final playableTrack = await _resolvePlayableTrack(entry.track);
+          if (playableTrack == null) {
+            continue;
+          }
+          if (entry.trackId == currentTrackId) {
+            currentIndex = playableTracks.length;
+          }
+          playableTracks.add(playableTrack);
+        }
 
-    if (playableTracks.isEmpty || currentIndex < 0) {
-      return;
-    }
+        if (playableTracks.isEmpty || currentIndex < 0) {
+          return;
+        }
 
-    final nextContext = context.copyWith(
-      tracks: playableTracks,
-      currentIndex: currentIndex,
-    );
-    if (_state.isPlaylistShuffleEnabled) {
-      _resetPlaylistShuffleBag(
-        context: nextContext,
-        excludeIndex: currentIndex,
-      );
-    }
+        final nextContext = context.copyWith(
+          tracks: playableTracks,
+          currentIndex: currentIndex,
+        );
+        if (_state.isPlaylistShuffleEnabled) {
+          _resetPlaylistShuffleBag(
+            context: nextContext,
+            excludeIndex: currentIndex,
+          );
+        }
 
-    _emit(_state.copyWith(playbackContext: nextContext));
-  }
+        _emit(_state.copyWith(playbackContext: nextContext));
+      });
 
-  Future<void> addToQueue(Track track) async {
-    if (_isDisposed) {
-      return;
-    }
+  Future<void> addToQueue(Track track) => _operations.run(() async {
+        if (_isDisposed) {
+          return;
+        }
 
-    final playableTrack = await _resolvePlayableTrack(track);
-    if (playableTrack == null) {
-      _emit(
-        _state.copyWith(
-          lastError: 'Отсутствующие треки нельзя добавить в очередь.',
-        ),
-      );
-      return;
-    }
+        final playableTrack = await _resolvePlayableTrack(track);
+        if (playableTrack == null) {
+          _emit(
+            _state.copyWith(
+              lastError: 'Отсутствующие треки нельзя добавить в очередь.',
+            ),
+          );
+          return;
+        }
 
-    // Queue v1 is intentionally session-local. It is not persisted across app
-    // restarts until playlist or durable queue semantics are introduced.
-    _emit(
-      _state.copyWith(
-        manualQueue: [..._state.manualQueue, playableTrack],
-        lastError: null,
-      ),
-    );
-  }
+        // Queue v1 is intentionally session-local. It is not persisted across app
+        // restarts until playlist or durable queue semantics are introduced.
+        _emit(
+          _state.copyWith(
+            manualQueue: [..._state.manualQueue, playableTrack],
+            lastError: null,
+          ),
+        );
+      });
 
   void removeQueuedTrack(int index) {
     if (_isDisposed || index < 0 || index >= _state.manualQueue.length) {
@@ -372,7 +423,7 @@ final class PlaybackQueueService {
     await _runNextTransition(() async {
       await _recordSkipIfNeeded(_playerService.state);
       await _playQueuedTrackAt(index);
-    });
+    }, userInitiated: true);
   }
 
   Future<void> next() async {
@@ -389,6 +440,24 @@ final class PlaybackQueueService {
 
       if (playerState.position > previousRestartThreshold) {
         await _playerService.seek(Duration.zero);
+        return;
+      }
+
+      if (_state.isWaveCurrentSource) {
+        // A failed new recommendation is not in history: return to the last
+        // played entry before stepping further back on subsequent presses.
+        final historyTrack = _waveHistory.currentTrack;
+        final start =
+            historyTrack != null && !_isSameTrack(currentTrack, historyTrack)
+                ? _waveHistory.index
+                : _waveHistory.index - 1;
+        final revision = _waveHistory.revision;
+        if (!await _playWaveHistoryFrom(start, -1) &&
+            !_isDisposed &&
+            revision == _waveHistory.revision &&
+            _state.isWaveCurrentSource) {
+          await _playerService.seek(Duration.zero);
+        }
         return;
       }
 
@@ -409,7 +478,7 @@ final class PlaybackQueueService {
       }
 
       await _playerService.seek(Duration.zero);
-    });
+    }, userInitiated: true);
   }
 
   void setRepeatMode(PlaybackRepeatMode mode) {
@@ -524,18 +593,7 @@ final class PlaybackQueueService {
   Future<void> toggleLike(Track track) async {
     await _updateTrackFeedback(
       track,
-      update: (existing, trackId, now) {
-        final isLiked = existing?.isFavorite ?? false;
-        final isDisliked = _isDisliked(existing);
-        return _copyUserState(
-          existing,
-          trackId: trackId,
-          isFavorite: !(isLiked && !isDisliked),
-          isHidden: false,
-          rating: null,
-          updatedAt: now,
-        );
-      },
+      feedback: TrackFeedback.like,
       failurePrefix: 'Лайк не был сохранён',
     );
   }
@@ -543,33 +601,37 @@ final class PlaybackQueueService {
   Future<void> toggleDislike(Track track) async {
     await _updateTrackFeedback(
       track,
-      update: (existing, trackId, now) {
-        final isLiked = existing?.isFavorite ?? false;
-        final isDisliked = _isDisliked(existing);
-        return _copyUserState(
-          existing,
-          trackId: trackId,
-          isFavorite: false,
-          isHidden: !(isDisliked && !isLiked),
-          rating: null,
-          updatedAt: now,
-        );
-      },
+      feedback: TrackFeedback.dislike,
       failurePrefix: 'Дизлайк не был сохранён',
     );
   }
 
-  Future<void> dispose() async {
-    if (_isDisposed) {
-      return;
-    }
-
+  Future<void> dispose() {
+    if (_closing != null) return _closing!;
     _isDisposed = true;
-    await _playerSubscription.cancel();
-    await _stateController.close();
+    _operations.closeAdmission();
+    _cancelAutomaticRecovery();
+    _nextPlanRevision++;
+    _waveHistory.clear();
+    _currentTrackStateGeneration++;
+    return _closing = finishCleanup([
+      () async {
+        await _transitionSubscription?.cancel();
+      },
+      () async {
+        await _transitions?.prepareNextTrack(null);
+      },
+      _playerSubscription.cancel,
+      _operations.drain,
+      _stateController.close,
+    ]);
   }
 
-  Future<void> _advanceToNext({required bool recordSkip}) async {
+  Future<void> _advanceToNext(
+      {required bool recordSkip, bool recovering = false}) async {
+    if (!recordSkip && !recovering && !_isAdvancingToNext && !_isDisposed) {
+      _automaticRecovery = _AutomaticRecovery();
+    }
     await _runNextTransition(() async {
       if (!_state.canAdvance) {
         return;
@@ -578,6 +640,20 @@ final class PlaybackQueueService {
       if (recordSkip) {
         await _recordSkipIfNeeded(_playerService.state);
       }
+      final plan = _nextPlan;
+      if (plan != null &&
+          _matchesNextSelection(_nextPlanState, _state) &&
+          (!(recordSkip || recovering) || !plan.repeatsCurrent)) {
+        _nextPlan = null;
+        _automaticAdvance = !recordSkip;
+        try {
+          await plan.commit();
+        } finally {
+          _automaticAdvance = false;
+        }
+        return;
+      }
+      _automaticAdvance = !recordSkip;
 
       if (_state.manualQueue.isNotEmpty) {
         await _playQueuedTrackAt(0);
@@ -585,40 +661,67 @@ final class PlaybackQueueService {
       }
 
       if (_state.hasTrackListContext) {
-        await _advanceTrackList(manualSkip: recordSkip);
+        await _advanceTrackList(manualSkip: recordSkip || recovering);
+        return;
+      }
+
+      if (_state.isWaveCurrentSource &&
+          await _playWaveHistoryFrom(_waveHistory.index + 1, 1)) {
         return;
       }
 
       await _chooseAndPlaySmartNext(enableWave: false);
-    });
+    }, userInitiated: recordSkip);
   }
 
-  Future<void> _runNextTransition(Future<void> Function() transition) async {
-    if (_isDisposed || _isAdvancingToNext || _state.isChoosingNext) {
-      return;
-    }
+  Future<void> _runNextTransition(
+    Future<void> Function() transition, {
+    bool userInitiated = false,
+  }) =>
+      _operations.run(() async {
+        if (userInitiated) {
+          final wasAutomatic = _automaticRecovery != null;
+          _cancelAutomaticRecovery();
+          final revision = _manualRequestRevision;
+          if (wasAutomatic && _isAdvancingToNext) await _transitionDone?.future;
+          if (_isDisposed || revision != _manualRequestRevision) return;
+        }
+        if (_isDisposed || _isAdvancingToNext || _state.isChoosingNext) {
+          return;
+        }
 
-    _isAdvancingToNext = true;
-    _emit(_state.copyWith(isChoosingNext: true, lastError: null));
-    try {
-      await transition();
-    } on Object catch (error) {
-      _emit(
-        _state.copyWith(
-          lastError:
-              'Не удалось перейти к следующему треку: ${_describeError(error)}',
-        ),
-      );
-    } finally {
-      _isAdvancingToNext = false;
-      if (!_isDisposed) {
-        _emit(_state.copyWith(isChoosingNext: false));
-      }
-    }
-  }
+        final done = _transitionDone = Completer<void>();
+        _isAdvancingToNext = true;
+        _emit(_state.copyWith(isChoosingNext: true, lastError: null));
+        try {
+          await transition();
+        } on _ObsoleteAutomaticAdvance {
+          // A manual selection, pause, stop or dispose has superseded recovery.
+        } on _AutomaticCandidateRejected {
+          _automaticRecovery?.pending = true;
+        } on _AutomaticRecoveryExhausted {
+          _finishAutomaticRecovery();
+        } on Object catch (error) {
+          _emit(
+            _state.copyWith(
+              lastError:
+                  'Не удалось перейти к следующему треку: ${_describeError(error)}',
+            ),
+          );
+        } finally {
+          _automaticAdvance = false;
+          _isAdvancingToNext = false;
+          _transitionDone = null;
+          done.complete();
+          if (!_isDisposed) {
+            _emit(_state.copyWith(isChoosingNext: false));
+            _scheduleAutomaticRecovery();
+          }
+        }
+      });
 
   Future<Track?> _resolvePlayableTrack(Track track) async {
-    if (track.isMissing) {
+    if (_isDisposed || track.isMissing) {
       return null;
     }
 
@@ -628,19 +731,21 @@ final class PlaybackQueueService {
     }
 
     final latestTrack = await _tracks.findById(trackId);
-    if (latestTrack == null || latestTrack.isMissing) {
+    if (_isDisposed || latestTrack == null || latestTrack.isMissing) {
       return null;
     }
     return latestTrack;
   }
 
   Future<bool> _playQueuedTrackAt(int index) async {
+    _checkAutomaticAdvance();
     if (index < 0 || index >= _state.manualQueue.length) {
       return false;
     }
 
     final queue = _state.manualQueue.toList(growable: true);
     final track = queue.removeAt(index);
+    _waveHistory.clear();
     _emit(
       _state.copyWith(
         currentTrack: track,
@@ -655,7 +760,7 @@ final class PlaybackQueueService {
     );
     unawaited(_loadCurrentTrackUserState(track));
 
-    await _playerService.playTrack(track);
+    await _playSelectedTrack(track);
     _syncPlayerError();
     return true;
   }
@@ -673,7 +778,7 @@ final class PlaybackQueueService {
         );
       }
       await _chooseAndPlaySmartNext(enableWave: true);
-    });
+    }, userInitiated: true);
   }
 
   Future<void> _chooseAndPlaySmartNext({required bool enableWave}) async {
@@ -686,86 +791,151 @@ final class PlaybackQueueService {
     }
 
     try {
-      final availableTracks = await _listAvailableTracks();
-      if (availableTracks.isEmpty) {
-        _emit(
-          _state.copyWith(
-            lastRecommendationResult: null,
-            recommendationCandidates: const [],
-            repeatGuardMessage: null,
-            selectionPoolMessage: null,
-            lastError:
-                'В библиотеке нет треков, доступных для воспроизведения.',
-          ),
-        );
+      final selection = await _selectWaveTrack();
+      await _playWaveSelection(selection);
+    } on _ObsoleteAutomaticAdvance {
+      rethrow;
+    } on _AutomaticCandidateRejected {
+      rethrow;
+    } on _AutomaticRecoveryExhausted {
+      rethrow;
+    } on _NoWaveSelection catch (error) {
+      if (_automaticAdvance &&
+          (_automaticRecovery?.attempted.isNotEmpty ?? false)) {
+        _finishAutomaticRecovery();
         return;
       }
+      _emit(_state.copyWith(
+        lastRecommendationResult: null,
+        recommendationCandidates: const [],
+        repeatGuardMessage: null,
+        selectionPoolMessage: null,
+        lastError: error.message,
+      ));
+    } on Object catch (error) {
+      _emit(_state.copyWith(
+        lastError:
+            'Не удалось выбрать следующий трек: ${_describeError(error)}',
+      ));
+    }
+  }
 
-      final trackIds =
-          availableTracks.map((track) => track.id).whereType<int>();
-      final states = await _trackUserState.findByTrackIds(trackIds);
-      final recentEvents = await _playbackEvents.recentEvents(limit: 50);
-      final recommendations = _recommendationService.recommendFromInput(
+  Future<_WaveSelection> _selectWaveTrack() async {
+    final availableTracks = (await _listAvailableTracks())
+        .where(
+          (track) =>
+              !(_automaticRecovery?.failed.contains(_trackKey(track)) ?? false),
+        )
+        .toList();
+    if (_isDisposed) throw const _ObsoleteAutomaticAdvance();
+    if (availableTracks.isEmpty) {
+      throw const _NoWaveSelection(
+          'В библиотеке нет треков, доступных для воспроизведения.');
+    }
+    final states = await _trackUserState.findByTrackIds(
+        availableTracks.map((track) => track.id).whereType<int>());
+    if (_isDisposed) throw const _ObsoleteAutomaticAdvance();
+    final recentEvents = await _playbackEvents.recentEvents(limit: 50);
+    if (_isDisposed) throw const _ObsoleteAutomaticAdvance();
+    final recommendations = _recommendationService.recommendFromInput(
         RecommendationInput(
-          tracks: availableTracks,
-          userStates: states,
-          recentEvents: recentEvents,
-          waveMode: _state.selectedWaveMode,
-          limit: 20,
-          generatedAt: _clock(),
-        ),
-      );
-
-      if (recommendations.isEmpty) {
-        _emit(
-          _state.copyWith(
-            lastRecommendationResult: null,
-            recommendationCandidates: const [],
-            repeatGuardMessage: null,
-            selectionPoolMessage: null,
-            lastError: 'Нет треков, подходящих под текущие настройки волны.',
-          ),
-        );
-        return;
-      }
-
-      final guarded = _applyRepeatGuard(
+            tracks: availableTracks,
+            userStates: states,
+            recentEvents: recentEvents,
+            waveMode: _state.selectedWaveMode,
+            limit: 20,
+            generatedAt: _clock()));
+    if (recommendations.isEmpty) {
+      throw const _NoWaveSelection(
+          'Нет треков, подходящих под текущие настройки волны.');
+    }
+    final guarded = _applyRepeatGuard(
         recommendations: recommendations,
         recentEvents: recentEvents,
-        tracks: availableTracks,
-      );
-      final selectionPoolResult =
-          buildWeightedSelectionPoolResult(guarded.candidates);
-      final selectionPool = selectionPoolResult.candidates;
-      final selected = _selectWeightedRecommendation(selectionPool);
+        tracks: availableTracks);
+    final pool = buildWeightedSelectionPoolResult(guarded.candidates);
+    return _WaveSelection(_selectWeightedRecommendation(pool.candidates),
+        pool.candidates, guarded.message, pool.message);
+  }
 
-      _emit(
-        _state.copyWith(
-          currentTrack: selected.track,
-          currentTrackUserState: null,
-          playbackContext: PlaybackContext.none(),
-          activeSource: PlaybackSource.wave,
-          repeatMode: PlaybackRepeatMode.none,
-          isPlaylistShuffleEnabled: false,
-          lastRecommendationResult: selected,
-          recommendationCandidates: selectionPool,
-          repeatGuardMessage: guarded.message,
-          selectionPoolMessage: selectionPoolResult.message,
-          lastError: null,
-        ),
-      );
-      unawaited(_loadCurrentTrackUserState(selected.track));
-
-      await _playerService.playTrack(selected.track);
-      _syncPlayerError();
-    } on Object catch (error) {
-      _emit(
-        _state.copyWith(
-          lastError:
-              'Не удалось выбрать следующий трек: ${_describeError(error)}',
-        ),
-      );
+  Future<void> _playWaveSelection(_WaveSelection selection) async {
+    _checkAutomaticAdvance();
+    final selected = selection.selected;
+    final selectionPool = selection.candidates;
+    final previous = _playerService.currentTrack;
+    if (_waveHistory.isEmpty &&
+        previous != null &&
+        _playerService.state.status != PlayerPlaybackStatus.error &&
+        _playerService.state.status != PlayerPlaybackStatus.loading) {
+      _waveHistory.append(previous);
     }
+    final historyRevision = _waveHistory.revision;
+    _emit(
+      _state.copyWith(
+        currentTrack: selected.track,
+        currentTrackUserState: null,
+        playbackContext: PlaybackContext.none(),
+        activeSource: PlaybackSource.wave,
+        repeatMode: PlaybackRepeatMode.none,
+        isPlaylistShuffleEnabled: false,
+        lastRecommendationResult: selected,
+        recommendationCandidates: selectionPool,
+        repeatGuardMessage: selection.repeatGuardMessage,
+        selectionPoolMessage: selection.poolMessage,
+        lastError: null,
+      ),
+    );
+    unawaited(_loadCurrentTrackUserState(selected.track));
+
+    await _playSelectedTrack(selected.track);
+    if (!_isDisposed &&
+        _waveHistory.revision == historyRevision &&
+        _state.isWaveCurrentSource &&
+        _isSameCurrentTrack(selected.track) &&
+        _playerService.state.status != PlayerPlaybackStatus.error) {
+      _waveHistory.append(_playerService.currentTrack ?? selected.track);
+    }
+    _syncPlayerError();
+  }
+
+  Future<_WaveHistoryTarget?> _findWaveHistoryTarget(
+      int start, int direction) async {
+    final revision = _waveHistory.revision;
+    for (var index = start;
+        index >= 0 && index < _waveHistory.tracks.length;
+        index += direction) {
+      final track = await _resolvePlayableTrack(_waveHistory.tracks[index]);
+      if (_isDisposed || revision != _waveHistory.revision) {
+        throw const _ObsoleteAutomaticAdvance();
+      }
+      if (track != null) return _WaveHistoryTarget(index, track);
+    }
+    return null;
+  }
+
+  Future<bool> _playWaveHistoryFrom(int start, int direction) async {
+    final target = await _findWaveHistoryTarget(start, direction);
+    _checkAutomaticAdvance();
+    if (target == null || !_state.isWaveCurrentSource) return false;
+    _waveHistory.moveTo(target.index, target.track);
+    _emit(_state.copyWith(
+      currentTrack: target.track,
+      currentTrackUserState: null,
+      playbackContext: PlaybackContext.none(),
+      activeSource: PlaybackSource.wave,
+      repeatMode: PlaybackRepeatMode.none,
+      isPlaylistShuffleEnabled: false,
+      // This is a replay, not a fresh recommendation with new scores/reasons.
+      lastRecommendationResult: null,
+      recommendationCandidates: const [],
+      repeatGuardMessage: null,
+      selectionPoolMessage: null,
+      lastError: null,
+    ));
+    unawaited(_loadCurrentTrackUserState(target.track));
+    await _playSelectedTrack(target.track);
+    _syncPlayerError();
+    return true;
   }
 
   Future<PlaybackContext?> _buildPlaylistContext({
@@ -976,6 +1146,7 @@ final class PlaybackQueueService {
     PlaybackRepeatMode? repeatMode,
     bool? isPlaylistShuffleEnabled,
   }) async {
+    _checkAutomaticAdvance();
     final trackListContext = context ?? _state.playbackContext;
     if (!trackListContext.isTrackList ||
         index < 0 ||
@@ -985,6 +1156,7 @@ final class PlaybackQueueService {
 
     final track = trackListContext.tracks[index];
     final nextContext = trackListContext.copyWith(currentIndex: index);
+    _waveHistory.clear();
     _emit(
       _state.copyWith(
         currentTrack: track,
@@ -1002,7 +1174,7 @@ final class PlaybackQueueService {
     );
     unawaited(_loadCurrentTrackUserState(track));
 
-    await _playerService.playTrack(track);
+    await _playSelectedTrack(track);
     _syncPlayerError();
     return true;
   }
@@ -1168,8 +1340,9 @@ final class PlaybackQueueService {
     final available = <Track>[];
     var offset = 0;
 
-    while (available.length < maxTracks) {
+    while (!_isDisposed && available.length < maxTracks) {
       final page = await _tracks.listTracks(limit: pageSize, offset: offset);
+      if (_isDisposed) break;
       if (page.isEmpty) {
         break;
       }
@@ -1190,7 +1363,7 @@ final class PlaybackQueueService {
     if (track == null ||
         trackId == null ||
         !playerState.isPlaying ||
-        playerState.status == PlayerPlaybackStatus.completed) {
+        playerState.status != PlayerPlaybackStatus.playing) {
       return;
     }
 
@@ -1202,8 +1375,8 @@ final class PlaybackQueueService {
 
     final now = _clock();
     try {
-      await _playbackEvents.addEvent(
-        PlaybackEvent(
+      await _playbackEvents.recordEvent(
+        PlaybackEvent.recording(
           trackId: trackId,
           type: PlaybackEventType.skipped,
           occurredAt: now,
@@ -1212,18 +1385,9 @@ final class PlaybackQueueService {
           waveMode: _state.selectedWaveMode,
         ),
       );
-
-      final existing = await _trackUserState.findByTrackId(trackId);
-      await _trackUserState.upsertState(
-        _copyUserState(
-          existing,
-          trackId: trackId,
-          skipCount: (existing?.skipCount ?? 0) + 1,
-          lastSkippedAt: now,
-          updatedAt: now,
-        ),
-      );
     } on Object catch (error) {
+      diagnostics.record(DiagnosticEvent.playbackHistoryWriteFailed,
+          error: error, fields: {DiagnosticField.trackId: trackId});
       _emit(
         _state.copyWith(
           lastError:
@@ -1257,6 +1421,20 @@ final class PlaybackQueueService {
     );
     if (trackChanged) {
       unawaited(_loadCurrentTrackUserState(playerState.currentTrack));
+    }
+
+    final recovery = _automaticRecovery;
+    if (playerState.status == PlayerPlaybackStatus.stopped ||
+        playerState.status == PlayerPlaybackStatus.paused) {
+      _cancelAutomaticRecovery();
+    } else if (recovery != null &&
+        playerState.failureKind == PlayerFailureKind.source &&
+        playerState.status == PlayerPlaybackStatus.error &&
+        playerState.currentTrack != null &&
+        recovery.selectedKey == _trackKey(playerState.currentTrack!)) {
+      recovery.failed.add(recovery.selectedKey!);
+      recovery.pending = true;
+      _scheduleAutomaticRecovery();
     }
 
     final track = playerState.currentTrack;
@@ -1299,6 +1477,229 @@ final class PlaybackQueueService {
 
     _state = state;
     _stateController.add(state);
+    _scheduleNextPreparation();
+  }
+
+  Future<void> _playSelectedTrack(Track track) async {
+    _checkAutomaticAdvance();
+    final recovery = _automaticAdvance ? _automaticRecovery : null;
+    if (recovery != null) {
+      final key = _trackKey(track);
+      if (recovery.attempts >= automaticRecoveryAttemptLimit) {
+        throw const _AutomaticRecoveryExhausted();
+      }
+      recovery.attempts++;
+      if (!recovery.attempted.add(key)) {
+        throw const _AutomaticCandidateRejected();
+      }
+      recovery.selectedKey = key;
+      final latest = await _resolvePlayableTrack(track);
+      _checkAutomaticAdvance();
+      if (latest == null) {
+        recovery.failed.add(key);
+        throw const _AutomaticCandidateRejected();
+      }
+      track = latest;
+    }
+    final transitions = _transitions;
+    if (_automaticAdvance && transitions != null) {
+      await transitions.playAutomatically(track);
+    } else {
+      await _playerService.playTrack(track);
+    }
+    if (recovery != null &&
+        identical(recovery, _automaticRecovery) &&
+        _playerService.state.status == PlayerPlaybackStatus.error &&
+        _playerService.state.failureKind == PlayerFailureKind.source) {
+      recovery.failed.add(_trackKey(track));
+      recovery.pending = true;
+    }
+  }
+
+  void _checkAutomaticAdvance() {
+    if (_isDisposed || (_automaticAdvance && _automaticRecovery == null)) {
+      throw const _ObsoleteAutomaticAdvance();
+    }
+  }
+
+  void _cancelAutomaticRecovery() {
+    _automaticRecovery = null;
+    _manualRequestRevision++;
+  }
+
+  void _finishAutomaticRecovery() {
+    _cancelAutomaticRecovery();
+    _emit(_state.copyWith(
+        currentTrack: _playerService.currentTrack,
+        lastError:
+            'Не удалось найти доступный трек. Проверь файлы и папки библиотеки. '
+            'Автоматический поиск ограничен $automaticRecoveryAttemptLimit попытками.'));
+  }
+
+  void _scheduleAutomaticRecovery() {
+    if (_isDisposed ||
+        _recoveryScheduled ||
+        _isAdvancingToNext ||
+        !(_automaticRecovery?.pending ?? false)) {
+      return;
+    }
+    _recoveryScheduled = true;
+    scheduleMicrotask(() {
+      _recoveryScheduled = false;
+      final recovery = _automaticRecovery;
+      if (_isDisposed ||
+          _isAdvancingToNext ||
+          recovery == null ||
+          !recovery.pending) {
+        return;
+      }
+      recovery.pending = false;
+      if (recovery.attempts >= automaticRecoveryAttemptLimit) {
+        _finishAutomaticRecovery();
+      } else {
+        unawaited(_advanceToNext(recordSkip: false, recovering: true));
+      }
+    });
+  }
+
+  bool _matchesNextSelection(
+      _NextSelectionSnapshot? snapshot, QueueState next) {
+    if (snapshot == null || snapshot.historyRevision != _waveHistory.revision) {
+      return false;
+    }
+    final previous = snapshot.state;
+    return previous.currentTrack == next.currentTrack &&
+        previous.playbackContext == next.playbackContext &&
+        previous.activeSource == next.activeSource &&
+        previous.repeatMode == next.repeatMode &&
+        previous.isPlaylistShuffleEnabled == next.isPlaylistShuffleEnabled &&
+        previous.isWaveEnabled == next.isWaveEnabled &&
+        previous.selectedWaveMode == next.selectedWaveMode &&
+        listEquals(previous.manualQueue, next.manualQueue);
+  }
+
+  void _invalidateNextPreparation() {
+    _nextPlanState = null;
+    _nextPlan = null;
+    _nextPlanRevision++;
+    _scheduleNextPreparation();
+  }
+
+  void _scheduleNextPreparation() {
+    if (_transitions == null || _isDisposed || _preparationScheduled) return;
+    _preparationScheduled = true;
+    scheduleMicrotask(() {
+      _preparationScheduled = false;
+      if (_isDisposed ||
+          _state.isChoosingNext ||
+          _isAdvancingToNext ||
+          _matchesNextSelection(_nextPlanState, _state)) {
+        return;
+      }
+      unawaited(_prepareNextSelection());
+    });
+  }
+
+  Future<void> _prepareNextSelection() => _operations.run(() async {
+        final transitions = _transitions!;
+        final snapshot = _state;
+        final selectionSnapshot =
+            _NextSelectionSnapshot(snapshot, _waveHistory.revision);
+        final revision = ++_nextPlanRevision;
+        _nextPlanState = selectionSnapshot;
+        _nextPlan = null;
+        try {
+          final plan = snapshot.currentTrack == null || !snapshot.canAdvance
+              ? null
+              : await _buildNextPlan(snapshot);
+          if (_isDisposed ||
+              revision != _nextPlanRevision ||
+              !_matchesNextSelection(selectionSnapshot, _state)) {
+            return;
+          }
+          _nextPlan = plan;
+          await transitions.prepareNextTrack(plan?.track);
+        } on Object {
+          // Selection/preload failures are retried by the normal end-of-track path.
+          if (!_isDisposed && revision == _nextPlanRevision) {
+            await transitions.prepareNextTrack(null);
+          }
+        }
+      });
+
+  Future<_NextTrackPlan?> _buildNextPlan(QueueState snapshot) async {
+    if (snapshot.manualQueue.isNotEmpty) {
+      final track = await _resolvePlayableTrack(snapshot.manualQueue.first);
+      return track == null
+          ? null
+          : _NextTrackPlan(track, () async {
+              await _playQueuedTrackAt(0);
+            });
+    }
+    if (snapshot.isWaveCurrentSource) {
+      final target = await _findWaveHistoryTarget(_waveHistory.index + 1, 1);
+      if (target != null) {
+        return _NextTrackPlan(target.track, () async {
+          if (!await _playWaveHistoryFrom(_waveHistory.index + 1, 1)) {
+            await _chooseAndPlaySmartNext(enableWave: false);
+          }
+        });
+      }
+    }
+    final context = snapshot.playbackContext;
+    if (context.isTrackList) {
+      if (snapshot.activeSource == context.source &&
+          snapshot.repeatMode == PlaybackRepeatMode.track) {
+        return _NextTrackPlan(context.tracks[context.currentIndex], () async {
+          await _playTrackListTrackAt(context.currentIndex);
+        }, repeatsCurrent: true);
+      }
+      int? index;
+      var shuffled = false;
+      List<int>? nextShuffleCycle;
+      if (context.isPlaylist && snapshot.isPlaylistShuffleEnabled) {
+        if (_playlistShuffleBag.isEmpty &&
+            snapshot.repeatMode == PlaybackRepeatMode.playlist) {
+          nextShuffleCycle = _shuffleIndices([
+            for (var i = 0; i < context.tracks.length; i++)
+              if (i != context.currentIndex || context.tracks.length == 1) i,
+          ]);
+        }
+        for (final candidate in nextShuffleCycle ?? _playlistShuffleBag) {
+          if (candidate >= 0 &&
+              candidate < context.tracks.length &&
+              (candidate != context.currentIndex ||
+                  context.tracks.length == 1)) {
+            index = candidate;
+            shuffled = true;
+            break;
+          }
+        }
+      } else if (context.currentIndex + 1 < context.tracks.length) {
+        index = context.currentIndex + 1;
+      } else if (snapshot.repeatMode == PlaybackRepeatMode.playlist) {
+        index = 0;
+      }
+      if (index != null) {
+        final nextIndex = index;
+        return _NextTrackPlan(context.tracks[nextIndex], () async {
+          if (shuffled) {
+            if (nextShuffleCycle != null) {
+              _playlistShuffleBag = nextShuffleCycle;
+            }
+            _takeNextShuffledPlaylistIndex(context);
+          }
+          await _playTrackListTrackAt(nextIndex);
+        });
+      }
+      // Existing behaviour: finishing a list continues with Wave.
+    }
+    final selection = await _selectWaveTrack();
+    return _NextTrackPlan(selection.selected.track, () async {
+      _playlistShuffleBag = const [];
+      if (!_state.isWaveEnabled) _emit(_state.copyWith(isWaveEnabled: true));
+      await _playWaveSelection(selection);
+    });
   }
 
   Object _trackKey(Track track) {
@@ -1323,120 +1724,80 @@ final class PlaybackQueueService {
 
   Future<void> _updateTrackFeedback(
     Track track, {
-    required TrackUserState Function(
-      TrackUserState? existing,
-      int trackId,
-      DateTime now,
-    ) update,
+    required TrackFeedback feedback,
     required String failurePrefix,
-  }) async {
-    if (_isDisposed) {
-      return;
-    }
+  }) =>
+      _operations.run(() async {
+        if (_isDisposed) {
+          return;
+        }
 
-    final trackId = track.id;
-    if (trackId == null) {
-      _emit(
-        _state.copyWith(lastError: 'Оценка трека не была сохранена.'),
-      );
-      return;
-    }
+        final trackId = track.id;
+        if (trackId == null) {
+          _emit(
+            _state.copyWith(lastError: 'Оценка трека не была сохранена.'),
+          );
+          return;
+        }
 
-    final now = _clock();
-    try {
-      final existing = await _trackUserState.findByTrackId(trackId);
-      final updated = update(existing, trackId, now);
-      await _trackUserState.upsertState(updated);
-      if (_isSameCurrentTrack(track)) {
-        _currentTrackStateGeneration += 1;
-        _emit(
-          _state.copyWith(
-            currentTrackUserState: updated,
-            lastError: null,
-          ),
-        );
-      } else {
-        _emit(_state.copyWith(lastError: null));
-      }
-    } on Object catch (error) {
-      _emit(
-        _state.copyWith(
-          lastError: '$failurePrefix: ${_describeError(error)}',
-        ),
-      );
-    }
-  }
+        final now = _clock();
+        try {
+          await _trackUserState.toggleFeedback(trackId, feedback,
+              updatedAt: now);
+          _invalidateNextPreparation();
+          _emit(_state.copyWith(lastError: null));
+          if (_isSameCurrentTrack(track)) {
+            // Reload with a generation guard: an older toggle may finish after a
+            // newer one or after switching tracks. Never paint its stale result.
+            await _loadCurrentTrackUserState(track);
+          }
+        } on Object catch (error) {
+          diagnostics.record(DiagnosticEvent.trackFeedbackWriteFailed,
+              error: error, fields: {DiagnosticField.trackId: trackId});
+          _emit(
+            _state.copyWith(
+              lastError: '$failurePrefix: ${_describeError(error)}',
+            ),
+          );
+        }
+      });
 
-  Future<void> _loadCurrentTrackUserState(Track? track) async {
-    final trackId = track?.id;
-    final trackKey = _nullableTrackKey(track);
-    _currentTrackStateKey = trackKey;
-    final generation = ++_currentTrackStateGeneration;
-    if (trackId == null || trackKey == null) {
-      _emit(_state.copyWith(currentTrackUserState: null));
-      return;
-    }
+  Future<void> _loadCurrentTrackUserState(Track? track) =>
+      _operations.run(() async {
+        final trackId = track?.id;
+        final trackKey = _nullableTrackKey(track);
+        _currentTrackStateKey = trackKey;
+        final generation = ++_currentTrackStateGeneration;
+        if (trackId == null || trackKey == null) {
+          _emit(_state.copyWith(currentTrackUserState: null));
+          return;
+        }
 
-    try {
-      final state = await _trackUserState.findByTrackId(trackId);
-      if (_isDisposed ||
-          _currentTrackStateKey != trackKey ||
-          _currentTrackStateGeneration != generation) {
-        return;
-      }
-      _emit(_state.copyWith(currentTrackUserState: state));
-    } on Object catch (error) {
-      if (_isDisposed ||
-          _currentTrackStateKey != trackKey ||
-          _currentTrackStateGeneration != generation) {
-        return;
-      }
-      _emit(
-        _state.copyWith(
-          lastError: 'Оценка трека не была загружена: ${_describeError(error)}',
-        ),
-      );
-    }
-  }
-
-  TrackUserState _copyUserState(
-    TrackUserState? existing, {
-    required int trackId,
-    bool? isFavorite,
-    bool? isHidden,
-    Object? rating = _unsetFeedbackValue,
-    int? skipCount,
-    DateTime? lastSkippedAt,
-    required DateTime updatedAt,
-  }) {
-    return TrackUserState(
-      trackId: trackId,
-      isFavorite: isFavorite ?? existing?.isFavorite ?? false,
-      isHidden: isHidden ?? existing?.isHidden ?? false,
-      rating: identical(rating, _unsetFeedbackValue)
-          ? existing?.rating
-          : rating as int?,
-      playCount: existing?.playCount ?? 0,
-      completeCount: existing?.completeCount ?? 0,
-      skipCount: skipCount ?? existing?.skipCount ?? 0,
-      lastPlayedAt: existing?.lastPlayedAt,
-      lastSkippedAt: lastSkippedAt ?? existing?.lastSkippedAt,
-      lastCompletedAt: existing?.lastCompletedAt,
-      userScoreBoost: existing?.userScoreBoost ?? 0,
-      preferredWaveMode: existing?.preferredWaveMode,
-      updatedAt: updatedAt,
-    );
-  }
+        try {
+          final state = await _trackUserState.findByTrackId(trackId);
+          if (_isDisposed ||
+              _currentTrackStateKey != trackKey ||
+              _currentTrackStateGeneration != generation) {
+            return;
+          }
+          _emit(_state.copyWith(currentTrackUserState: state));
+        } on Object catch (error) {
+          if (_isDisposed ||
+              _currentTrackStateKey != trackKey ||
+              _currentTrackStateGeneration != generation) {
+            return;
+          }
+          _emit(
+            _state.copyWith(
+              lastError:
+                  'Оценка трека не была загружена: ${_describeError(error)}',
+            ),
+          );
+        }
+      });
 
   String _describeError(Object error) {
     return error.toString();
-  }
-
-  static bool _isDisliked(TrackUserState? state) {
-    if (state == null) {
-      return false;
-    }
-    return state.isHidden;
   }
 }
 
@@ -1567,4 +1928,90 @@ String? _normalizedMetadataKey(String? value) {
     return null;
   }
   return normalized;
+}
+
+final class _NextTrackPlan {
+  const _NextTrackPlan(this.track, this.commit, {this.repeatsCurrent = false});
+  final Track track;
+  final Future<void> Function() commit;
+  final bool repeatsCurrent;
+}
+
+final class _NextSelectionSnapshot {
+  const _NextSelectionSnapshot(this.state, this.historyRevision);
+  final QueueState state;
+  final int historyRevision;
+}
+
+final class _WaveHistoryTarget {
+  const _WaveHistoryTarget(this.index, this.track);
+  final int index;
+  final Track track;
+}
+
+/// A session-only timeline: five previous visits plus the current/forward
+/// entries share six slots. No audio buffers or full list contexts are retained.
+final class _WaveHistory {
+  final tracks = <Track>[];
+  int index = -1;
+  int revision = 0;
+  bool get isEmpty => tracks.isEmpty;
+  Track? get currentTrack => isEmpty ? null : tracks[index];
+
+  void clear() {
+    if (isEmpty) return;
+    tracks.clear();
+    index = -1;
+    revision++;
+  }
+
+  void append(Track track) {
+    if (index + 1 < tracks.length) tracks.removeRange(index + 1, tracks.length);
+    tracks.add(track);
+    if (tracks.length > PlaybackQueueService.waveHistoryPreviousLimit + 1) {
+      tracks.removeAt(0);
+    }
+    index = tracks.length - 1;
+    revision++;
+  }
+
+  void moveTo(int target, Track latest) {
+    tracks[target] = latest;
+    index = target;
+    revision++;
+  }
+}
+
+final class _WaveSelection {
+  const _WaveSelection(this.selected, this.candidates, this.repeatGuardMessage,
+      this.poolMessage);
+  final RecommendationResult selected;
+  final List<RecommendationResult> candidates;
+  final String? repeatGuardMessage;
+  final String? poolMessage;
+}
+
+final class _NoWaveSelection implements Exception {
+  const _NoWaveSelection(this.message);
+  final String message;
+}
+
+final class _AutomaticRecovery {
+  final Set<Object> attempted = {};
+  final Set<Object> failed = {};
+  Object? selectedKey;
+  int attempts = 0;
+  bool pending = false;
+}
+
+final class _ObsoleteAutomaticAdvance implements Exception {
+  const _ObsoleteAutomaticAdvance();
+}
+
+final class _AutomaticCandidateRejected implements Exception {
+  const _AutomaticCandidateRejected();
+}
+
+final class _AutomaticRecoveryExhausted implements Exception {
+  const _AutomaticRecoveryExhausted();
 }

@@ -275,7 +275,6 @@ void main() {
     );
     final service = LibraryManagementService(
       libraryRepository: repositories.libraryFolders,
-      trackRepository: repositories.tracks,
       scanFolder: (path) async => LibraryScanResult(
         folderPath: path,
         scannedFiles: 0,
@@ -429,7 +428,6 @@ final class _RepositoryFixture {
     );
     final service = LibraryManagementService(
       libraryRepository: repositories.libraryFolders,
-      trackRepository: repositories.tracks,
       scanFolder: (path) async => LibraryScanResult(
         folderPath: path,
         scannedFiles: 0,

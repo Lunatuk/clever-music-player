@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:audio_metadata_reader/audio_metadata_reader.dart'
     as audio_reader;
@@ -69,8 +70,11 @@ final class AudioMetadataReaderService implements MetadataReaderService {
     EmbeddedAudioMetadata? tagMetadata;
 
     try {
-      final reader = _embeddedMetadataReader ?? _readEmbeddedAudioTags;
-      tagMetadata = await reader(baseMetadata.filePath);
+      final reader = _embeddedMetadataReader;
+      final path = baseMetadata.filePath;
+      tagMetadata = reader != null
+          ? await reader(path)
+          : await Isolate.run(() => _readEmbeddedAudioTags(path));
     } on Object {
       tagMetadata = null;
     }

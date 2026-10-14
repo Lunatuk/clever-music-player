@@ -456,6 +456,11 @@ final class _FakeTrackUserStateRepository implements TrackUserStateRepository {
   final Map<int, TrackUserState> _states;
 
   @override
+  Future<TrackUserState> toggleFeedback(int trackId, TrackFeedback feedback,
+          {required DateTime updatedAt}) =>
+      throw UnsupportedError('Read-only fake');
+
+  @override
   Future<void> deleteState(int trackId) async {}
 
   @override
@@ -496,6 +501,10 @@ final class _FakePlaybackEventRepository implements PlaybackEventRepository {
   const _FakePlaybackEventRepository([this._events = const []]);
 
   final List<PlaybackEvent> _events;
+
+  @override
+  Future<int> recordEvent(PlaybackEvent event) =>
+      throw UnsupportedError('Read-only fake');
 
   @override
   Future<int> addEvent(PlaybackEvent event) async {

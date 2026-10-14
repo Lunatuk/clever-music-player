@@ -1,89 +1,58 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui' show PlatformDispatcher;
 
 import 'package:flutter/material.dart';
 
 import 'src/app/clever_music_player_app.dart';
 import 'src/app/dependency_scope.dart';
-import 'src/data/drift/app_database.dart';
-import 'src/data/repositories/drift_repositories.dart';
-import 'src/library/artwork_cache_service.dart';
-import 'src/library/custom_artwork_service.dart';
-import 'src/library/directory_picker_service.dart';
-import 'src/library/library_scanner_service.dart';
-import 'src/library/metadata_reader_service.dart';
-import 'src/player/just_audio_player_service.dart';
-import 'src/queue/playback_queue_service.dart';
-import 'src/recommendation/recommendation_service.dart';
-import 'src/smtc/macos_now_playing_client.dart';
-import 'src/smtc/smtc_service.dart';
-import 'src/smtc/smtc_windows_plugin_client.dart';
+import 'src/diagnostics/diagnostics_service.dart';
+import 'src/app/app_bootstrap.dart';
+import 'src/app/default_platform_adapters.dart';
+import 'src/android/android_preview_app.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  final database = AppDatabase.open();
-  final repositories = DriftRepositories(database);
-  final recommendationService = RecommendationService(
-    tracks: repositories.tracks,
-    trackUserState: repositories.trackUserState,
-    playbackEvents: repositories.playbackEvents,
-  );
-  final artworkCache = AppSupportArtworkCacheService();
-  final libraryScanner = LibraryScannerService(
-    libraryRepository: repositories.libraryFolders,
-    trackRepository: repositories.tracks,
-    metadataReader: const AudioMetadataReaderService(),
-    artworkCache: artworkCache,
-  );
-  final playerService = JustAudioPlayerService(
-    playbackEvents: repositories.playbackEvents,
-    trackUserState: repositories.trackUserState,
-    settings: repositories.settings,
-  );
-  await playerService.restoreSavedVolume();
-  final playbackQueue = PlaybackQueueService(
-    playerService: playerService,
-    tracks: repositories.tracks,
-    trackUserState: repositories.trackUserState,
-    playbackEvents: repositories.playbackEvents,
-    recommendationService: recommendationService,
-  );
-  final smtcService = Platform.isWindows
-      ? WindowsSmtcService(
-          playerService: playerService,
-          onNext: playbackQueue.next,
-          onPrevious: playbackQueue.previous,
-          client: SmtcWindowsPluginClient(),
-        )
-      : Platform.isMacOS
-          ? MacosNowPlayingService(
-              playerService: playerService,
-              onNext: playbackQueue.next,
-              onPrevious: playbackQueue.previous,
-              client: MacosNowPlayingClient(),
-            )
-          : const NoopSmtcService();
-  await smtcService.initialize();
-  final dependencies = AppDependencies(
-    database: database,
-    repositories: repositories,
-    recommendationService: recommendationService,
-    libraryScanner: libraryScanner,
-    directoryPicker: const FilePickerDirectoryPickerService(),
-    customArtwork: FilePickerCustomArtworkService(
-      artworkCache: artworkCache,
-    ),
-    playerService: playerService,
-    playbackQueue: playbackQueue,
-    smtcService: smtcService,
-  );
+  final diagnostics = LocalDiagnosticsService();
+  final startupTimer = Stopwatch()..start();
+  diagnostics.record(DiagnosticEvent.appStarted);
+  final previousFlutterHandler = FlutterError.onError;
+  FlutterError.onError = (details) {
+    diagnostics.record(DiagnosticEvent.frameworkFailure,
+        error: details.exception);
+    previousFlutterHandler?.call(details);
+  };
+  final previousPlatformHandler = PlatformDispatcher.instance.onError;
+  PlatformDispatcher.instance.onError = (error, stack) {
+    diagnostics.record(DiagnosticEvent.asyncFailure, error: error);
+    return previousPlatformHandler?.call(error, stack) ?? false;
+  };
+  try {
+    await _startApplication(diagnostics, startupTimer);
+  } on Object catch (error) {
+    diagnostics.record(DiagnosticEvent.appFailure, error: error);
+    await diagnostics.flush();
+    rethrow;
+  }
+}
 
+Future<void> _startApplication(
+    DiagnosticsService diagnostics, Stopwatch startupTimer) async {
+  final dependencies = await bootstrapApplication(
+      adapters: DefaultAppPlatformAdapters(), diagnostics: diagnostics);
+
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    diagnostics.record(DiagnosticEvent.appReady,
+        fields: {DiagnosticField.elapsedMs: startupTimer.elapsedMilliseconds});
+  });
   runApp(
-    _DependencyRoot(
-      dependencies: dependencies,
-      child: const CleverMusicPlayerApp(),
-    ),
+    Platform.isAndroid
+        ? AndroidPreviewApp(dependencies: dependencies)
+        : _DependencyRoot(
+            dependencies: dependencies,
+            child: const CleverMusicPlayerApp(),
+          ),
   );
 }
 
@@ -103,7 +72,12 @@ final class _DependencyRoot extends StatefulWidget {
 final class _DependencyRootState extends State<_DependencyRoot> {
   @override
   void dispose() {
-    unawaited(widget.dependencies.dispose());
+    unawaited(widget.dependencies
+        .dispose()
+        .catchError((Object error, StackTrace stack) {
+      // The owner already reported each cleanup failure. Widget disposal cannot
+      // await shutdown; hosts that need a drain must await AppDependencies.dispose.
+    }));
     super.dispose();
   }
 

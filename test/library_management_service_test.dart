@@ -14,11 +14,9 @@ void main() {
       _folder(id: 2, path: '/music/disabled', isEnabled: false),
       _folder(id: 3, path: '/music/enabled-b'),
     ]);
-    final tracks = _FakeTrackRepository();
     final scannedPaths = <String>[];
     final service = LibraryManagementService(
       libraryRepository: repository,
-      trackRepository: tracks,
       scanFolder: (path) async {
         scannedPaths.add(path);
         return _scanResult(path);
@@ -36,11 +34,9 @@ void main() {
       _folder(id: 1, path: '/music/a'),
       _folder(id: 2, path: '/music/b', isEnabled: false),
     ]);
-    final tracks = _FakeTrackRepository();
     final scannedPaths = <String>[];
     final service = LibraryManagementService(
       libraryRepository: repository,
-      trackRepository: tracks,
       scanFolder: (path) async {
         scannedPaths.add(path);
         return _scanResult(path);
@@ -88,10 +84,8 @@ void main() {
     final repository = _FakeLibraryRepository([
       _folder(id: 1, path: '/music'),
     ]);
-    final tracks = _FakeTrackRepository();
     final service = LibraryManagementService(
       libraryRepository: repository,
-      trackRepository: tracks,
       scanFolder: (path) async => _scanResult(path),
       clock: () => DateTime(2026, 5, 1),
     );
@@ -113,16 +107,14 @@ void main() {
     final repository = _FakeLibraryRepository([
       _folder(id: 1, path: '/music/disabled', isEnabled: false),
     ]);
-    final tracks = _FakeTrackRepository();
     final service = LibraryManagementService(
       libraryRepository: repository,
-      trackRepository: tracks,
       scanFolder: (path) async => _scanResult(path),
     );
 
     await service.removeFolderFromLibrary(repository.folders.single);
 
-    expect(tracks.deletedFolderIds, [1]);
+    expect(repository.removedFolderIds, [1]);
     expect(repository.folders, isEmpty);
   });
 
@@ -130,10 +122,8 @@ void main() {
     final repository = _FakeLibraryRepository([
       _folder(id: 1, path: '/music/enabled'),
     ]);
-    final tracks = _FakeTrackRepository();
     final service = LibraryManagementService(
       libraryRepository: repository,
-      trackRepository: tracks,
       scanFolder: (path) async => _scanResult(path),
     );
 
@@ -141,7 +131,7 @@ void main() {
       service.removeFolderFromLibrary(repository.folders.single),
       throwsStateError,
     );
-    expect(tracks.deletedFolderIds, isEmpty);
+    expect(repository.removedFolderIds, isEmpty);
     expect(repository.folders, hasLength(1));
   });
 }
@@ -173,11 +163,13 @@ LibraryFolder _folder({
   );
 }
 
-final class _FakeLibraryRepository implements LibraryRepository {
+final class _FakeLibraryRepository
+    implements LibraryRepository, LibraryFolderRemovalRepository {
   _FakeLibraryRepository(List<LibraryFolder> folders)
       : folders = List.of(folders);
 
   final List<LibraryFolder> folders;
+  final removedFolderIds = <int>[];
 
   @override
   Future<int> upsertFolder(LibraryFolder folder) async {
@@ -239,82 +231,16 @@ final class _FakeLibraryRepository implements LibraryRepository {
   }
 
   @override
+  Future<void> removeDisabledFolder(int id) async {
+    final folder = folders.where((item) => item.id == id).firstOrNull;
+    if (folder == null) return;
+    if (folder.isEnabled) throw StateError('Disable the folder first');
+    removedFolderIds.add(id);
+    await deleteFolder(id);
+  }
+
+  @override
   Future<void> deleteFolder(int id) async {
     folders.removeWhere((folder) => folder.id == id);
-  }
-}
-
-final class _FakeTrackRepository implements TrackRepository {
-  final deletedFolderIds = <int>[];
-
-  @override
-  Future<void> deleteTracksByLibraryFolder(int libraryFolderId) async {
-    deletedFolderIds.add(libraryFolderId);
-  }
-
-  @override
-  Future<void> deleteTrack(int id) async {}
-
-  @override
-  Future<Track?> findById(int id) async => null;
-
-  @override
-  Future<Track?> findByPath(String filePath) async => null;
-
-  @override
-  Future<Track?> findByStableId(String stableId) async => null;
-
-  @override
-  Future<List<Track>> listTracks({
-    int limit = 100,
-    int offset = 0,
-    bool includeDisabledFolders = false,
-  }) async {
-    return const [];
-  }
-
-  @override
-  Future<List<Track>> listTracksByLibraryFolder(
-    int libraryFolderId, {
-    bool includeMissing = true,
-  }) async {
-    return const [];
-  }
-
-  @override
-  Future<int> upsertTrack(Track track) async => track.id ?? 0;
-
-  @override
-  Future<void> updateTrackMetadata(TrackMetadataUpdate metadata) async {}
-
-  @override
-  Future<void> updateCustomArtwork({
-    required int trackId,
-    required String path,
-    required String hash,
-    required String? mimeType,
-    required DateTime updatedAt,
-  }) async {}
-
-  @override
-  Future<void> clearCustomArtwork({
-    required int trackId,
-    required DateTime updatedAt,
-  }) async {}
-
-  @override
-  Stream<List<Track>> watchAllTracks({
-    bool includeMissing = false,
-    bool includeDisabledFolders = false,
-  }) {
-    return Stream.value(const []);
-  }
-
-  @override
-  Stream<List<Track>> watchTracks({
-    int limit = 100,
-    bool includeDisabledFolders = false,
-  }) {
-    return Stream.value(const []);
   }
 }

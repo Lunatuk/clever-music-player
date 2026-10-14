@@ -44,7 +44,8 @@ final class DriftRepositories implements AppRepositories {
   }
 }
 
-final class DriftLibraryRepository implements LibraryRepository {
+final class DriftLibraryRepository
+    implements LibraryRepository, LibraryFolderRemovalRepository {
   const DriftLibraryRepository(this._database);
 
   final AppDatabase _database;
@@ -111,30 +112,149 @@ final class DriftLibraryRepository implements LibraryRepository {
           ..where((table) => table.id.equals(id)))
         .go();
   }
+
+  @override
+  Future<void> removeDisabledFolder(int id) => _database.transaction(() async {
+        final current = await (_database.select(_database.libraryFolders)
+              ..where((table) => table.id.equals(id)))
+            .getSingleOrNull();
+        if (current == null) return;
+        if (current.isEnabled) {
+          throw StateError('Отключите папку перед удалением из библиотеки.');
+        }
+        await DriftTrackRepository(_database).deleteTracksByLibraryFolder(id);
+        final removed = await (_database.delete(_database.libraryFolders)
+              ..where((table) =>
+                  table.id.equals(id) & table.isEnabled.equals(false)))
+            .go();
+        if (removed != 1) {
+          throw StateError('Не удалось удалить папку из библиотеки.');
+        }
+      });
 }
 
 final class DriftTrackRepository
-    implements TrackRepository, TrackScanRepository {
+    implements
+        TrackRepository,
+        TrackScanRepository,
+        TrackContentHashRepository,
+        TrackImportRepository,
+        TrackLibraryCountRepository {
   const DriftTrackRepository(this._database);
 
   final AppDatabase _database;
 
   @override
-  Future<int> upsertTrack(Track track) async {
-    final existing = await _findExistingTrackForUpsert(track);
-    if (existing == null) {
-      return _database.into(_database.tracks).insert(trackToCompanion(track));
-    }
+  Stream<int> watchIndexedTrackCount() {
+    final count = _database.tracks.id.count();
+    return (_database.selectOnly(_database.tracks)..addColumns([count]))
+        .watchSingle()
+        .map((row) => row.read(count) ?? 0)
+        .distinct();
+  }
 
-    final id = existing.id!;
-    final updatedTrack = _preserveExistingCustomArtwork(
-      incoming: track,
-      existing: existing,
-    );
-    await (_database.update(_database.tracks)
-          ..where((table) => table.id.equals(id)))
-        .write(trackToCompanion(updatedTrack.copyWith(id: id)));
-    return id;
+  @override
+  Future<List<int>> upsertScannedTracks(List<Track> tracks) {
+    if (tracks.length > TrackImportRepository.maxBatchSize) {
+      throw ArgumentError.value(tracks.length, 'tracks.length');
+    }
+    if (tracks.isEmpty) return Future.value(const []);
+    final incoming = List<Track>.of(tracks);
+    final paths = incoming.map((track) => track.filePath).toSet();
+    if (paths.length != incoming.length) {
+      throw ArgumentError('An import batch must contain unique file paths.');
+    }
+    return _database.transaction(() async {
+      final rows = await (_database.select(_database.tracks)
+            ..where((table) => table.filePath.isIn(paths)))
+          .get();
+      final existing = {for (final row in rows) row.filePath: row};
+      await _database.batch((batch) {
+        for (final track in incoming) {
+          final current = existing[track.filePath];
+          var values = trackToCompanion(track);
+          if (current == null) {
+            // Scanning may discover a new location, but never relocate an ID.
+            batch.insert(
+                _database.tracks, values.copyWith(id: const Value.absent()));
+            continue;
+          }
+          values = values.copyWith(
+            id: Value(current.id),
+            libraryFolderId: Value(current.libraryFolderId),
+            addedAt: Value(current.addedAt),
+            customArtworkPath: Value(current.customArtworkPath),
+            customArtworkHash: Value(current.customArtworkHash),
+            customArtworkMimeType: Value(current.customArtworkMimeType),
+          );
+          if (current.metadataSource == MetadataSource.manual.storageKey) {
+            values = values.copyWith(
+              stableId: Value(current.stableId),
+              title: Value(current.title),
+              artist: Value(current.artist),
+              album: Value(current.album),
+              albumArtist: Value(current.albumArtist),
+              genre: Value(current.genre),
+              year: Value(current.year),
+              trackNumber: Value(current.trackNumber),
+              discNumber: Value(current.discNumber),
+              metadataSource: Value(current.metadataSource),
+              metadataConfidence: Value(current.metadataConfidence),
+            );
+          }
+          // Do not move updatedAt backwards past a concurrent manual edit.
+          if (current.updatedAt.isAfter(track.updatedAt)) {
+            values = values.copyWith(updatedAt: Value(current.updatedAt));
+          }
+          batch.update(_database.tracks, values,
+              where: (table) => table.id.equals(current.id));
+        }
+      });
+      final saved = await (_database.selectOnly(_database.tracks)
+            ..addColumns([_database.tracks.id, _database.tracks.filePath])
+            ..where(_database.tracks.filePath.isIn(paths)))
+          .get();
+      final ids = {
+        for (final row in saved)
+          row.read(_database.tracks.filePath)!: row.read(_database.tracks.id)!
+      };
+      return [for (final track in incoming) ids[track.filePath]!];
+    });
+  }
+
+  @override
+  Future<void> updateContentHashes(Map<int, String?> hashesByTrackId) {
+    return _database.batch((batch) {
+      for (final entry in hashesByTrackId.entries) {
+        batch.update(
+          _database.tracks,
+          TracksCompanion(contentHash: Value(entry.value)),
+          where: (table) => table.id.equals(entry.key),
+        );
+      }
+    });
+  }
+
+  @override
+  Future<int> upsertTrack(Track track) {
+    // Serialize lookup and write so concurrent scans of the same location
+    // cannot both decide to insert it.
+    return _database.transaction(() async {
+      final existing = await _findExistingTrackForUpsert(track);
+      if (existing == null) {
+        return _database.into(_database.tracks).insert(trackToCompanion(track));
+      }
+
+      final id = existing.id!;
+      final updatedTrack = _preserveExistingCustomArtwork(
+        incoming: track,
+        existing: existing,
+      );
+      await (_database.update(_database.tracks)
+            ..where((table) => table.id.equals(id)))
+          .write(trackToCompanion(updatedTrack.copyWith(id: id)));
+      return id;
+    });
   }
 
   @override
@@ -220,11 +340,12 @@ final class DriftTrackRepository
 
   @override
   Future<Track?> findByStableId(String stableId) async {
-    final row = await (_database.select(_database.tracks)
-          ..where((table) => table.stableId.equals(stableId)))
-        .getSingleOrNull();
+    final rows = await (_database.select(_database.tracks)
+          ..where((table) => table.stableId.equals(stableId))
+          ..limit(2))
+        .get();
 
-    return row == null ? null : trackFromRow(row);
+    return rows.length == 1 ? trackFromRow(rows.single) : null;
   }
 
   @override
@@ -403,11 +524,7 @@ final class DriftTrackRepository
       return byPath;
     }
 
-    final stableId = track.stableId;
-    if (stableId != null && stableId.isNotEmpty) {
-      return findByStableId(stableId);
-    }
-
+    // A matching signature never authorizes replacing a different file.
     return null;
   }
 
@@ -743,6 +860,66 @@ final class DriftPlaybackEventRepository implements PlaybackEventRepository {
   }
 
   @override
+  Future<int> recordEvent(PlaybackEvent event) {
+    final operationId = event.operationId;
+    if (operationId == null || operationId.isEmpty || event.id != null) {
+      throw ArgumentError(
+          'recordEvent requires a new event with an operationId');
+    }
+    return _database.transaction(() async {
+      final existing = await (_database.select(_database.playbackEvents)
+            ..where((table) => table.operationId.equals(operationId)))
+          .getSingleOrNull();
+      if (existing != null) {
+        if (!_matchesRecordedEvent(existing, event)) {
+          throw StateError('An operationId cannot identify different events');
+        }
+        return existing.id;
+      }
+
+      final id = await addEvent(event);
+      final columns = switch (event.type) {
+        PlaybackEventType.started => ('play_count', 'last_played_at'),
+        PlaybackEventType.completed => ('complete_count', 'last_completed_at'),
+        PlaybackEventType.skipped => ('skip_count', 'last_skipped_at'),
+        _ => null,
+      };
+      if (columns != null) {
+        final (count, lastAt) = columns;
+        // Only touch fields derived from this event. A delayed event must not
+        // move the most recent timestamps backwards or replace explicit likes.
+        await _database.customInsert(
+          'INSERT INTO track_user_state (track_id, $count, $lastAt, updated_at) '
+          'VALUES (?, 1, ?, ?) ON CONFLICT(track_id) DO UPDATE SET '
+          '$count = track_user_state.$count + 1, '
+          '$lastAt = MAX(COALESCE(track_user_state.$lastAt, excluded.$lastAt), '
+          'excluded.$lastAt), '
+          'updated_at = MAX(track_user_state.updated_at, excluded.updated_at)',
+          variables: [
+            Variable<int>(event.trackId),
+            Variable<DateTime>(event.occurredAt),
+            Variable<DateTime>(event.occurredAt),
+          ],
+          updates: {_database.trackUserStates},
+        );
+      }
+      return id;
+    });
+  }
+
+  bool _matchesRecordedEvent(PlaybackEventRow row, PlaybackEvent event) {
+    // Drift stores timestamps as integer seconds and durations as milliseconds.
+    return row.trackId == event.trackId &&
+        row.eventType == event.type.storageKey &&
+        row.occurredAt.millisecondsSinceEpoch ~/ 1000 ==
+            event.occurredAt.millisecondsSinceEpoch ~/ 1000 &&
+        row.positionMs == event.position?.inMilliseconds &&
+        row.durationMs == event.trackDuration?.inMilliseconds &&
+        row.waveMode == event.waveMode?.storageKey &&
+        row.metadataJson == event.metadataJson;
+  }
+
+  @override
   Future<List<PlaybackEvent>> recentEvents({int limit = 100}) {
     final query = _database.select(_database.playbackEvents)
       ..orderBy([
@@ -782,6 +959,38 @@ final class DriftTrackUserStateRepository implements TrackUserStateRepository {
     await _database
         .into(_database.trackUserStates)
         .insertOnConflictUpdate(trackUserStateToCompanion(state));
+  }
+
+  @override
+  Future<TrackUserState> toggleFeedback(
+    int trackId,
+    TrackFeedback feedback, {
+    required DateTime updatedAt,
+  }) {
+    return _database.transaction(() async {
+      await _database.into(_database.trackUserStates).insert(
+            TrackUserStatesCompanion.insert(
+              trackId: Value(trackId),
+              updatedAt: updatedAt,
+            ),
+            mode: InsertMode.insertOrIgnore,
+          );
+      final assignments = switch (feedback) {
+        TrackFeedback.like =>
+          'is_favorite = CASE WHEN is_favorite = 1 AND is_hidden = 0 '
+              'THEN 0 ELSE 1 END, is_hidden = 0',
+        TrackFeedback.dislike =>
+          'is_hidden = CASE WHEN is_hidden = 1 AND is_favorite = 0 '
+              'THEN 0 ELSE 1 END, is_favorite = 0',
+      };
+      await _database.customUpdate(
+        'UPDATE track_user_state SET $assignments, rating = NULL, '
+        'updated_at = MAX(updated_at, ?) WHERE track_id = ?',
+        variables: [Variable<DateTime>(updatedAt), Variable<int>(trackId)],
+        updates: {_database.trackUserStates},
+      );
+      return (await findByTrackId(trackId))!;
+    });
   }
 
   @override

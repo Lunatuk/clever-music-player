@@ -1,9 +1,9 @@
 import 'dart:async';
-import 'dart:developer' as developer;
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
+import '../diagnostics/diagnostics_service.dart';
 import '../domain/models/track.dart';
 import '../player/player_service.dart';
 import '../player/player_state.dart';
@@ -32,6 +32,7 @@ final class WindowsSmtcService extends _PlatformMediaControlsService {
     required super.onPrevious,
     required super.client,
     super.fileExists,
+    super.diagnostics,
   }) : super(
           debugName: 'WindowsSmtcService',
         );
@@ -44,6 +45,7 @@ final class MacosNowPlayingService extends _PlatformMediaControlsService {
     required super.onPrevious,
     required super.client,
     super.fileExists,
+    super.diagnostics,
   }) : super(
           debugName: 'MacosNowPlayingService',
         );
@@ -57,6 +59,7 @@ class _PlatformMediaControlsService implements SmtcService {
     required Future<void> Function() onPrevious,
     required SmtcPlatformClient client,
     bool Function(String path)? fileExists,
+    this.diagnostics = const NoopDiagnosticsService(),
   })  : _debugName = debugName,
         _playerService = playerService,
         _onNext = onNext,
@@ -74,6 +77,7 @@ class _PlatformMediaControlsService implements SmtcService {
     rewindEnabled: false,
   );
 
+  final DiagnosticsService diagnostics;
   final String _debugName;
   final PlayerService _playerService;
   final Future<void> Function() _onNext;
@@ -93,16 +97,27 @@ class _PlatformMediaControlsService implements SmtcService {
   bool _isInitialized = false;
   bool _isDisposed = false;
   bool _isEnabled = true;
+  Future<void>? _initializing;
+  Future<void>? _disposing;
 
   @override
-  Future<void> initialize() async {
-    if (_isDisposed || _isInitialized) {
-      return;
-    }
+  Future<void> initialize() {
+    if (_isDisposed) return Future.value();
+    if (_initializing != null) return _initializing!;
+    if (_isInitialized) return Future.value();
+    late Future<void> starting;
+    starting = _initialize().whenComplete(() {
+      if (identical(_initializing, starting)) _initializing = null;
+    });
+    return _initializing = starting;
+  }
 
+  Future<void> _initialize() async {
     try {
       await _client.initialize(_buttonConfig);
+      if (_isDisposed) return;
       _isInitialized = true;
+      diagnostics.record(DiagnosticEvent.systemMediaReady);
       _debugLog('initialized');
       _buttonSubscription = _client.buttonPressStream.listen(
         _handleButtonPress,
@@ -124,18 +139,41 @@ class _PlatformMediaControlsService implements SmtcService {
   }
 
   @override
-  Future<void> dispose() async {
-    if (_isDisposed) {
-      return;
+  Future<void> dispose() {
+    _isDisposed = true;
+    return _disposing ??= _dispose();
+  }
+
+  Future<void> _dispose() async {
+    Object? first;
+    StackTrace? firstStack;
+    Future<void> attempt(Future<void> Function() close) async {
+      try {
+        await close();
+      } on Object catch (error, stack) {
+        first ??= error;
+        firstStack ??= stack;
+      }
     }
 
-    _isDisposed = true;
-    await _playerSubscription?.cancel();
-    await _buttonSubscription?.cancel();
-    await _client.dispose();
+    await attempt(() async {
+      await _initializing;
+    });
+    await attempt(() async {
+      await _playerSubscription?.cancel();
+    });
+    await attempt(() async {
+      await _buttonSubscription?.cancel();
+    });
+    await attempt(() async {
+      await Future.wait([_commandQueue, _stateQueue]);
+    });
+    await attempt(_client.dispose);
+    if (first != null) Error.throwWithStackTrace(first!, firstStack!);
   }
 
   void _enqueuePlayerStateSync(PlayerState state) {
+    if (_isDisposed) return;
     _stateQueue = _stateQueue.catchError(_logError).then((_) async {
       await _syncPlayerState(state);
     });
@@ -172,6 +210,7 @@ class _PlatformMediaControlsService implements SmtcService {
   }
 
   void _handleButtonPress(SmtcButton button) {
+    if (_isDisposed) return;
     _debugLog('button pressed: $button');
     final command = switch (button) {
       SmtcButton.play => _playerService.play,
@@ -333,11 +372,9 @@ class _PlatformMediaControlsService implements SmtcService {
   }
 
   void _logError(Object error) {
+    diagnostics.record(DiagnosticEvent.systemMediaFailed, error: error);
     if (kDebugMode) {
       debugPrint('$_debugName ignored error: $error');
-    } else {
-      developer.log('ignored media-control error',
-          name: _debugName, error: error);
     }
   }
 

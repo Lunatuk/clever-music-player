@@ -120,6 +120,7 @@ TracksCompanion trackToCompanion(Track track) {
 PlaybackEvent playbackEventFromRow(PlaybackEventRow row) {
   return PlaybackEvent(
     id: row.id,
+    operationId: row.operationId,
     trackId: row.trackId,
     type: PlaybackEventType.fromStorageKey(row.eventType),
     occurredAt: row.occurredAt,
@@ -134,6 +135,7 @@ PlaybackEvent playbackEventFromRow(PlaybackEventRow row) {
 PlaybackEventsCompanion playbackEventToCompanion(PlaybackEvent event) {
   return PlaybackEventsCompanion(
     id: event.id == null ? const Value.absent() : Value(event.id!),
+    operationId: Value(event.operationId),
     trackId: Value(event.trackId),
     eventType: Value(event.type.storageKey),
     occurredAt: Value(event.occurredAt),

@@ -1,0 +1,4 @@
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/player_background" />
+    <foreground android:drawable="@drawable/music_foreground" />
+</adaptive-icon>
