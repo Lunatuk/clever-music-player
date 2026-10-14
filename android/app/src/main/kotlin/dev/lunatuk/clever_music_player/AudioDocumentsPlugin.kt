@@ -11,6 +11,8 @@ import android.provider.OpenableColumns
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.os.CancellationSignal
+import android.provider.DocumentsContract
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
@@ -18,6 +20,7 @@ import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.PluginRegistry
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.Executors
+import java.util.concurrent.ConcurrentHashMap
 
 /** Read-only SAF boundary. Music is opened by URI, never copied into app storage. */
 class AudioDocumentsPlugin : FlutterPlugin, ActivityAware, PluginRegistry.ActivityResultListener {
@@ -28,6 +31,9 @@ class AudioDocumentsPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activi
     private var activityBinding: ActivityPluginBinding? = null
     private var pickerResult: MethodChannel.Result? = null
     private var documentsChannel: MethodChannel? = null
+    private data class FolderSession(val uri: Uri, val cancel: CancellationSignal, val walker: DocumentTreeWalker)
+    private val folders = ConcurrentHashMap<Int, FolderSession>()
+    private var nextFolderId = 1
     @Volatile private var destroyed = false
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
@@ -37,6 +43,48 @@ class AudioDocumentsPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activi
             channel.setMethodCallHandler { call, result ->
                 when (call.method) {
                     "pickAudio" -> pickAudio(result)
+                    "pickAudioFolder" -> pickAudioFolder(result)
+                    "openAudioFolder" -> onWorker(result) {
+                        check(folders.isEmpty())
+                        val uri = Uri.parse(call.argument<String>("uri") ?: error("invalid_tree"))
+                        check(uri.scheme == "content" && DocumentsContract.isTreeUri(uri) && hasPersistentRead(uri))
+                        val cancel = CancellationSignal()
+                        val walker = DocumentTreeWalker(DocumentsContract.getTreeDocumentId(uri), { id ->
+                            val children = DocumentsContract.buildChildDocumentsUriUsingTree(uri, id)
+                            val cursor = contentResolver.query(children, arrayOf(
+                                DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                                DocumentsContract.Document.COLUMN_MIME_TYPE,
+                                DocumentsContract.Document.COLUMN_DISPLAY_NAME), null, null, null, cancel)
+                                ?: error("unreadable_directory")
+                            object : TreeDirectoryCursor {
+                                override fun next(): TreeDocument? = if (!cursor.moveToNext()) null else
+                                    TreeDocument(cursor.getString(0), cursor.getString(1), cursor.getString(2))
+                                override fun close() = cursor.close()
+                            }
+                        }, cancelled = { cancel.isCanceled })
+                        val id = nextFolderId++
+                        folders[id] = FolderSession(uri, cancel, walker)
+                        id
+                    }
+                    "readAudioFolderPage" -> onWorker(result) {
+                        val folder = folders[call.argument<Int>("session")] ?: error("closed_folder")
+                        val page = folder.walker.nextPage()
+                        mapOf("uris" to page.ids.map {
+                            DocumentsContract.buildDocumentUriUsingTree(folder.uri, it).toString()
+                        }, "visited" to page.visited, "done" to page.done)
+                    }
+                    "closeAudioFolder" -> {
+                        val id = call.argument<Int>("session")
+                        if (id == null) {
+                            result.error("invalid_session", "Некорректный обход папки.", null)
+                        } else {
+                            folders[id]?.cancel?.cancel()
+                            onWorker(result) {
+                                folders.remove(id)?.walker?.close()
+                                null
+                            }
+                        }
+                    }
                     "readAudio" -> {
                         val address = call.argument<String>("uri")
                         val uri = address?.let(Uri::parse)
@@ -57,6 +105,36 @@ class AudioDocumentsPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activi
                     else -> result.notImplemented()
                 }
             }
+        }
+    }
+
+    private fun onWorker(result: MethodChannel.Result, action: () -> Any?) {
+        worker.execute {
+            try {
+                val value = action()
+                mainHandler.post { if (!destroyed) result.success(value) }
+            } catch (_: Exception) {
+                mainHandler.post { if (!destroyed) result.error("folder_unavailable",
+                    "Не удалось прочитать папку. Проверьте доступ и выберите её заново.", null) }
+            }
+        }
+    }
+
+    private fun pickAudioFolder(result: MethodChannel.Result) {
+        if (pickerResult != null) {
+            result.error("busy", "Выбор музыки уже открыт.", null)
+            return
+        }
+        pickerResult = result
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+        }
+        try {
+            val activity = activityBinding?.activity ?: throw IllegalStateException()
+            activity.startActivityForResult(intent, PICK_FOLDER)
+        } catch (_: Exception) {
+            pickerResult = null
+            result.error("picker_unavailable", "Системный выбор папок недоступен.", null)
         }
     }
 
@@ -82,11 +160,22 @@ class AudioDocumentsPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activi
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?): Boolean {
-        if (requestCode != PICK_AUDIO) return false
+        if (requestCode != PICK_AUDIO && requestCode != PICK_FOLDER) return false
         val result = pickerResult ?: return true
         pickerResult = null
         if (resultCode != Activity.RESULT_OK || data == null) {
             result.success(null)
+            return true
+        }
+        if (requestCode == PICK_FOLDER) {
+            try {
+                val uri = data.data ?: error("no_tree")
+                check(uri.scheme == "content" && DocumentsContract.isTreeUri(uri))
+                contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                result.success(mapOf("uri" to uri.toString()))
+            } catch (_: Exception) {
+                result.error("folder_unavailable", "Не удалось сохранить доступ к папке.", null)
+            }
             return true
         }
         val selected = linkedSetOf<Uri>()
@@ -114,8 +203,15 @@ class AudioDocumentsPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activi
         return true
     }
 
+    private fun hasPersistentRead(uri: Uri): Boolean = contentResolver.persistedUriPermissions.any {
+        it.isReadPermission && (it.uri == uri ||
+            (it.uri.authority == uri.authority && DocumentsContract.isTreeUri(it.uri) &&
+                DocumentsContract.isTreeUri(uri) &&
+                DocumentsContract.getTreeDocumentId(it.uri) == DocumentsContract.getTreeDocumentId(uri)))
+    }
+
     private fun readAudio(uri: Uri): Map<String, Any?> {
-        check(contentResolver.persistedUriPermissions.any { it.uri == uri && it.isReadPermission })
+        check(hasPersistentRead(uri))
         contentResolver.openAssetFileDescriptor(uri, "r").use { check(it != null) }
         var name: String? = null
         var size: Long? = null
@@ -194,11 +290,17 @@ class AudioDocumentsPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activi
         destroyed = true
         documentsChannel?.setMethodCallHandler(null)
         detachActivity(true)
-        worker.shutdownNow()
+        folders.values.forEach { it.cancel.cancel() }
+        worker.execute {
+            folders.values.forEach { try { it.walker.close() } catch (_: Exception) {} }
+            folders.clear()
+        }
+        worker.shutdown()
     }
 
     private companion object {
         const val PICK_AUDIO = 417
+        const val PICK_FOLDER = 418
         const val MAX_SELECTION = 64
     }
 }

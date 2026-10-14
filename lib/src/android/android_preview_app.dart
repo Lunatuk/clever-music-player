@@ -120,7 +120,8 @@ final class _AndroidLibraryScreenState extends State<AndroidLibraryScreen> {
                         content: const SingleChildScrollView(
                             child: Text(
                                 'Первая версия для проверки музыки на телефоне. '
-                                'Можно выбирать до 64 локальных аудиофайлов за раз.\n\n'
+                                'Можно выбирать отдельные файлы или папку с музыкой и вложенными каталогами. '
+                                'Импорт можно остановить; уже добавленные треки сохранятся.\n\n'
                                 'Музыка продолжает играть при блокировке экрана. '
                                 'Управление доступно в уведомлении и на экране блокировки.\n\n'
                                 'После прерывания или отключения наушников музыка ставится на паузу. '
@@ -133,12 +134,22 @@ final class _AndroidLibraryScreenState extends State<AndroidLibraryScreen> {
                       ))),
           ListenableBuilder(
               listenable: widget.importer,
-              builder: (context, _) => IconButton(
-                  tooltip: 'Добавить музыку',
-                  onPressed: widget.importer.busy
-                      ? null
-                      : () => _command(widget.importer.importSelection),
-                  icon: const Icon(Icons.add_rounded))),
+              builder: (context, _) =>
+                  Row(mainAxisSize: MainAxisSize.min, children: [
+                    if (widget.importer.supportsFolders)
+                      IconButton(
+                          tooltip: 'Добавить папку',
+                          onPressed: widget.importer.busy
+                              ? null
+                              : () => _command(widget.importer.importFolder),
+                          icon: const Icon(Icons.create_new_folder_outlined)),
+                    IconButton(
+                        tooltip: 'Добавить музыку',
+                        onPressed: widget.importer.busy
+                            ? null
+                            : () => _command(widget.importer.importSelection),
+                        icon: const Icon(Icons.add_rounded)),
+                  ])),
         ]),
         body: SafeArea(
             top: false,
@@ -150,9 +161,32 @@ final class _AndroidLibraryScreenState extends State<AndroidLibraryScreen> {
                     return Column(mainAxisSize: MainAxisSize.min, children: [
                       if (importer.busy)
                         LinearProgressIndicator(
-                            value: importer.total == 0
+                            value: importer.folderImport || importer.total == 0
                                 ? null
                                 : importer.processed / importer.total),
+                      if (importer.busy)
+                        Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            child: Wrap(
+                                alignment: WrapAlignment.spaceBetween,
+                                crossAxisAlignment: WrapCrossAlignment.center,
+                                spacing: 12,
+                                children: [
+                                  Text(
+                                      importer.cancelling
+                                          ? 'Остановка импорта…'
+                                          : importer.folderImport
+                                              ? 'Найдено: ${importer.total} · Обработано: ${importer.processed}'
+                                              : 'Обработано: ${importer.processed} / ${importer.total}',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodySmall),
+                                  TextButton(
+                                      onPressed: importer.canCancel
+                                          ? () => _command(importer.cancel)
+                                          : null,
+                                      child: const Text('Остановить импорт')),
+                                ])),
                       if (importer.message != null)
                         Padding(
                             padding: const EdgeInsets.fromLTRB(16, 6, 16, 6),
@@ -190,7 +224,7 @@ final class _AndroidLibraryScreenState extends State<AndroidLibraryScreen> {
                                             textAlign: TextAlign.center),
                                         const SizedBox(height: 12),
                                         const Text(
-                                            'Нажми + и выбери несколько аудиофайлов. Доступ к ним сохранится после перезапуска.',
+                                            'Добавь папку с музыкой или выбери отдельные файлы через +. Доступ сохранится после перезапуска.',
                                             textAlign: TextAlign.center),
                                       ])));
                         }

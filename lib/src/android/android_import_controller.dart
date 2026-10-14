@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
 
+import '../core/async_lifecycle.dart';
+import '../domain/models/audio_source_reference.dart';
 import '../domain/models/metadata_source.dart';
 import '../domain/models/track.dart';
 import '../domain/repositories/track_repository.dart';
@@ -7,64 +9,122 @@ import '../library/artwork_cache_service.dart';
 import '../library/metadata_enrichment.dart';
 import 'audio_documents.dart';
 
-/// Owns only explicit document imports, never desktop folder scanning.
-/// Close invalidates a pending picker and drains any accepted metadata/DB work.
+/// Owns explicit SAF imports. Cancellation preserves committed tracks; close
+/// drains accepted provider/cache/DB work before the app closes SQLite.
 final class AndroidImportController extends ChangeNotifier {
   AndroidImportController(
       {required this.documents,
       required this.imports,
       required this.artworkCache,
+      AudioDocumentFolders? folders,
       DateTime Function()? clock})
-      : _clock = clock ?? DateTime.now;
+      : _folders = folders ??
+            (documents is AudioDocumentFolders
+                ? documents as AudioDocumentFolders
+                : null),
+        _clock = clock ?? DateTime.now;
   final AudioDocuments documents;
   final TrackImportRepository imports;
   final ArtworkCacheService artworkCache;
+  final AudioDocumentFolders? _folders;
   final DateTime Function() _clock;
-  bool _closed = false;
-  bool _busy = false;
-  int _processed = 0, _total = 0;
+  bool _closed = false,
+      _busy = false,
+      _cancelRequested = false,
+      _folderImport = false;
+  int _processed = 0, _total = 0, _visited = 0, _imported = 0, _failed = 0;
   String? _message;
-  Future<void>? _processing;
-  Future<void>? _closing;
+  int? _folderSession;
+  Future<void>? _processing, _closing, _folderClosing;
   bool get busy => _busy;
+  bool get supportsFolders => _folders != null;
+  bool get folderImport => _folderImport;
+  bool get canCancel =>
+      !_closed && _busy && _processing != null && !_cancelRequested;
+  bool get cancelling => _cancelRequested && _busy;
   int get processed => _processed;
   int get total => _total;
+  int get visited => _visited;
   String? get message => _message;
+  bool get _stopped => _closed || _cancelRequested;
 
-  Future<void> importSelection() async {
+  Future<void> importSelection() => _run(folder: false);
+  Future<void> importFolder() =>
+      _folders == null ? Future.value() : _run(folder: true);
+
+  Future<void> _run({required bool folder}) async {
     if (_closed || _busy) return;
     _busy = true;
-    _processed = _total = 0;
+    _cancelRequested = false;
+    _folderImport = folder;
+    _processed = _total = _visited = _imported = _failed = 0;
     _message = null;
+    var started = false;
     notifyListeners();
     try {
-      final selection = await documents.pickAudio();
-      if (_closed || selection == null) return;
-      final processing = _import(selection);
-      _processing = processing;
-      await processing;
+      if (folder) {
+        final tree = await _folders!.pickAudioFolder();
+        if (_stopped || tree == null) return;
+        started = true;
+        _processing = _importFolder(tree);
+      } else {
+        final selection = await documents.pickAudio();
+        if (_stopped || selection == null) return;
+        started = true;
+        final sources = selection.sources.toSet().toList(growable: false);
+        _total = sources.length;
+        _failed = selection.skipped;
+        _processing = _importSources(sources);
+      }
+      if (!_closed) notifyListeners();
+      await _processing;
     } on Object {
-      if (!_closed) {
-        _message = 'Не удалось добавить музыку. Повторите выбор файлов.';
+      if (!_stopped) {
+        _message =
+            'Не удалось завершить импорт. Добавлено в библиотеку: $_imported. '
+            'Проверьте доступ и повторите выбор.';
       }
     } finally {
+      if (started && !_closed && _message == null) {
+        _message = '${_cancelRequested ? 'Импорт остановлен. ' : ''}'
+            'Добавлено в библиотеку: $_imported.'
+            '${_failed == 0 ? '' : ' Не добавлено: $_failed. Выберите эти файлы заново.'}';
+      }
       _processing = null;
+      _folderSession = null;
+      _folderClosing = null;
       _busy = false;
       if (!_closed) notifyListeners();
     }
   }
 
-  Future<void> _import(AudioDocumentSelection selection) async {
-    final sources = selection.sources.toSet().toList(growable: false);
-    _total = sources.length;
-    var imported = 0;
-    var failed = selection.skipped;
+  Future<void> _importFolder(ContentUriAudioSource tree) async {
+    try {
+      _folderSession = await _folders!.openAudioFolder(tree);
+      while (!_stopped) {
+        final page = await _folders.readAudioFolderPage(_folderSession!);
+        if (_stopped) break;
+        if (page.visited < _visited ||
+            (!page.done && page.visited == _visited)) {
+          throw const FormatException('Обход папки не продвигается.');
+        }
+        _visited = page.visited;
+        _total += page.sources.length;
+        notifyListeners();
+        await _importSources(page.sources);
+        if (page.done) break;
+      }
+    } finally {
+      await _releaseFolder();
+    }
+  }
+
+  Future<void> _importSources(Iterable<ContentUriAudioSource> sources) async {
     for (final source in sources) {
-      if (_closed) return;
+      if (_stopped) break;
       try {
         final metadata = await documents.readAudio(source);
-        if (_closed) return;
-        // A missing cover/cache error must not prevent importing readable music.
+        if (_stopped) break;
         CachedArtwork? artwork;
         try {
           artwork = await artworkCache.saveEmbeddedArtwork(
@@ -72,14 +132,15 @@ final class AndroidImportController extends ChangeNotifier {
                   ? null
                   : EmbeddedArtwork(
                       bytes: metadata.artwork!, mimeType: 'image/webp'));
-        } on Object {/* Keep the track without a cover. */}
-        if (_closed) return;
+        } on Object {
+          /* A cover failure must not prevent importing readable music. */
+        }
+        if (_stopped) break;
         final now = _clock();
-        final title = metadata.title ?? metadata.name ?? 'Без названия';
         await imports.upsertScannedTracks([
           Track.fromSource(
             source: source,
-            title: title,
+            title: metadata.title ?? metadata.name ?? 'Без названия',
             artist: metadata.artist,
             album: metadata.album,
             albumArtist: metadata.albumArtist,
@@ -97,32 +158,44 @@ final class AndroidImportController extends ChangeNotifier {
             lastSeenAt: now,
           )
         ]);
-        imported++;
+        _imported++;
       } on Object {
-        failed++;
+        _failed++;
       }
       if (_closed) return;
       _processed++;
       notifyListeners();
     }
-    _message = 'Добавлено в библиотеку: $imported.'
-        '${failed == 0 ? '' : ' Не добавлено: $failed. Выберите эти файлы заново.'}';
+  }
+
+  Future<void> cancel() async {
+    if (!canCancel) return;
+    _cancelRequested = true;
+    notifyListeners();
+    await _releaseFolder();
+  }
+
+  Future<void> _releaseFolder() {
+    final session = _folderSession;
+    if (session == null) return Future.value();
+    return _folderClosing ??= _folders!.closeAudioFolder(session);
   }
 
   Future<void> close() {
     _closed = true;
-    return _closing ??= _drain();
-  }
-
-  Future<void> _drain() async {
-    await _processing;
+    _cancelRequested = true;
+    return _closing ??= finishCleanup([
+      _releaseFolder,
+      () async {
+        await _processing;
+      },
+    ]);
   }
 
   @override
   void dispose() {
-    // The app owner awaits close before closing SQLite. Widget unsubscription
-    // alone must still stop a delayed picker from writing or notifying.
     _closed = true;
+    _cancelRequested = true;
     super.dispose();
   }
 }

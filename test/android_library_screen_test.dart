@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:clever_music_player/src/android/android_import_controller.dart';
 import 'package:clever_music_player/src/android/android_preview_app.dart';
 import 'package:clever_music_player/src/android/audio_documents.dart';
@@ -65,12 +67,72 @@ void main() {
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
   });
+
+  testWidgets(
+      'folder button enters busy state and survives picker cancellation',
+      (tester) async {
+    tester.view.physicalSize = const Size(844, 390);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final fixture = _Fixture();
+    addTearDown(fixture.close);
+    await fixture.player.playTrack(fixture.track);
+    await tester.pumpWidget(fixture.app(textScale: 2));
+    await tester.pump();
+    await tester.tap(find.byTooltip('Добавить папку'));
+    await tester.pump();
+    expect(fixture.documents.folderPicks, 1);
+    expect(find.byType(LinearProgressIndicator), findsOneWidget);
+    expect(
+        tester
+            .widget<IconButton>(
+                find.widgetWithIcon(IconButton, Icons.add_rounded))
+            .onPressed,
+        isNull);
+    expect(tester.takeException(), isNull);
+    fixture.documents.picker.complete(null);
+    await tester.pump();
+    expect(fixture.importer.busy, isFalse);
+    expect(find.byType(LinearProgressIndicator), findsNothing);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  for (final size in [const Size(390, 844), const Size(844, 390)]) {
+    testWidgets(
+        'folder cancel button drains traversal with large text at $size',
+        (tester) async {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final fixture = _Fixture();
+      addTearDown(fixture.close);
+      await fixture.player.playTrack(fixture.track);
+      await tester.pumpWidget(fixture.app(textScale: 2));
+      await tester.pump();
+      await tester.tap(find.byTooltip('Добавить папку'));
+      fixture.documents.picker
+          .complete(ContentUriAudioSource('content://test/tree/Music'));
+      await tester.pump();
+      expect(fixture.importer.canCancel, isTrue);
+      expect(tester.takeException(), isNull);
+      await tester.tap(find.text('Остановить импорт'));
+      await tester.pump();
+      expect(fixture.documents.closes, 1);
+      expect(fixture.importer.busy, isFalse);
+      expect(find.textContaining('Импорт остановлен.'), findsOneWidget);
+      expect(fixture.player.isPlaying, isTrue);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    });
+  }
 }
 
 final class _Fixture {
   _Fixture() {
     importer = AndroidImportController(
-        documents: const _Documents(),
+        documents: documents,
         imports: DriftRepositories(database).tracks as TrackImportRepository,
         artworkCache: const NoopArtworkCacheService());
     player = JustAudioPlayerService(
@@ -80,6 +142,7 @@ final class _Fixture {
   }
   final database = AppDatabase(NativeDatabase.memory());
   final engine = TestAudioEngine();
+  final documents = _Documents();
   late final AndroidImportController importer;
   late final JustAudioPlayerService player;
   int selections = 0, nextCalls = 0, stopCalls = 0;
@@ -121,8 +184,29 @@ final class _Fixture {
   }
 }
 
-final class _Documents implements AudioDocuments {
-  const _Documents();
+final class _Documents implements AudioDocuments, AudioDocumentFolders {
+  int folderPicks = 0;
+  int closes = 0;
+  final picker = Completer<ContentUriAudioSource?>();
+  final page = Completer<AudioFolderPage>();
+  @override
+  Future<ContentUriAudioSource?> pickAudioFolder() {
+    folderPicks++;
+    return picker.future;
+  }
+
+  @override
+  Future<int> openAudioFolder(ContentUriAudioSource tree) async => 1;
+  @override
+  Future<AudioFolderPage> readAudioFolderPage(int session) async => page.future;
+  @override
+  Future<void> closeAudioFolder(int session) async {
+    closes++;
+    if (!page.isCompleted) {
+      page.complete(const AudioFolderPage([], visited: 0, done: true));
+    }
+  }
+
   @override
   Future<AudioDocumentSelection?> pickAudio() async => null;
   @override

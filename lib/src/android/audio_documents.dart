@@ -31,12 +31,91 @@ abstract interface class AudioDocuments {
   Future<AudioDocumentMetadata> readAudio(ContentUriAudioSource source);
 }
 
-final class AndroidAudioDocuments implements AudioDocuments {
+final class AudioFolderPage {
+  const AudioFolderPage(this.sources,
+      {required this.visited, required this.done});
+  final List<ContentUriAudioSource> sources;
+  final int visited;
+  final bool done;
+}
+
+/// Separate capability so single-document clients do not need folder support.
+abstract interface class AudioDocumentFolders {
+  Future<ContentUriAudioSource?> pickAudioFolder();
+  Future<int> openAudioFolder(ContentUriAudioSource tree);
+  Future<AudioFolderPage> readAudioFolderPage(int session);
+  Future<void> closeAudioFolder(int session);
+}
+
+bool isAudioFolderUri(ContentUriAudioSource source) {
+  final parts = source.uri.pathSegments;
+  return parts.length == 2 && parts.first == 'tree' && parts.last.isNotEmpty;
+}
+
+final class AndroidAudioDocuments
+    implements AudioDocuments, AudioDocumentFolders {
   const AndroidAudioDocuments({MethodChannel? channel})
       : _channel = channel ??
             const MethodChannel(
                 'dev.lunatuk.clever_music_player/audio_documents');
   final MethodChannel _channel;
+
+  @override
+  Future<ContentUriAudioSource?> pickAudioFolder() async {
+    final data =
+        await _channel.invokeMapMethod<String, Object?>('pickAudioFolder');
+    if (data == null) return null;
+    final value = data['uri'];
+    if (value is! String) throw const FormatException('Некорректная папка.');
+    final tree = ContentUriAudioSource(value);
+    if (!isAudioFolderUri(tree)) {
+      throw const FormatException('Некорректная папка.');
+    }
+    return tree;
+  }
+
+  @override
+  Future<int> openAudioFolder(ContentUriAudioSource tree) async {
+    if (!isAudioFolderUri(tree)) {
+      throw const FormatException('Некорректная папка.');
+    }
+    final id = await _channel
+        .invokeMethod<Object?>('openAudioFolder', {'uri': tree.storageValue});
+    if (id is! int || id <= 0) {
+      throw const FormatException('Некорректный обход.');
+    }
+    return id;
+  }
+
+  @override
+  Future<AudioFolderPage> readAudioFolderPage(int session) async {
+    final data = await _channel.invokeMapMethod<String, Object?>(
+        'readAudioFolderPage', {'session': session});
+    final uris = data?['uris'],
+        visited = data?['visited'],
+        done = data?['done'];
+    if (uris is! List ||
+        uris.length > 64 ||
+        visited is! int ||
+        visited < 0 ||
+        visited > 100000 ||
+        done is! bool) {
+      throw const FormatException('Некорректный результат обхода.');
+    }
+    return AudioFolderPage(
+        List.unmodifiable(uris.map((value) {
+          if (value is! String) {
+            throw const FormatException('Некорректный источник.');
+          }
+          return ContentUriAudioSource(value);
+        }).toSet()),
+        visited: visited,
+        done: done);
+  }
+
+  @override
+  Future<void> closeAudioFolder(int session) =>
+      _channel.invokeMethod<void>('closeAudioFolder', {'session': session});
 
   @override
   Future<AudioDocumentSelection?> pickAudio() async {
