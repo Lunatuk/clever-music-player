@@ -1212,3 +1212,77 @@ video_2026-10-15_02-11-19.mp4 (57,7 с). Видео просмотрено: ви
 Код приложения и ранее проверенный APK 23 не менялись, новая сборка не нужна.
 Дальнейшая работа — модель медиатеки по этапу 3; улучшение алгоритма рекомендаций
 остаётся отложенным по решению пользователя.
+
+**15 октября 2026 — пакет 24, внешние ID медиатеки**
+
+После уточнения процесса синхронизации пользователь подтвердил продолжение.
+Реализована первая часть этапа 3: ExternalTrackIdentity/ExternalTrackRef,
+ExternalTrackRepository и общий для Android/desktop реестр связей
+AppRepositories.externalTracks. Identity включает provider, точный opaque ID
+и вариант версии/альбома; источник — embeddedTag/providerResponse/manual.
+Нормализация названий не участвует. Копии остаются самостоятельными локальными
+записями, которым разрешён один внешний ID; версии и providers различаются.
+
+linkAll ограничен 64 входами и атомарен: снимок до async, сведение повторов,
+проверка существования всех треков, вставка/повышение происхождения без потери
+первого linkedAt. Повтор не создаёт строки, manual не понижается новым импортом.
+Lookup индексирован и возвращает все копии, включая скрытые/пропавшие; связь
+сама по себе не означает готовый/проверенный скачанный ресурс. unlink удаляет
+только связь. Удаление трека или источника очищает ссылки в той же транзакции,
+ошибка откатывает весь результат. Сброс обучения, теги/обложки, повторный импорт
+и отключение папки сохраняют связи.
+
+Схема SQLite 10 создаёт external_track_refs и индекс без перестройки старых
+таблиц. Миграции 1–9 сохраняют прежние поля/ID/данные, включая Android URI,
+владение отключённой папкой, жанровую строку, ручную обложку, настройки, оценки,
+историю и плейлисты. test/fixtures/schema_v9.sql фиксирует прежнюю схему без
+личных данных. DDL/версия откатываются совместно, повторный запуск успешен.
+Новых пользовательских полей/команд ещё нет; DownloadedAsset, аккаунт/коллекции,
+задания, адаптер загрузки и несколько жанров — следующая работа.
+
+| Проверка | Результат |
+| --- | --- |
+| Flutter tests | 826 passed, 33 новых: 22 identity/repository и 11 миграционных |
+| Flutter analyze | No issues found |
+| dart format lib/test | 164 файла, 0 изменений |
+| Drift generation | Успешно; повторный codegen-check 16,8 с |
+| Native Windows audio contract | MSVC compiled, protocol fixture matched |
+| Android arm64 release | Успешно, 112,3 с вместе с запуском процесса |
+| Native JVM | 6 passed, 0 ошибок/падений |
+| Native lint | 0 errors, 6 прежних warnings |
+| APK | CRC, apksigner v2, signer совпадает с 23, ZIP/ELF LOAD/RELRO 16 КиБ; versionCode 2024, target SDK 36; notification/folder methods и SQL новой таблицы/индекса присутствуют |
+| Windows x64 release | Успешно, 103,4 с вместе с запуском процесса |
+| Windows ZIP | 17 файлов, CRC, точный состав/байты payload и PE x64 проверены; SQL новой таблицы присутствует в app.so |
+
+Начальная генерация Drift из каталога OneDrive с кириллицей не нашла собственный
+root package; выполнена в отдельной ASCII-копии, generated Dart возвращён в
+репозиторий. Путь сборки `%LOCALAPPDATA%\CleverMusicPlayerBuilds\core24-20261015`.
+308 исходных файлов сверены SHA-256. После сборки синхронизированы только два
+тестовых файла: устаревшее ожидание schema 9 исправлено на 10, четыре SQL-строки
+приведены к стилю кавычек; затем повторён полный тестовый прогон и анализ.
+Продуктовые исходники не менялись, подтверждение — core24-test-source-sync.json
+и core24-manifest-before-test-updates.json. Предварительный прогон с прежним
+ожиданием номера схемы сохранён в core24-full-tests.log; финальный проходит.
+
+Windows build сохраняет прежние предупреждения зависимостей resolve_symlinks.ps1
+(Get-Item скрытого AppData) и jni C4090; оба присутствовали также в сборке 19.
+Новых патчей зависимостей не вводилось, native protocol и целостность полного
+payload проверены. Логи/результаты: .dart_tool/core24-full-tests-final.log,
+core24-analyze-final.log, core24-format-final.log, core24-migration-refs.log,
+core24-native-windows-protocol.log, core24-source-manifest.json,
+core24-build-result.json, core24-package.json, core24-apk-*.log; native и release
+логи — в сборочной копии. Android CI переключён на 24; удалённый статус CI
+не проверялся. macOS и физический Android в этой сессии не запускались.
+
+Артефакты:
+
+- dist/clever-music-player-core-24-android-arm64.apk — 20 743 428 байт,
+  SHA-256 55dd306c9a0ca21ea3ce434027f2395c447fbac99af02023462ff1c45bff0838.
+- dist/clever-music-player-core-24-windows-x64.zip — 14 348 512 байт,
+  SHA-256 c3a1db355f6d4c862d5d31c71c654bbbf203fb555cb5092de28f10fea7ebff6d.
+
+Рядом .sha256 и общие core-24-checks.txt/core-24-manual-checks.txt; Windows ZIP
+содержит MANUAL_CHECKS.txt только текущего пакета. Android устанавливается поверх
+23 без удаления, Windows запускается из новой распакованной папки с прежним
+профилем. Две точечные проверки запуска/данных и короткого воспроизведения/
+обновления ожидают пользователя. [Контракт](architecture/external-track-identities.md).

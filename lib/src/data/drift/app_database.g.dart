@@ -3736,6 +3736,365 @@ class AppSettingsCompanion extends UpdateCompanion<AppSettingRow> {
   }
 }
 
+class $ExternalTrackRefsTable extends ExternalTrackRefs
+    with TableInfo<$ExternalTrackRefsTable, ExternalTrackRefRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $ExternalTrackRefsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _trackIdMeta =
+      const VerificationMeta('trackId');
+  @override
+  late final GeneratedColumn<int> trackId = GeneratedColumn<int>(
+      'track_id', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: true,
+      defaultConstraints: GeneratedColumn.constraintIsAlways(
+          'REFERENCES tracks (id) ON DELETE CASCADE'));
+  static const VerificationMeta _providerMeta =
+      const VerificationMeta('provider');
+  @override
+  late final GeneratedColumn<String> provider = GeneratedColumn<String>(
+      'provider', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _externalIdMeta =
+      const VerificationMeta('externalId');
+  @override
+  late final GeneratedColumn<String> externalId = GeneratedColumn<String>(
+      'external_id', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _variantKeyMeta =
+      const VerificationMeta('variantKey');
+  @override
+  late final GeneratedColumn<String> variantKey = GeneratedColumn<String>(
+      'variant_key', aliasedName, false,
+      type: DriftSqlType.string,
+      requiredDuringInsert: false,
+      defaultValue: const Constant(''));
+  static const VerificationMeta _originMeta = const VerificationMeta('origin');
+  @override
+  late final GeneratedColumn<String> origin = GeneratedColumn<String>(
+      'origin', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _linkedAtMeta =
+      const VerificationMeta('linkedAt');
+  @override
+  late final GeneratedColumn<DateTime> linkedAt = GeneratedColumn<DateTime>(
+      'linked_at', aliasedName, false,
+      type: DriftSqlType.dateTime, requiredDuringInsert: true);
+  @override
+  List<GeneratedColumn> get $columns =>
+      [trackId, provider, externalId, variantKey, origin, linkedAt];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'external_track_refs';
+  @override
+  VerificationContext validateIntegrity(
+      Insertable<ExternalTrackRefRow> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('track_id')) {
+      context.handle(_trackIdMeta,
+          trackId.isAcceptableOrUnknown(data['track_id']!, _trackIdMeta));
+    } else if (isInserting) {
+      context.missing(_trackIdMeta);
+    }
+    if (data.containsKey('provider')) {
+      context.handle(_providerMeta,
+          provider.isAcceptableOrUnknown(data['provider']!, _providerMeta));
+    } else if (isInserting) {
+      context.missing(_providerMeta);
+    }
+    if (data.containsKey('external_id')) {
+      context.handle(
+          _externalIdMeta,
+          externalId.isAcceptableOrUnknown(
+              data['external_id']!, _externalIdMeta));
+    } else if (isInserting) {
+      context.missing(_externalIdMeta);
+    }
+    if (data.containsKey('variant_key')) {
+      context.handle(
+          _variantKeyMeta,
+          variantKey.isAcceptableOrUnknown(
+              data['variant_key']!, _variantKeyMeta));
+    }
+    if (data.containsKey('origin')) {
+      context.handle(_originMeta,
+          origin.isAcceptableOrUnknown(data['origin']!, _originMeta));
+    } else if (isInserting) {
+      context.missing(_originMeta);
+    }
+    if (data.containsKey('linked_at')) {
+      context.handle(_linkedAtMeta,
+          linkedAt.isAcceptableOrUnknown(data['linked_at']!, _linkedAtMeta));
+    } else if (isInserting) {
+      context.missing(_linkedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey =>
+      {trackId, provider, externalId, variantKey};
+  @override
+  ExternalTrackRefRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return ExternalTrackRefRow(
+      trackId: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}track_id'])!,
+      provider: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}provider'])!,
+      externalId: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}external_id'])!,
+      variantKey: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}variant_key'])!,
+      origin: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}origin'])!,
+      linkedAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}linked_at'])!,
+    );
+  }
+
+  @override
+  $ExternalTrackRefsTable createAlias(String alias) {
+    return $ExternalTrackRefsTable(attachedDatabase, alias);
+  }
+}
+
+class ExternalTrackRefRow extends DataClass
+    implements Insertable<ExternalTrackRefRow> {
+  final int trackId;
+  final String provider;
+  final String externalId;
+  final String variantKey;
+  final String origin;
+  final DateTime linkedAt;
+  const ExternalTrackRefRow(
+      {required this.trackId,
+      required this.provider,
+      required this.externalId,
+      required this.variantKey,
+      required this.origin,
+      required this.linkedAt});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['track_id'] = Variable<int>(trackId);
+    map['provider'] = Variable<String>(provider);
+    map['external_id'] = Variable<String>(externalId);
+    map['variant_key'] = Variable<String>(variantKey);
+    map['origin'] = Variable<String>(origin);
+    map['linked_at'] = Variable<DateTime>(linkedAt);
+    return map;
+  }
+
+  ExternalTrackRefsCompanion toCompanion(bool nullToAbsent) {
+    return ExternalTrackRefsCompanion(
+      trackId: Value(trackId),
+      provider: Value(provider),
+      externalId: Value(externalId),
+      variantKey: Value(variantKey),
+      origin: Value(origin),
+      linkedAt: Value(linkedAt),
+    );
+  }
+
+  factory ExternalTrackRefRow.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return ExternalTrackRefRow(
+      trackId: serializer.fromJson<int>(json['trackId']),
+      provider: serializer.fromJson<String>(json['provider']),
+      externalId: serializer.fromJson<String>(json['externalId']),
+      variantKey: serializer.fromJson<String>(json['variantKey']),
+      origin: serializer.fromJson<String>(json['origin']),
+      linkedAt: serializer.fromJson<DateTime>(json['linkedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'trackId': serializer.toJson<int>(trackId),
+      'provider': serializer.toJson<String>(provider),
+      'externalId': serializer.toJson<String>(externalId),
+      'variantKey': serializer.toJson<String>(variantKey),
+      'origin': serializer.toJson<String>(origin),
+      'linkedAt': serializer.toJson<DateTime>(linkedAt),
+    };
+  }
+
+  ExternalTrackRefRow copyWith(
+          {int? trackId,
+          String? provider,
+          String? externalId,
+          String? variantKey,
+          String? origin,
+          DateTime? linkedAt}) =>
+      ExternalTrackRefRow(
+        trackId: trackId ?? this.trackId,
+        provider: provider ?? this.provider,
+        externalId: externalId ?? this.externalId,
+        variantKey: variantKey ?? this.variantKey,
+        origin: origin ?? this.origin,
+        linkedAt: linkedAt ?? this.linkedAt,
+      );
+  ExternalTrackRefRow copyWithCompanion(ExternalTrackRefsCompanion data) {
+    return ExternalTrackRefRow(
+      trackId: data.trackId.present ? data.trackId.value : this.trackId,
+      provider: data.provider.present ? data.provider.value : this.provider,
+      externalId:
+          data.externalId.present ? data.externalId.value : this.externalId,
+      variantKey:
+          data.variantKey.present ? data.variantKey.value : this.variantKey,
+      origin: data.origin.present ? data.origin.value : this.origin,
+      linkedAt: data.linkedAt.present ? data.linkedAt.value : this.linkedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ExternalTrackRefRow(')
+          ..write('trackId: $trackId, ')
+          ..write('provider: $provider, ')
+          ..write('externalId: $externalId, ')
+          ..write('variantKey: $variantKey, ')
+          ..write('origin: $origin, ')
+          ..write('linkedAt: $linkedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(trackId, provider, externalId, variantKey, origin, linkedAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is ExternalTrackRefRow &&
+          other.trackId == this.trackId &&
+          other.provider == this.provider &&
+          other.externalId == this.externalId &&
+          other.variantKey == this.variantKey &&
+          other.origin == this.origin &&
+          other.linkedAt == this.linkedAt);
+}
+
+class ExternalTrackRefsCompanion extends UpdateCompanion<ExternalTrackRefRow> {
+  final Value<int> trackId;
+  final Value<String> provider;
+  final Value<String> externalId;
+  final Value<String> variantKey;
+  final Value<String> origin;
+  final Value<DateTime> linkedAt;
+  final Value<int> rowid;
+  const ExternalTrackRefsCompanion({
+    this.trackId = const Value.absent(),
+    this.provider = const Value.absent(),
+    this.externalId = const Value.absent(),
+    this.variantKey = const Value.absent(),
+    this.origin = const Value.absent(),
+    this.linkedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  ExternalTrackRefsCompanion.insert({
+    required int trackId,
+    required String provider,
+    required String externalId,
+    this.variantKey = const Value.absent(),
+    required String origin,
+    required DateTime linkedAt,
+    this.rowid = const Value.absent(),
+  })  : trackId = Value(trackId),
+        provider = Value(provider),
+        externalId = Value(externalId),
+        origin = Value(origin),
+        linkedAt = Value(linkedAt);
+  static Insertable<ExternalTrackRefRow> custom({
+    Expression<int>? trackId,
+    Expression<String>? provider,
+    Expression<String>? externalId,
+    Expression<String>? variantKey,
+    Expression<String>? origin,
+    Expression<DateTime>? linkedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (trackId != null) 'track_id': trackId,
+      if (provider != null) 'provider': provider,
+      if (externalId != null) 'external_id': externalId,
+      if (variantKey != null) 'variant_key': variantKey,
+      if (origin != null) 'origin': origin,
+      if (linkedAt != null) 'linked_at': linkedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  ExternalTrackRefsCompanion copyWith(
+      {Value<int>? trackId,
+      Value<String>? provider,
+      Value<String>? externalId,
+      Value<String>? variantKey,
+      Value<String>? origin,
+      Value<DateTime>? linkedAt,
+      Value<int>? rowid}) {
+    return ExternalTrackRefsCompanion(
+      trackId: trackId ?? this.trackId,
+      provider: provider ?? this.provider,
+      externalId: externalId ?? this.externalId,
+      variantKey: variantKey ?? this.variantKey,
+      origin: origin ?? this.origin,
+      linkedAt: linkedAt ?? this.linkedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (trackId.present) {
+      map['track_id'] = Variable<int>(trackId.value);
+    }
+    if (provider.present) {
+      map['provider'] = Variable<String>(provider.value);
+    }
+    if (externalId.present) {
+      map['external_id'] = Variable<String>(externalId.value);
+    }
+    if (variantKey.present) {
+      map['variant_key'] = Variable<String>(variantKey.value);
+    }
+    if (origin.present) {
+      map['origin'] = Variable<String>(origin.value);
+    }
+    if (linkedAt.present) {
+      map['linked_at'] = Variable<DateTime>(linkedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ExternalTrackRefsCompanion(')
+          ..write('trackId: $trackId, ')
+          ..write('provider: $provider, ')
+          ..write('externalId: $externalId, ')
+          ..write('variantKey: $variantKey, ')
+          ..write('origin: $origin, ')
+          ..write('linkedAt: $linkedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -3747,6 +4106,8 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $TrackUserStatesTable trackUserStates =
       $TrackUserStatesTable(this);
   late final $AppSettingsTable appSettings = $AppSettingsTable(this);
+  late final $ExternalTrackRefsTable externalTrackRefs =
+      $ExternalTrackRefsTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -3758,7 +4119,8 @@ abstract class _$AppDatabase extends GeneratedDatabase {
         playlistTracks,
         playbackEvents,
         trackUserStates,
-        appSettings
+        appSettings,
+        externalTrackRefs
       ];
   @override
   StreamQueryUpdateRules get streamUpdateRules => const StreamQueryUpdateRules(
@@ -3796,6 +4158,13 @@ abstract class _$AppDatabase extends GeneratedDatabase {
                 limitUpdateKind: UpdateKind.delete),
             result: [
               TableUpdate('track_user_state', kind: UpdateKind.delete),
+            ],
+          ),
+          WritePropagation(
+            on: TableUpdateQuery.onTableName('tracks',
+                limitUpdateKind: UpdateKind.delete),
+            result: [
+              TableUpdate('external_track_refs', kind: UpdateKind.delete),
             ],
           ),
         ],
@@ -4227,6 +4596,23 @@ final class $$TracksTableReferences
     return ProcessedTableManager(
         manager.$state.copyWith(prefetchedData: cache));
   }
+
+  static MultiTypedResultKey<$ExternalTrackRefsTable, List<ExternalTrackRefRow>>
+      _externalTrackRefsRefsTable(_$AppDatabase db) =>
+          MultiTypedResultKey.fromTable(db.externalTrackRefs,
+              aliasName: $_aliasNameGenerator(
+                  db.tracks.id, db.externalTrackRefs.trackId));
+
+  $$ExternalTrackRefsTableProcessedTableManager get externalTrackRefsRefs {
+    final manager =
+        $$ExternalTrackRefsTableTableManager($_db, $_db.externalTrackRefs)
+            .filter((f) => f.trackId.id.sqlEquals($_itemColumn<int>('id')!));
+
+    final cache =
+        $_typedResult.readTableOrNull(_externalTrackRefsRefsTable($_db));
+    return ProcessedTableManager(
+        manager.$state.copyWith(prefetchedData: cache));
+  }
 }
 
 class $$TracksTableFilterComposer
@@ -4403,6 +4789,27 @@ class $$TracksTableFilterComposer
             $$TrackUserStatesTableFilterComposer(
               $db: $db,
               $table: $db.trackUserStates,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return f(composer);
+  }
+
+  Expression<bool> externalTrackRefsRefs(
+      Expression<bool> Function($$ExternalTrackRefsTableFilterComposer f) f) {
+    final $$ExternalTrackRefsTableFilterComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.id,
+        referencedTable: $db.externalTrackRefs,
+        getReferencedColumn: (t) => t.trackId,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$ExternalTrackRefsTableFilterComposer(
+              $db: $db,
+              $table: $db.externalTrackRefs,
               $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
               joinBuilder: joinBuilder,
               $removeJoinBuilderFromRootComposer:
@@ -4708,6 +5115,28 @@ class $$TracksTableAnnotationComposer
             ));
     return f(composer);
   }
+
+  Expression<T> externalTrackRefsRefs<T extends Object>(
+      Expression<T> Function($$ExternalTrackRefsTableAnnotationComposer a) f) {
+    final $$ExternalTrackRefsTableAnnotationComposer composer =
+        $composerBuilder(
+            composer: this,
+            getCurrentColumn: (t) => t.id,
+            referencedTable: $db.externalTrackRefs,
+            getReferencedColumn: (t) => t.trackId,
+            builder: (joinBuilder,
+                    {$addJoinBuilderToRootComposer,
+                    $removeJoinBuilderFromRootComposer}) =>
+                $$ExternalTrackRefsTableAnnotationComposer(
+                  $db: $db,
+                  $table: $db.externalTrackRefs,
+                  $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                  joinBuilder: joinBuilder,
+                  $removeJoinBuilderFromRootComposer:
+                      $removeJoinBuilderFromRootComposer,
+                ));
+    return f(composer);
+  }
 }
 
 class $$TracksTableTableManager extends RootTableManager<
@@ -4725,7 +5154,8 @@ class $$TracksTableTableManager extends RootTableManager<
         {bool libraryFolderId,
         bool playlistTracksRefs,
         bool playbackEventsRefs,
-        bool trackUserStatesRefs})> {
+        bool trackUserStatesRefs,
+        bool externalTrackRefsRefs})> {
   $$TracksTableTableManager(_$AppDatabase db, $TracksTable table)
       : super(TableManagerState(
           db: db,
@@ -4868,13 +5298,15 @@ class $$TracksTableTableManager extends RootTableManager<
               {libraryFolderId = false,
               playlistTracksRefs = false,
               playbackEventsRefs = false,
-              trackUserStatesRefs = false}) {
+              trackUserStatesRefs = false,
+              externalTrackRefsRefs = false}) {
             return PrefetchHooks(
               db: db,
               explicitlyWatchedTables: [
                 if (playlistTracksRefs) db.playlistTracks,
                 if (playbackEventsRefs) db.playbackEvents,
-                if (trackUserStatesRefs) db.trackUserStates
+                if (trackUserStatesRefs) db.trackUserStates,
+                if (externalTrackRefsRefs) db.externalTrackRefs
               ],
               addJoins: <
                   T extends TableManagerState<
@@ -4942,6 +5374,19 @@ class $$TracksTableTableManager extends RootTableManager<
                         referencedItemsForCurrentItem: (item,
                                 referencedItems) =>
                             referencedItems.where((e) => e.trackId == item.id),
+                        typedResults: items),
+                  if (externalTrackRefsRefs)
+                    await $_getPrefetchedData<TrackRow, $TracksTable,
+                            ExternalTrackRefRow>(
+                        currentTable: table,
+                        referencedTable: $$TracksTableReferences
+                            ._externalTrackRefsRefsTable(db),
+                        managerFromTypedResult: (p0) =>
+                            $$TracksTableReferences(db, table, p0)
+                                .externalTrackRefsRefs,
+                        referencedItemsForCurrentItem: (item,
+                                referencedItems) =>
+                            referencedItems.where((e) => e.trackId == item.id),
                         typedResults: items)
                 ];
               },
@@ -4965,7 +5410,8 @@ typedef $$TracksTableProcessedTableManager = ProcessedTableManager<
         {bool libraryFolderId,
         bool playlistTracksRefs,
         bool playbackEventsRefs,
-        bool trackUserStatesRefs})>;
+        bool trackUserStatesRefs,
+        bool externalTrackRefsRefs})>;
 typedef $$PlaylistsTableCreateCompanionBuilder = PlaylistsCompanion Function({
   Value<int> id,
   required String name,
@@ -6425,6 +6871,298 @@ typedef $$AppSettingsTableProcessedTableManager = ProcessedTableManager<
     ),
     AppSettingRow,
     PrefetchHooks Function()>;
+typedef $$ExternalTrackRefsTableCreateCompanionBuilder
+    = ExternalTrackRefsCompanion Function({
+  required int trackId,
+  required String provider,
+  required String externalId,
+  Value<String> variantKey,
+  required String origin,
+  required DateTime linkedAt,
+  Value<int> rowid,
+});
+typedef $$ExternalTrackRefsTableUpdateCompanionBuilder
+    = ExternalTrackRefsCompanion Function({
+  Value<int> trackId,
+  Value<String> provider,
+  Value<String> externalId,
+  Value<String> variantKey,
+  Value<String> origin,
+  Value<DateTime> linkedAt,
+  Value<int> rowid,
+});
+
+final class $$ExternalTrackRefsTableReferences extends BaseReferences<
+    _$AppDatabase, $ExternalTrackRefsTable, ExternalTrackRefRow> {
+  $$ExternalTrackRefsTableReferences(
+      super.$_db, super.$_table, super.$_typedResult);
+
+  static $TracksTable _trackIdTable(_$AppDatabase db) => db.tracks.createAlias(
+      $_aliasNameGenerator(db.externalTrackRefs.trackId, db.tracks.id));
+
+  $$TracksTableProcessedTableManager get trackId {
+    final $_column = $_itemColumn<int>('track_id')!;
+
+    final manager = $$TracksTableTableManager($_db, $_db.tracks)
+        .filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_trackIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+        manager.$state.copyWith(prefetchedData: [item]));
+  }
+}
+
+class $$ExternalTrackRefsTableFilterComposer
+    extends Composer<_$AppDatabase, $ExternalTrackRefsTable> {
+  $$ExternalTrackRefsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get provider => $composableBuilder(
+      column: $table.provider, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get externalId => $composableBuilder(
+      column: $table.externalId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get variantKey => $composableBuilder(
+      column: $table.variantKey, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get origin => $composableBuilder(
+      column: $table.origin, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get linkedAt => $composableBuilder(
+      column: $table.linkedAt, builder: (column) => ColumnFilters(column));
+
+  $$TracksTableFilterComposer get trackId {
+    final $$TracksTableFilterComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.trackId,
+        referencedTable: $db.tracks,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$TracksTableFilterComposer(
+              $db: $db,
+              $table: $db.tracks,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+}
+
+class $$ExternalTrackRefsTableOrderingComposer
+    extends Composer<_$AppDatabase, $ExternalTrackRefsTable> {
+  $$ExternalTrackRefsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get provider => $composableBuilder(
+      column: $table.provider, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get externalId => $composableBuilder(
+      column: $table.externalId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get variantKey => $composableBuilder(
+      column: $table.variantKey, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get origin => $composableBuilder(
+      column: $table.origin, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get linkedAt => $composableBuilder(
+      column: $table.linkedAt, builder: (column) => ColumnOrderings(column));
+
+  $$TracksTableOrderingComposer get trackId {
+    final $$TracksTableOrderingComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.trackId,
+        referencedTable: $db.tracks,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$TracksTableOrderingComposer(
+              $db: $db,
+              $table: $db.tracks,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+}
+
+class $$ExternalTrackRefsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $ExternalTrackRefsTable> {
+  $$ExternalTrackRefsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get provider =>
+      $composableBuilder(column: $table.provider, builder: (column) => column);
+
+  GeneratedColumn<String> get externalId => $composableBuilder(
+      column: $table.externalId, builder: (column) => column);
+
+  GeneratedColumn<String> get variantKey => $composableBuilder(
+      column: $table.variantKey, builder: (column) => column);
+
+  GeneratedColumn<String> get origin =>
+      $composableBuilder(column: $table.origin, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get linkedAt =>
+      $composableBuilder(column: $table.linkedAt, builder: (column) => column);
+
+  $$TracksTableAnnotationComposer get trackId {
+    final $$TracksTableAnnotationComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.trackId,
+        referencedTable: $db.tracks,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$TracksTableAnnotationComposer(
+              $db: $db,
+              $table: $db.tracks,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+}
+
+class $$ExternalTrackRefsTableTableManager extends RootTableManager<
+    _$AppDatabase,
+    $ExternalTrackRefsTable,
+    ExternalTrackRefRow,
+    $$ExternalTrackRefsTableFilterComposer,
+    $$ExternalTrackRefsTableOrderingComposer,
+    $$ExternalTrackRefsTableAnnotationComposer,
+    $$ExternalTrackRefsTableCreateCompanionBuilder,
+    $$ExternalTrackRefsTableUpdateCompanionBuilder,
+    (ExternalTrackRefRow, $$ExternalTrackRefsTableReferences),
+    ExternalTrackRefRow,
+    PrefetchHooks Function({bool trackId})> {
+  $$ExternalTrackRefsTableTableManager(
+      _$AppDatabase db, $ExternalTrackRefsTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$ExternalTrackRefsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$ExternalTrackRefsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$ExternalTrackRefsTableAnnotationComposer(
+                  $db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<int> trackId = const Value.absent(),
+            Value<String> provider = const Value.absent(),
+            Value<String> externalId = const Value.absent(),
+            Value<String> variantKey = const Value.absent(),
+            Value<String> origin = const Value.absent(),
+            Value<DateTime> linkedAt = const Value.absent(),
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              ExternalTrackRefsCompanion(
+            trackId: trackId,
+            provider: provider,
+            externalId: externalId,
+            variantKey: variantKey,
+            origin: origin,
+            linkedAt: linkedAt,
+            rowid: rowid,
+          ),
+          createCompanionCallback: ({
+            required int trackId,
+            required String provider,
+            required String externalId,
+            Value<String> variantKey = const Value.absent(),
+            required String origin,
+            required DateTime linkedAt,
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              ExternalTrackRefsCompanion.insert(
+            trackId: trackId,
+            provider: provider,
+            externalId: externalId,
+            variantKey: variantKey,
+            origin: origin,
+            linkedAt: linkedAt,
+            rowid: rowid,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (
+                    e.readTable(table),
+                    $$ExternalTrackRefsTableReferences(db, table, e)
+                  ))
+              .toList(),
+          prefetchHooksCallback: ({trackId = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [],
+              addJoins: <
+                  T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic>>(state) {
+                if (trackId) {
+                  state = state.withJoin(
+                    currentTable: table,
+                    currentColumn: table.trackId,
+                    referencedTable:
+                        $$ExternalTrackRefsTableReferences._trackIdTable(db),
+                    referencedColumn:
+                        $$ExternalTrackRefsTableReferences._trackIdTable(db).id,
+                  ) as T;
+                }
+
+                return state;
+              },
+              getPrefetchedDataCallback: (items) async {
+                return [];
+              },
+            );
+          },
+        ));
+}
+
+typedef $$ExternalTrackRefsTableProcessedTableManager = ProcessedTableManager<
+    _$AppDatabase,
+    $ExternalTrackRefsTable,
+    ExternalTrackRefRow,
+    $$ExternalTrackRefsTableFilterComposer,
+    $$ExternalTrackRefsTableOrderingComposer,
+    $$ExternalTrackRefsTableAnnotationComposer,
+    $$ExternalTrackRefsTableCreateCompanionBuilder,
+    $$ExternalTrackRefsTableUpdateCompanionBuilder,
+    (ExternalTrackRefRow, $$ExternalTrackRefsTableReferences),
+    ExternalTrackRefRow,
+    PrefetchHooks Function({bool trackId})>;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -6443,4 +7181,6 @@ class $AppDatabaseManager {
       $$TrackUserStatesTableTableManager(_db, _db.trackUserStates);
   $$AppSettingsTableTableManager get appSettings =>
       $$AppSettingsTableTableManager(_db, _db.appSettings);
+  $$ExternalTrackRefsTableTableManager get externalTrackRefs =>
+      $$ExternalTrackRefsTableTableManager(_db, _db.externalTrackRefs);
 }

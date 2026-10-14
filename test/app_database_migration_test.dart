@@ -15,6 +15,7 @@ const _tables = [
   'playlists',
   'playlist_tracks',
   'app_settings',
+  'external_track_refs',
 ];
 
 typedef _Snapshot = Map<String, List<Map<String, Object?>>>;
@@ -22,7 +23,7 @@ typedef _Snapshot = Map<String, List<Map<String, Object?>>>;
 void main() {
   final schemaV7 = File('test/fixtures/schema_v7.sql').readAsStringSync();
 
-  for (var version = 1; version <= 8; version++) {
+  for (var version = 1; version <= 9; version++) {
     test('schema v$version upgrades without changing existing rows or IDs',
         () async {
       late _Snapshot before;
@@ -56,7 +57,78 @@ void main() {
     });
   }
 
-  test('schema v9 remains valid after closing and reopening a migrated file',
+  test(
+      'v9 Android ownership, URI, genre, settings and user data survive upgrade',
+      () async {
+    late _Snapshot before;
+    final database = AppDatabase(NativeDatabase.memory(setup: (raw) {
+      _createHistoricalSchema(raw.execute, schemaV7, 9);
+      _seedHistoricalData(raw.execute, 9);
+      raw.execute(
+          'INSERT INTO library_folders (id, path, is_enabled, created_at, updated_at) '
+          "VALUES (4, 'content://test.documents/tree/Music', 0, 1, 2)");
+      raw.execute(
+          'INSERT INTO tracks (id, library_folder_id, file_path, title, artist, genre, metadata_source, custom_artwork_path, added_at, updated_at) '
+          "VALUES (42, 4, 'content://test.documents/tree/Music/document/song', 'Manual Android title', 'Artist', 'Rock / Alternative', 'manual', '/private/android-cover.webp', 1, 2)");
+      raw.execute(
+          'INSERT INTO track_user_state (track_id, is_favorite, play_count, updated_at) VALUES (42, 1, 3, 2)');
+      raw.execute(
+          "INSERT INTO playback_events (track_id, operation_id, event_type, occurred_at) VALUES (42, 'android-event', 'started', 2)");
+      raw.execute(
+          'INSERT INTO playlist_tracks (playlist_id, track_id, position, added_at) VALUES (5, 42, 1, 2)');
+      before = _snapshot((sql) =>
+          [for (final row in raw.select(sql)) Map<String, Object?>.of(row)]);
+    }));
+    addTearDown(database.close);
+    await _verifyUpgrade(database, () => before);
+    final repository = DriftRepositories(database);
+    expect(
+        (await repository.tracks.listTracks()).map((track) => track.id), [41]);
+    final hidden = (await repository.tracks.findById(42))!;
+    expect(hidden.libraryFolderId, 4);
+    expect(hidden.genre, 'Rock / Alternative');
+    expect(
+        hidden.filePath, 'content://test.documents/tree/Music/document/song');
+    expect(await repository.externalTracks.listForTrack(42), isEmpty);
+  });
+
+  for (final failurePoint in ['external-index', 'version']) {
+    test('fresh schema creation rolls back after $failurePoint failure',
+        () async {
+      final dir =
+          await Directory.systemTemp.createTemp('cmp_fresh_schema_retry_');
+      addTearDown(() => dir.delete(recursive: true));
+      final file = File(p.join(dir.path, 'library.sqlite'));
+      final failing = _FailingMigrationDatabase(NativeDatabase(file),
+          failurePoint: failurePoint);
+      try {
+        await expectLater(failing.customSelect('SELECT * FROM tracks').get(),
+            throwsStateError);
+      } finally {
+        await failing.close();
+      }
+      late int previousVersion;
+      late bool previousTable;
+      final retry = AppDatabase(NativeDatabase(file, setup: (raw) {
+        previousVersion =
+            raw.select('PRAGMA user_version').single['user_version'] as int;
+        previousTable = raw
+            .select(
+                "SELECT name FROM sqlite_master WHERE name='external_track_refs'")
+            .isNotEmpty;
+      }));
+      addTearDown(retry.close);
+      expect(await DriftRepositories(retry).tracks.listTracks(), isEmpty);
+      expect(previousVersion, 0);
+      expect(previousTable, isFalse);
+      expect(
+          (await retry.customSelect('PRAGMA user_version').getSingle())
+              .read<int>('user_version'),
+          10);
+    });
+  }
+
+  test('schema v10 remains valid after closing and reopening a migrated file',
       () async {
     final directory =
         await Directory.systemTemp.createTemp('clever_schema_reopen_');
@@ -81,7 +153,7 @@ void main() {
     expect(
         (await reopened.customSelect('PRAGMA user_version').getSingle())
             .read<int>('user_version'),
-        9);
+        10);
     final repositories = DriftRepositories(reopened);
     final original = (await repositories.tracks.findById(41))!;
     await repositories.tracks.upsertTrack(
@@ -99,8 +171,13 @@ void main() {
         hasLength(1));
   });
 
-  for (final version in [1, 7, 8]) {
-    for (final failurePoint in ['index', 'operation-index', 'version']) {
+  for (final version in [1, 7, 8, 9]) {
+    for (final failurePoint in [
+      'index',
+      'operation-index',
+      'external-index',
+      'version'
+    ]) {
       test(
           'v$version upgrade rolls back after $failurePoint failure and retries',
           () async {
@@ -130,6 +207,7 @@ void main() {
         int? uniqueAfterFailure;
         late bool hasStableIdAfterFailure;
         late bool hasOperationIdAfterFailure;
+        late bool hasExternalRefsAfterFailure;
         final retry = AppDatabase(NativeDatabase(
           file,
           setup: (raw) {
@@ -146,6 +224,10 @@ void main() {
             hasOperationIdAfterFailure = raw
                 .select("PRAGMA table_info('playback_events')")
                 .any((row) => row['name'] == 'operation_id');
+            hasExternalRefsAfterFailure = raw
+                .select(
+                    "SELECT name FROM sqlite_master WHERE name = 'external_track_refs'")
+                .isNotEmpty;
           },
         ));
         addTearDown(retry.close);
@@ -155,11 +237,12 @@ void main() {
         expect(
             uniqueAfterFailure, version == 1 ? isNull : (version < 8 ? 1 : 0));
         expect(hasStableIdAfterFailure, version >= 2);
-        expect(hasOperationIdAfterFailure, isFalse);
+        expect(hasOperationIdAfterFailure, version >= 9);
+        expect(hasExternalRefsAfterFailure, isFalse);
         expect(
             (await retry.customSelect('PRAGMA user_version').getSingle())
                 .read<int>('user_version'),
-            9);
+            10);
       });
     }
   }
@@ -211,6 +294,12 @@ class _FailingMigrationDatabase extends AppDatabase {
       throw StateError('Simulated interruption after adding operation_id');
     }
     await super.customStatement(statement, args);
+    if (failurePoint == 'external-index' &&
+        statement.startsWith(
+            'CREATE INDEX IF NOT EXISTS idx_external_track_refs_identity ')) {
+      throw StateError(
+          'Simulated interruption after adding external identities');
+    }
     if (failurePoint == 'version' &&
         statement.startsWith('PRAGMA user_version = ')) {
       throw StateError('Simulated interruption after updating the version');
@@ -236,7 +325,7 @@ Future<void> _verifyUpgrade(
   expect(
       (await database.customSelect('PRAGMA user_version').getSingle())
           .read<int>('user_version'),
-      9);
+      10);
   for (final entry in getBefore().entries) {
     final table = entry.key;
     final oldRows = entry.value;
@@ -282,7 +371,10 @@ void _createHistoricalSchema(
   String schemaV7,
   int version,
 ) {
-  for (final sql in schemaV7.split(';')) {
+  final schema = version == 9
+      ? File('test/fixtures/schema_v9.sql').readAsStringSync()
+      : schemaV7;
+  for (final sql in schema.split(';')) {
     if (sql.trim().isNotEmpty) {
       execute(sql);
     }
@@ -364,6 +456,12 @@ void _seedHistoricalData(void Function(String) execute, int version) {
   if (version >= 6) {
     execute("UPDATE tracks SET artwork_path = '/app/artwork/cover.png', "
         "artwork_hash = 'embedded-hash', artwork_mime_type = 'image/png'");
+  }
+  if (version >= 9) {
+    execute("UPDATE playback_events SET operation_id = 'legacy-event-9'");
+    execute("UPDATE tracks SET genre = 'Progressive Metal; Rock'");
+    execute(
+        "INSERT INTO app_settings (key, value, updated_at) VALUES ('android.audio_folder_bookmarks.v1', '{\"version\":1,\"folders\":[]}', 2)");
   }
   if (version >= 7) {
     execute("UPDATE tracks SET custom_artwork_path = '/app/custom/cover.png', "

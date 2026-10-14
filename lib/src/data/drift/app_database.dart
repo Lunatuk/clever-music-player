@@ -126,6 +126,20 @@ class AppSettings extends Table {
   Set<Column> get primaryKey => {key};
 }
 
+@DataClassName('ExternalTrackRefRow')
+class ExternalTrackRefs extends Table {
+  IntColumn get trackId =>
+      integer().references(Tracks, #id, onDelete: KeyAction.cascade)();
+  TextColumn get provider => text()();
+  TextColumn get externalId => text()();
+  TextColumn get variantKey => text().withDefault(const Constant(''))();
+  TextColumn get origin => text()();
+  DateTimeColumn get linkedAt => dateTime()();
+
+  @override
+  Set<Column> get primaryKey => {trackId, provider, externalId, variantKey};
+}
+
 @DriftDatabase(
   tables: [
     LibraryFolders,
@@ -135,6 +149,7 @@ class AppSettings extends Table {
     PlaybackEvents,
     TrackUserStates,
     AppSettings,
+    ExternalTrackRefs,
   ],
 )
 class AppDatabase extends _$AppDatabase {
@@ -148,7 +163,7 @@ class AppDatabase extends _$AppDatabase {
       AppDatabase(_openConnection(diagnostics), diagnostics: diagnostics);
 
   @override
-  int get schemaVersion => 9;
+  int get schemaVersion => 10;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -211,6 +226,9 @@ class AppDatabase extends _$AppDatabase {
                     await migrator.addColumn(
                         playbackEvents, playbackEvents.operationId);
                   }
+                  if (from < 10) {
+                    await migrator.createTable(externalTrackRefs);
+                  }
                   await _createIndexes();
                   // Commit the version marker with the DDL so an interruption cannot
                   // leave new columns with an old version and break the next upgrade.
@@ -248,6 +266,10 @@ class AppDatabase extends _$AppDatabase {
   }
 
   Future<void> _createIndexes() async {
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_external_track_refs_identity '
+      'ON external_track_refs(provider, external_id, variant_key, track_id);',
+    );
     await customStatement(
       'CREATE INDEX IF NOT EXISTS idx_tracks_library_folder '
       'ON tracks(library_folder_id);',

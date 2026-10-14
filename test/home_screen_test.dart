@@ -1440,6 +1440,10 @@ final class _FakeAppRepositories implements AppRepositories {
   final TrackRepository tracks;
 
   @override
+  ExternalTrackRepository get externalTracks => throw UnsupportedError(
+      'External identities are not used by this UI fixture.');
+
+  @override
   final PlaybackEventRepository playbackEvents;
 
   @override

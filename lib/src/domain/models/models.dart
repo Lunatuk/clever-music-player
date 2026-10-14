@@ -1,5 +1,6 @@
 export 'app_setting.dart';
 export 'audio_source_reference.dart';
+export 'external_track_ref.dart';
 export 'library_folder.dart';
 export 'metadata_source.dart';
 export 'playlist.dart';
