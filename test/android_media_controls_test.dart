@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:audio_service/audio_service.dart';
 import 'package:clever_music_player/src/android/android_audio_session.dart';
+import 'package:clever_music_player/src/android/android_folder_bookmarks.dart';
 import 'package:clever_music_player/src/android/android_media_controls.dart';
 import 'package:clever_music_player/src/android/android_preview_app.dart';
 import 'package:clever_music_player/src/app/app_dependencies.dart';
@@ -21,6 +22,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/test_audio_engine.dart';
+import 'support/test_audio_folders.dart';
 
 void main() {
   late _Fixture f;
@@ -30,8 +32,11 @@ void main() {
   testWidgets('Android root keeps music playing across background and return',
       (tester) async {
     final dependencies = f.previewDependencies();
+    final bookmarks = AndroidFolderBookmarks(settings: TestFolderSettings());
+    await tester.runAsync(bookmarks.initialize);
     await tester.runAsync(() => f.player.playTrack(f.tracks.first));
-    await tester.pumpWidget(AndroidPreviewApp(dependencies: dependencies));
+    await tester.pumpWidget(
+        AndroidPreviewApp(dependencies: dependencies, bookmarks: bookmarks));
     await tester.pump();
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);

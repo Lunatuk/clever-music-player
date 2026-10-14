@@ -44,6 +44,26 @@ class AudioDocumentsPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activi
                 when (call.method) {
                     "pickAudio" -> pickAudio(result)
                     "pickAudioFolder" -> pickAudioFolder(result)
+                    "listAudioFolderGrants" -> onWorker(result) {
+                        contentResolver.persistedUriPermissions.filter {
+                            it.isReadPermission && DocumentsContract.isTreeUri(it.uri) && it.uri.pathSegments.size == 2
+                        }.map { it.uri.toString() }
+                    }
+                    "inspectAudioFolder" -> onWorker(result) {
+                        val uri = call.argument<String>("uri")?.let(Uri::parse) ?: error("invalid_tree")
+                        check(uri.scheme == "content" && DocumentsContract.isTreeUri(uri) && uri.pathSegments.size == 2)
+                        if (!hasPersistentRead(uri)) {
+                            mapOf("readable" to false)
+                        } else {
+                            val root = DocumentsContract.buildDocumentUriUsingTree(uri, DocumentsContract.getTreeDocumentId(uri))
+                            contentResolver.query(root, arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                                DocumentsContract.Document.COLUMN_MIME_TYPE), null, null, null).use { cursor ->
+                                check(cursor != null && cursor.moveToFirst())
+                                check(cursor.getString(1) == DocumentsContract.Document.MIME_TYPE_DIR)
+                                mapOf("readable" to true, "name" to cursor.getString(0))
+                            }
+                        }
+                    }
                     "openAudioFolder" -> onWorker(result) {
                         check(folders.isEmpty())
                         val uri = Uri.parse(call.argument<String>("uri") ?: error("invalid_tree"))

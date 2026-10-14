@@ -58,7 +58,8 @@ See [ownership and remaining lifecycle limits](docs/architecture/application-boo
 Android now has a small SAF document prototype using the same runtime. The first
 target device is a Xiaomi Redmi Note 14 Pro (8/512 GB, Android 16). Packages 18
 and 19 were manually verified; Android background playback and media controls
-work on that phone. Package 20 folder import awaits its targeted device checks.
+work on that phone. Package 20 folder import was also verified; package 21 saved
+folders await their targeted device checks.
 
 ## Audio source references
 
@@ -76,17 +77,20 @@ are available in the prototype; URI hashing and bulk library import remain
 separate work. Background audio uses the existing shared runtime.
 See [the source reference contract](docs/architecture/audio-source-references.md).
 
-## Android preview (package 20)
+## Android preview (package 21)
 
-`dist/clever-music-player-core-20-android-arm64.apk` updates **Clever Music Preview**
+`dist/clever-music-player-core-21-android-arm64.apk` updates **Clever Music Preview**
 in its own Android sandbox. The compact screen selects up to 64 audio documents
 at a time through the system picker, stores read-only persistent grants and uses
 the shared database/player/queue. Re-selecting the same URI keeps the existing
 record and manual edits. Audio files are not copied into app storage.
 
-Package 20 also selects an audio folder and its subfolders, imports in bounded
-pages and supports cancellation. Re-select that same folder to finish or update
-its imports. Different provider URIs of one physical file still need a future
+Folder import traverses subfolders in bounded pages and supports cancellation.
+Package 21 remembers selected folders and refreshes them without the picker;
+package 20 tree grants bootstrap the initial list. The Folders screen checks
+access, restores it through explicit selection and forgets refresh bookmarks
+while retaining tracks and grants. See [saved folder rules](docs/architecture/android-saved-folders.md).
+Different provider URIs of one physical file still need a future
 identity/alias layer; see [folder import limits](docs/architecture/android-folder-import.md).
 
 Playback continues in the background using audio_service and the same player,
@@ -94,7 +98,7 @@ queue and Wave history. Notification/lock-screen/headset commands control this
 runtime. Audio interruptions and headphone removal pause both crossfade decks;
 resume explicitly with Play. Stop ends playback and removes the notification.
 This is a debug-signed release-mode prototype, not the final design or store release.
-Windows remains on the verified core-19 ZIP; package 20 changes Android only.
+Windows remains on the verified core-19 ZIP; package 21 changes Android only.
 See [targeted checks](docs/MANUAL_CHECKS.md)
 and [background playback contract](docs/architecture/android-background-playback.md).
 

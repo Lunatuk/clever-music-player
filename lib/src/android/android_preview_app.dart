@@ -14,33 +14,50 @@ import '../player/player_state.dart';
 import 'android_import_controller.dart';
 import 'audio_documents.dart';
 import 'android_media_controls.dart';
+import 'android_folder_bookmarks.dart';
+import 'android_folders_screen.dart';
 
 /// A small Android prototype using the same database, player and queue.
 /// The Android application ID isolates its sandbox from the future release.
 final class AndroidPreviewApp extends StatefulWidget {
-  const AndroidPreviewApp({super.key, required this.dependencies});
+  const AndroidPreviewApp(
+      {super.key, required this.dependencies, this.bookmarks});
   final AppDependencies dependencies;
+  final AndroidFolderBookmarks? bookmarks;
   @override
   State<AndroidPreviewApp> createState() => _AndroidPreviewAppState();
 }
 
 final class _AndroidPreviewAppState extends State<AndroidPreviewApp> {
   late final AndroidImportController _importer;
+  late final AndroidFolderBookmarks _bookmarks;
   @override
   void initState() {
     super.initState();
+    _bookmarks = widget.bookmarks ??
+        AndroidFolderBookmarks(
+            settings: widget.dependencies.repositories.settings,
+            access: const AndroidAudioDocuments());
+    unawaited(
+        _bookmarks.initialize().catchError((Object error, StackTrace stack) {
+      widget.dependencies.diagnostics
+          .record(DiagnosticEvent.libraryOperationFailed, error: error);
+    }));
     _importer = AndroidImportController(
         documents: const AndroidAudioDocuments(),
         imports:
             widget.dependencies.repositories.tracks as TrackImportRepository,
-        artworkCache: AppSupportArtworkCacheService());
+        artworkCache: AppSupportArtworkCacheService(),
+        bookmarks: _bookmarks);
   }
 
   @override
   void dispose() {
     unawaited(finishCleanup([
       _importer.close,
+      _bookmarks.close,
       () async => _importer.dispose(),
+      () async => _bookmarks.dispose(),
       widget.dependencies.dispose,
     ]).catchError((Object error, StackTrace stack) {
       widget.dependencies.diagnostics
@@ -119,9 +136,11 @@ final class _AndroidLibraryScreenState extends State<AndroidLibraryScreen> {
                         title: const Text('Clever Music Preview'),
                         content: const SingleChildScrollView(
                             child: Text(
-                                'Первая версия для проверки музыки на телефоне. '
+                                'Android-версия для проверки музыки на телефоне. '
                                 'Можно выбирать отдельные файлы или папку с музыкой и вложенными каталогами. '
                                 'Импорт можно остановить; уже добавленные треки сохранятся.\n\n'
+                                'Сохранённые папки доступны через кнопку папки. '
+                                'Кнопка обновления повторно сканирует сохранённые папки без нового выбора.\n\n'
                                 'Музыка продолжает играть при блокировке экрана. '
                                 'Управление доступно в уведомлении и на экране блокировки.\n\n'
                                 'После прерывания или отключения наушников музыка ставится на паузу. '
@@ -136,7 +155,17 @@ final class _AndroidLibraryScreenState extends State<AndroidLibraryScreen> {
               listenable: widget.importer,
               builder: (context, _) =>
                   Row(mainAxisSize: MainAxisSize.min, children: [
-                    if (widget.importer.supportsFolders)
+                    if (widget.importer.bookmarks != null)
+                      IconButton(
+                          tooltip: 'Папки библиотеки',
+                          onPressed: () => Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                  builder: (_) => AndroidFoldersScreen(
+                                      bookmarks: widget.importer.bookmarks!,
+                                      importer: widget.importer))),
+                          icon: const Icon(Icons.folder_open_outlined)),
+                    if (widget.importer.supportsFolders &&
+                        widget.importer.bookmarks == null)
                       IconButton(
                           tooltip: 'Добавить папку',
                           onPressed: widget.importer.busy
@@ -150,6 +179,18 @@ final class _AndroidLibraryScreenState extends State<AndroidLibraryScreen> {
                             : () => _command(widget.importer.importSelection),
                         icon: const Icon(Icons.add_rounded)),
                   ])),
+          if (widget.importer.bookmarks != null)
+            ListenableBuilder(
+                listenable: Listenable.merge(
+                    [widget.importer, widget.importer.bookmarks!]),
+                builder: (context, _) => IconButton(
+                    tooltip: 'Обновить библиотеку',
+                    onPressed: widget.importer.busy ||
+                            !widget.importer.bookmarks!.loaded ||
+                            widget.importer.bookmarks!.folders.isEmpty
+                        ? null
+                        : () => _command(widget.importer.refreshSavedFolders),
+                    icon: const Icon(Icons.sync_rounded))),
         ]),
         body: SafeArea(
             top: false,

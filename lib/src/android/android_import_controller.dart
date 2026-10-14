@@ -8,6 +8,7 @@ import '../domain/repositories/track_repository.dart';
 import '../library/artwork_cache_service.dart';
 import '../library/metadata_enrichment.dart';
 import 'audio_documents.dart';
+import 'android_folder_bookmarks.dart';
 
 /// Owns explicit SAF imports. Cancellation preserves committed tracks; close
 /// drains accepted provider/cache/DB work before the app closes SQLite.
@@ -17,6 +18,7 @@ final class AndroidImportController extends ChangeNotifier {
       required this.imports,
       required this.artworkCache,
       AudioDocumentFolders? folders,
+      this.bookmarks,
       DateTime Function()? clock})
       : _folders = folders ??
             (documents is AudioDocumentFolders
@@ -27,12 +29,14 @@ final class AndroidImportController extends ChangeNotifier {
   final TrackImportRepository imports;
   final ArtworkCacheService artworkCache;
   final AudioDocumentFolders? _folders;
+  final AndroidFolderBookmarks? bookmarks;
   final DateTime Function() _clock;
   bool _closed = false,
       _busy = false,
       _cancelRequested = false,
       _folderImport = false;
   int _processed = 0, _total = 0, _visited = 0, _imported = 0, _failed = 0;
+  int _failedFolders = 0;
   String? _message;
   int? _folderSession;
   Future<void>? _processing, _closing, _folderClosing;
@@ -51,22 +55,56 @@ final class AndroidImportController extends ChangeNotifier {
   Future<void> importSelection() => _run(folder: false);
   Future<void> importFolder() =>
       _folders == null ? Future.value() : _run(folder: true);
+  Future<void> refreshFolder(SavedAudioFolder folder) =>
+      _run(folder: true, savedTree: folder.source);
+  Future<void> restoreFolderAccess(SavedAudioFolder folder) =>
+      _run(folder: true, savedTree: folder.source, restore: true);
+  Future<void> refreshSavedFolders() => _run(folder: true, allSaved: true);
 
-  Future<void> _run({required bool folder}) async {
-    if (_closed || _busy) return;
+  Future<void> _run(
+      {required bool folder,
+      ContentUriAudioSource? savedTree,
+      bool restore = false,
+      bool allSaved = false}) async {
+    if (_closed || _busy || (folder && _folders == null)) return;
     _busy = true;
     _cancelRequested = false;
     _folderImport = folder;
     _processed = _total = _visited = _imported = _failed = 0;
+    _failedFolders = 0;
     _message = null;
     var started = false;
     notifyListeners();
     try {
       if (folder) {
-        final tree = await _folders!.pickAudioFolder();
-        if (_stopped || tree == null) return;
-        started = true;
-        _processing = _importFolder(tree);
+        await bookmarks?.initialize();
+        await bookmarks?.waitForWrites();
+        if (_stopped) return;
+        if (savedTree != null && !_hasSavedFolder(savedTree)) {
+          _message = 'Папка уже убрана из списка обновления.';
+          return;
+        }
+        if (allSaved) {
+          final saved = bookmarks?.folders ?? const <SavedAudioFolder>[];
+          if (saved.isEmpty) {
+            _message = 'Сначала добавьте папку с музыкой.';
+            return;
+          }
+          started = true;
+          _processing = _refreshFolders(saved);
+        } else {
+          final tree = savedTree != null && !restore
+              ? savedTree
+              : await _folders!.pickAudioFolder();
+          if (_stopped || tree == null) return;
+          if (restore && tree != savedTree) {
+            _message =
+                'Выбрана другая папка. Для новой папки используйте «Добавить папку».';
+            return;
+          }
+          started = true;
+          _processing = _importFolder(tree, remember: savedTree == null);
+        }
       } else {
         final selection = await documents.pickAudio();
         if (_stopped || selection == null) return;
@@ -88,18 +126,47 @@ final class AndroidImportController extends ChangeNotifier {
       if (started && !_closed && _message == null) {
         _message = '${_cancelRequested ? 'Импорт остановлен. ' : ''}'
             'Добавлено в библиотеку: $_imported.'
-            '${_failed == 0 ? '' : ' Не добавлено: $_failed. Выберите эти файлы заново.'}';
+            '${_failed == 0 ? '' : ' Не добавлено: $_failed. Выберите эти файлы заново.'}'
+            '${_failedFolders == 0 ? '' : ' Не удалось обновить папок: $_failedFolders. Проверьте доступ на экране «Папки».'}';
       }
       _processing = null;
       _folderSession = null;
       _folderClosing = null;
       _busy = false;
-      if (!_closed) notifyListeners();
+      if (!_closed) {
+        notifyListeners();
+      }
     }
   }
 
-  Future<void> _importFolder(ContentUriAudioSource tree) async {
+  bool _hasSavedFolder(ContentUriAudioSource tree) =>
+      bookmarks == null ||
+      bookmarks!.folders.any((folder) => folder.source == tree);
+
+  Future<void> _importFolder(ContentUriAudioSource tree,
+      {bool remember = true}) async {
+    _visited = 0;
+    final failuresBefore = _failed;
+    var completed = false;
     try {
+      if (remember) {
+        await bookmarks?.remember(tree);
+      } else {
+        await bookmarks?.waitForWrites();
+      }
+      if (_stopped) return;
+      if (!remember && !_hasSavedFolder(tree)) return;
+      final access = documents;
+      if (bookmarks != null && access is AudioDocumentFolderAccess) {
+        final info = await (access as AudioDocumentFolderAccess)
+            .inspectAudioFolder(tree);
+        if (_stopped) return;
+        if (!info.readable) throw StateError('Нет доступа к папке.');
+        if (info.name != null) await bookmarks!.updateName(tree, info.name!);
+        await bookmarks!.waitForWrites();
+        if (_stopped) return;
+        if (!remember && !_hasSavedFolder(tree)) return;
+      }
       _folderSession = await _folders!.openAudioFolder(tree);
       while (!_stopped) {
         final page = await _folders.readAudioFolderPage(_folderSession!);
@@ -112,10 +179,32 @@ final class AndroidImportController extends ChangeNotifier {
         _total += page.sources.length;
         notifyListeners();
         await _importSources(page.sources);
-        if (page.done) break;
+        if (page.done) {
+          completed = true;
+          break;
+        }
       }
     } finally {
-      await _releaseFolder();
+      try {
+        await _releaseFolder();
+      } finally {
+        _folderSession = null;
+        _folderClosing = null;
+      }
+    }
+    if (completed && !_stopped && _failed == failuresBefore) {
+      await bookmarks?.markCompleted(tree, _clock());
+    }
+  }
+
+  Future<void> _refreshFolders(List<SavedAudioFolder> folders) async {
+    for (final folder in folders) {
+      if (_stopped) break;
+      try {
+        await _importFolder(folder.source, remember: false);
+      } on Object {
+        if (!_stopped) _failedFolders++;
+      }
     }
   }
 

@@ -52,13 +52,60 @@ bool isAudioFolderUri(ContentUriAudioSource source) {
   return parts.length == 2 && parts.first == 'tree' && parts.last.isNotEmpty;
 }
 
+final class AudioFolderAccess {
+  const AudioFolderAccess({required this.readable, this.name});
+  final bool readable;
+  final String? name;
+}
+
+abstract interface class AudioDocumentFolderAccess {
+  Future<List<ContentUriAudioSource>> listAudioFolderGrants();
+  Future<AudioFolderAccess> inspectAudioFolder(ContentUriAudioSource tree);
+}
+
 final class AndroidAudioDocuments
-    implements AudioDocuments, AudioDocumentFolders {
+    implements AudioDocuments, AudioDocumentFolders, AudioDocumentFolderAccess {
   const AndroidAudioDocuments({MethodChannel? channel})
       : _channel = channel ??
             const MethodChannel(
                 'dev.lunatuk.clever_music_player/audio_documents');
   final MethodChannel _channel;
+
+  @override
+  Future<List<ContentUriAudioSource>> listAudioFolderGrants() async {
+    final values =
+        await _channel.invokeListMethod<Object?>('listAudioFolderGrants');
+    if (values == null || values.length > 128) {
+      throw const FormatException('Некорректный список папок.');
+    }
+    final sources = values.map((value) {
+      if (value is! String) throw const FormatException('Некорректная папка.');
+      final source = ContentUriAudioSource(value);
+      if (!isAudioFolderUri(source)) {
+        throw const FormatException('Некорректная папка.');
+      }
+      return source;
+    }).toSet();
+    return List.unmodifiable(sources);
+  }
+
+  @override
+  Future<AudioFolderAccess> inspectAudioFolder(
+      ContentUriAudioSource tree) async {
+    if (!isAudioFolderUri(tree)) {
+      throw const FormatException('Некорректная папка.');
+    }
+    final data = await _channel.invokeMapMethod<String, Object?>(
+        'inspectAudioFolder', {'uri': tree.storageValue});
+    final readable = data?['readable'], name = data?['name'];
+    if (readable is! bool ||
+        (name != null && (name is! String || name.length > 256))) {
+      throw const FormatException('Некорректный доступ к папке.');
+    }
+    return AudioFolderAccess(
+        readable: readable,
+        name: name is String && name.trim().isNotEmpty ? name.trim() : null);
+  }
 
   @override
   Future<ContentUriAudioSource?> pickAudioFolder() async {
