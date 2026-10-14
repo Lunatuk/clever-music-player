@@ -2,13 +2,13 @@ import 'package:flutter/foundation.dart';
 
 import '../core/async_lifecycle.dart';
 import '../domain/models/audio_source_reference.dart';
-import '../domain/models/metadata_source.dart';
 import '../domain/models/track.dart';
 import '../domain/repositories/track_repository.dart';
 import '../library/artwork_cache_service.dart';
 import '../library/metadata_enrichment.dart';
 import 'audio_documents.dart';
 import 'android_folder_bookmarks.dart';
+import 'android_audio_metadata.dart';
 
 /// Owns explicit SAF imports. Cancellation preserves committed tracks; close
 /// drains accepted provider/cache/DB work before the app closes SQLite.
@@ -216,6 +216,7 @@ final class AndroidImportController extends ChangeNotifier {
       try {
         final metadata = await documents.readAudio(source);
         if (_stopped) break;
+        final merged = mergeAudioDocumentMetadata(metadata);
         CachedArtwork? artwork;
         try {
           artwork = await artworkCache.saveEmbeddedArtwork(
@@ -232,19 +233,18 @@ final class AndroidImportController extends ChangeNotifier {
           Track.fromSource(
             source: source,
             libraryFolderId: libraryFolderId,
-            title: metadata.title ?? metadata.name ?? 'Без названия',
-            artist: metadata.artist,
-            album: metadata.album,
-            albumArtist: metadata.albumArtist,
-            genre: metadata.genre,
-            duration: metadata.duration,
+            title: merged.title,
+            artist: merged.artist,
+            album: merged.album,
+            albumArtist: merged.albumArtist,
+            genre: merged.genre,
+            duration: merged.duration,
             fileSizeBytes: metadata.size,
             artworkPath: artwork?.path,
             artworkHash: artwork?.hash,
             artworkMimeType: artwork?.mimeType,
-            metadataSource: metadata.title == null
-                ? MetadataSource.filename
-                : MetadataSource.embeddedTags,
+            metadataSource: merged.source,
+            metadataConfidence: merged.confidence,
             addedAt: now,
             updatedAt: now,
             lastSeenAt: now,

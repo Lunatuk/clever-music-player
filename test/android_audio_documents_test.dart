@@ -135,8 +135,7 @@ void main() {
         return const AudioDocumentMetadata(name: 'untagged.flac');
       };
       await importer.importSelection();
-      expect((await repositories.tracks.listTracks()).single.title,
-          'untagged.flac');
+      expect((await repositories.tracks.listTracks()).single.title, 'untagged');
       expect(importer.processed, 2);
       expect(importer.message, contains('Не добавлено: 2'));
     });

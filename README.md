@@ -77,9 +77,9 @@ are available in the prototype; URI hashing and bulk library import remain
 separate work. Background audio uses the existing shared runtime.
 See [the source reference contract](docs/architecture/audio-source-references.md).
 
-## Android preview (package 22)
+## Android preview (package 23)
 
-`dist/clever-music-player-core-22-android-arm64.apk` updates **Clever Music Preview**
+`dist/clever-music-player-core-23-android-arm64.apk` updates **Clever Music Preview**
 in its own Android sandbox. The compact screen selects up to 64 audio documents
 at a time through the system picker, stores read-only persistent grants and uses
 the shared database/player/queue. Re-selecting the same URI keeps the existing
@@ -93,6 +93,10 @@ user data. Existing tree documents are adopted without rescanning, including
 folders forgotten in package 21. Separate document imports remain independent.
 The Folders screen also checks and restores access. Files and grants are retained.
 See [saved folder rules](docs/architecture/android-saved-folders.md).
+Package 23 applies the desktop filename/tag metadata rules to Android imports.
+Useful tags take priority; SAF display names fill missing artist/title, without
+parsing opaque URIs. Refresh updates existing automatic records and preserves
+manual edits, identity and user data. See [metadata rules](docs/architecture/android-audio-metadata.md).
 Different provider URIs of one physical file still need a future
 identity/alias layer; see [folder import limits](docs/architecture/android-folder-import.md).
 
@@ -101,7 +105,7 @@ queue and Wave history. Notification/lock-screen/headset commands control this
 runtime. Audio interruptions and headphone removal pause both crossfade decks;
 resume explicitly with Play. Stop ends playback and removes the notification.
 This is a debug-signed release-mode prototype, not the final design or store release.
-Windows remains on the verified core-19 ZIP; package 22 changes Android only.
+Windows remains on the verified core-19 ZIP; package 23 changes Android only.
 See [targeted checks](docs/MANUAL_CHECKS.md)
 and [background playback contract](docs/architecture/android-background-playback.md).
 
