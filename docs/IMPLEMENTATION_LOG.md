@@ -1057,7 +1057,7 @@ ContentResolver. Ошибка одной папки не останавлива�
 | Финальный полный Flutter-набор | **766 прошли**, concurrency 2, около 40 с; +28 к пакету 20 |
 | Native JVM | **6 прошли**, 0 skipped/errors/failures; прежний обход дерева |
 | Analyze / format | Без замечаний; 156 Dart-файлов, 0 изменений |
-| Android release | Финальная сборка 67,5 с Flutter / 69,3 с процесс; первичный кандидат до финальных тестов — 105,1 с |
+| Android release | Финальная сборка 67,7 с Flutter / 69,3 с процесс; первичный кандидат до финальных тестов — 105,1 с |
 | Native unit / lint | 4,4 / 7,8 с; lint 0 errors, прежние 6 warnings, новых исключений/baseline нет |
 | APK | CRC, apksigner v2, signer совпадает с 20, ZIP/ELF LOAD/RELRO 16 КиБ, прежний application ID, versionCode 2021, target SDK 36; native folder/access методы, notification icon/service/receiver/permissions проверены в финальном APK |
 
