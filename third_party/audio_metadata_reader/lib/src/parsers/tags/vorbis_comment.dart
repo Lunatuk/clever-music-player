@@ -70,8 +70,11 @@ void parseVorbisComment(
         metadata.trackNumber.add(int.parse(value));
       }
       break;
-    case 'ARTIST' || "ALBUMARTIST":
+    case 'ARTIST':
       metadata.artist.add(value);
+      break;
+    case 'ALBUMARTIST' || 'ALBUM_ARTIST' || 'ALBUM ARTIST':
+      metadata.albumArtist.add(value);
       break;
     case 'PERFORMER':
       metadata.performer.add(value);

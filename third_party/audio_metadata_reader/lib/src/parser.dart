@@ -28,6 +28,7 @@ AudioMetadata readMetadata(File track, {bool getImage = false}) {
         file: track,
         album: apeMetadata.album,
         artist: apeMetadata.artist,
+        albumArtist: apeMetadata.albumArtist,
         bitrate: apeMetadata.bitrate,
         discNumber: apeMetadata.discNumber,
         duration: apeMetadata.duration,
@@ -52,9 +53,10 @@ AudioMetadata readMetadata(File track, {bool getImage = false}) {
       final a = AudioMetadata(
         file: track,
         album: mp3Metadata.album,
-        artist: mp3Metadata.bandOrOrchestra ??
-            mp3Metadata.leadPerformer ??
+        artist: mp3Metadata.leadPerformer ??
+            mp3Metadata.bandOrOrchestra ??
             mp3Metadata.originalArtist,
+        albumArtist: mp3Metadata.bandOrOrchestra,
         bitrate: mp3Metadata.bitrate,
         duration: mp3Metadata.duration,
         language: mp3Metadata.languages,
@@ -85,7 +87,9 @@ AudioMetadata readMetadata(File track, {bool getImage = false}) {
       final newMetadata = AudioMetadata(
         file: track,
         album: vorbisMetadata.album.firstOrNull,
-        artist: vorbisMetadata.artist.firstOrNull,
+        artist: vorbisMetadata.artist.firstOrNull ??
+            vorbisMetadata.albumArtist.firstOrNull,
+        albumArtist: vorbisMetadata.albumArtist.firstOrNull,
         bitrate: vorbisMetadata.bitrate,
         discNumber: vorbisMetadata.discNumber,
         duration: vorbisMetadata.duration,
@@ -110,7 +114,8 @@ AudioMetadata readMetadata(File track, {bool getImage = false}) {
       final newMetadata = AudioMetadata(
         file: track,
         album: mp4Metadata.album,
-        artist: mp4Metadata.artist,
+        artist: mp4Metadata.artist ?? mp4Metadata.albumArtist,
+        albumArtist: mp4Metadata.albumArtist,
         bitrate: mp4Metadata.bitrate,
         discNumber: mp4Metadata.discNumber,
         duration: mp4Metadata.duration,
@@ -141,7 +146,9 @@ AudioMetadata readMetadata(File track, {bool getImage = false}) {
       final newMetadata = AudioMetadata(
         file: track,
         album: oggMetadata.album.firstOrNull,
-        artist: oggMetadata.artist.firstOrNull,
+        artist: oggMetadata.artist.firstOrNull ??
+            oggMetadata.albumArtist.firstOrNull,
+        albumArtist: oggMetadata.albumArtist.firstOrNull,
         bitrate: oggMetadata.bitrate,
         discNumber: oggMetadata.discNumber,
         duration: oggMetadata.duration,

@@ -2,7 +2,8 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 /// Container/tag fixture for parser tests; no encoded audio frames/playback.
-Uint8List flacMetadataFixture({bool malformedPicture = false}) {
+Uint8List flacMetadataFixture(
+    {bool malformedPicture = false, List<String>? tagValues}) {
   Uint8List word(int value, {Endian endian = Endian.big}) =>
       (ByteData(4)..setUint32(0, value, endian)).buffer.asUint8List();
   Uint8List block(int type, List<int> payload, {bool last = false}) =>
@@ -20,14 +21,15 @@ Uint8List flacMetadataFixture({bool malformedPicture = false}) {
   final comments = BytesBuilder()
     ..add(word(3, endian: Endian.little))
     ..add(utf8.encode('CMP'));
-  final tags = [
-    'TITLE=Песня 💿',
-    'ARTIST=Исполнитель',
-    'ALBUM=Fixture album',
-    'GENRE=Rock',
-    'DATE=2024',
-    'TRACKNUMBER=3'
-  ];
+  final tags = tagValues ??
+      [
+        'TITLE=Песня 💿',
+        'ARTIST=Исполнитель',
+        'ALBUM=Fixture album',
+        'GENRE=Rock',
+        'DATE=2024',
+        'TRACKNUMBER=3'
+      ];
   comments.add(word(tags.length, endian: Endian.little));
   for (final tag in tags) {
     final bytes = utf8.encode(tag);

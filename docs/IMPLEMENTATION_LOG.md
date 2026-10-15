@@ -2163,3 +2163,112 @@ core32-input-scale-tests.log, core32-mouse-test.log, core32-full-tests-final.log
 core32-format-final.log, core32-analyze-final.log, core32-native-windows-protocol.log,
 core32-source-manifest.json, core32-build-result.json, core32-verify-result.json,
 core32-package.json, core32-apk-*.log; release/native logs в сборочной копии.
+
+
+**16 октября 2026 — пакет 33, подготовка тегов/обложек и роли исполнителя**
+
+Пользователь подтвердил пакет 32 («все работает просто прекрасно»).
+Следующий шаг разделён: этот пакет завершает внутреннюю подготовку тегов/
+обложек; отдельно далее поставляется и квалифицируется desktop helper bundle,
+затем coordinator/атомарный import/retention/сеть/UI. Схема остаётся 13:
+AppDatabase и generated Dart byte-identical 32, pubspec/lockfile не менялись.
+
+Добавлены DownloadedAudioMetadataPreparer, AudioMetadataBackend,
+FfmpegAudioMetadataBackend, immutable EmbeddedCover и PreparedDownloadedAudio.
+Исходный staging-файл принадлежит вызывающей операции и только читается;
+новая private directory содержит резервированный audio.part и optional
+cover.part. Stream copy MP3/M4A/FLAC записывает восемь допустимых видов тегов;
+PNG/JPEG заменяет старую картинку, без замены сохраняется прежняя attached_pic.
+Обязательное отсутствие обложки отклоняется. Исходный expected size заменяется
+фактическим размером результата только для последующего validator.
+
+После полного DownloadedAudioValidator сверяются encoded audio packets,
+decoded PCM S32LE, sample rate/channels/bit depth и точные encoded bytes
+картинки. В конце повторно сверяются полный source SHA-256/размер/даты и
+final output SHA-256/размер. Это сохранность аудио, не remote-ID идентификация.
+Новая картинка до 8 МиБ, проверка длины/байтов/signature до snapshot copy;
+выход/исходник до 8 ГиБ, ожидаемая длительность до 12 ч; теги до 4096 каждый,
+сумма до 8192 UTF-16 units для Windows argv. Один процесс/операция, bounded
+runner, явные absolute executable paths, no shell/PATH/network install.
+
+Отмена/timeout/close дренируют принятый вызов и backend, включая забытый await.
+Timeout 10 мин default / 30 мин max, не hard OS deadline. При отказе удаляются
+только два известных generated file и пустой свой каталог; неизвестные файлы
+не удаляются рекурсивно. Доставленный результат принадлежит caller и живёт
+после close preparer до явного result.close. Stream из него проходит через
+прежний writeAudio/publish с тем же proof и повторным full SHA-256/fence.
+Координатор/DB import/job completion этим не реализованы. Процессная авария
+может оставить private temp, retention должен войти в будущего владельца.
+
+Исправлен vendored reader: MP3 TPE1 предпочитается TPE2; M4A ©ART/aART
+разделены, Vorbis ARTIST/ALBUMARTIST больше не смешиваются. Generic AudioMetadata
+получил nullable albumArtist, общий background reader передаёт поле в импорт;
+FLAC/OGG/APE mapping учитывает существующие модели. При отсутствии main artist
+сохранён полезный album-artist fallback. Новые поля сохраняют FLAC/MP4 writers.
+Реальный roundtrip обнаружил прежний дефект FLAC writer: после замены последнего
+comment/picture block терялся last flag, helper ставил 255 вместо бита 128.
+Теперь копируемые блоки nonfinal, конец — явный empty padding, STREAMINFO-only
+input тоже получает comments; reader закрывается в finally до записи.
+Низкоуровневые in-place writers не используются download preparer.
+Прежний индекс/ручные правки автоматически не перезаписываются, full scan не нужен.
+
+58 новых Flutter checks: preparer 25, backend protocol
+19, независимые parser/serializer fixtures 14.
+Проверены source/output changes, packets/PCM/rate/channels/cover mismatch,
+обязательная картинка, malformed/empty digest, helper failure, URI, cancel,
+timeout, busy/closed/unawaited drain, чужие файлы и stream publication.
+Нативный tool создаёт только свою systemTemp-музыку/картинки: FFmpeg 7.1,
+31 real checks MP3/M4A/FLAC/PNG/JPEG/Unicode/8 tags, retain/replace/coverless,
+app reader, legacy FLAC serializer encoded/decoded equality, OGG shared parser,
+corrupt/truncated data, wrong format, cancel/missing helper и cleanup.
+Ранний native run поймал truncated audio из-за frames:v=1 в remux; лимит
+удалён из remux, оставлен в отдельных cover digest/decode. Финальный tool passed.
+
+Первый полный default-concurrency run: 1256 passed + 2 failed. Старый test
+rotation bounds journal size (70 fsync) превысил 30 s при параллельной нагрузке;
+его незавершённое тело привело к каскадной ошибке следующего export/teardown.
+Diagnostics отдельно: 12 passed. Новый oversized-cover test использует
+Uint8List вместо List<int> для меньшего тестового heap. Без увеличения deadlines
+финальный полный run --concurrency=4: 1258 passed за 47 s.
+Desktop CI тоже фиксирует concurrency=4 и форматирует новый tool.
+Root analyze: no issues; format 213 файлов / 0 changes. Vendor type analysis
+под temporary local analysis_options без root exclusion: no diagnostics;
+файл удалён до полного прогона/сборки. Новых тестов после финального прогона нет.
+
+ASCII-сборка %LOCALAPPDATA%/CleverMusicPlayerBuilds/core33-20261016:
+366 SHA-256 исходников совпадают с рабочим деревом после обеих сборок.
+Codegen сверён. Flutter tests в release-копии не запускались. Windows ZIP
+18 файлов, прежний payload/production native manifest, без test-only native_assets.json;
+PE x64/байты/ZIP CRC проверены. Native Windows audio protocol passed.
+Android: versionCode 2033, target 36, signer matches 32, v2/CRC/zipalign и все
+ELF LOAD/RELRO 16 KiB passed; notification/service/SAF/fingerprint сохранены.
+JVM 15 passed, lint 0 errors / 6 прежних warnings.
+Windows hidden-AppData resolve_symlinks.ps1/jni C4090 и Android SDK XML warnings
+прежние. Бинарники FFmpeg/download helper в ZIP/APK ещё не вложены.
+macOS и Android SAF metadata writer/физический телефон здесь не испытывались.
+Пользовательские профиль/музыка/SQLite/аккаунт не читались и не менялись.
+
+Времена (с): {"pub-get": 2.7, "codegen-check": 41.0, "android-release-final": 97.4, "android-unit": 5.6, "android-lint": 28.0, "gradle-stop": 1.0, "windows-release": 89.9}.
+
+Артефакты:
+
+- dist/clever-music-player-core-33-android-arm64.apk: 20830818 байт, SHA-256 6027dd537008b71e8df260eff836cd24edf6b16e3b9272d07beb6f4c0202637c.
+- dist/clever-music-player-core-33-windows-x64.zip: 14433502 байт, SHA-256 77e92b9f54a4a56d7712b61d0f6536d69df6a2aa9b25b90e697e6837593f4415.
+- dist/clever-music-player-core-33-checks.txt, manual-checks.txt и .sha256.
+
+Ручные проверки 33 пока ожидаются: familiar Windows track, far scrollbar jump,
+restart; телефон можно оставить на 32. Рабочая музыка не требует перескана.
+Далее helper bundle с совместимостью/исходниками/лицензиями, coordinator и
+атомарный Track/ref/asset import, journal retention, Яндекс adapter/вход/
+коллекции/кнопка; native Android preparation отдельно, рекомендации отложены.
+[Контракт](architecture/downloaded-audio-metadata.md).
+
+Логи .dart_tool/core33-preparer-tests.log, core33-metadata-tests.log,
+core33-reader-tests.log, core33-reader-tests-final.log, core33-native-metadata-initial.log,
+core33-native-metadata-after-remux.log, core33-native-reader-initial.log,
+core33-native-metadata-final.log, core33-full-tests-initial.log,
+core33-diagnostics-recheck.log, core33-full-tests-final.log, core33-format-final.log,
+core33-analyze-final.log, core33-vendor-type-analysis.log,
+core33-native-windows-protocol.log, core33-source-manifest.json,
+core33-build-result.json, core33-verify-result.json, core33-package.json,
+core33-apk-*.log; build/native logs в ASCII-копии.

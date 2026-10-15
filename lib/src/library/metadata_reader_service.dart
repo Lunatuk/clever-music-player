@@ -171,6 +171,7 @@ Future<EmbeddedAudioMetadata?> _readEmbeddedAudioTags(String filePath) async {
   return EmbeddedAudioMetadata(
     title: tag.title,
     artist: tag.artist,
+    albumArtist: tag.albumArtist,
     album: tag.album,
     genre: tag.genres.isEmpty ? null : tag.genres.first,
     duration: tag.duration,

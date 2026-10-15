@@ -86,6 +86,14 @@ geometry follows text scaling; the measuring row reads no artwork. Regression
 checks use 6000 synthetic tracks, mouse thumb dragging, enlarged text, filtering
 and playback after a jump. See [scrolling limits and evidence](docs/architecture/large-library-scrolling.md).
 
+Package 33 prepares downloaded audio tags and PNG/JPEG artwork in a separate
+private file without audio transcoding. It verifies encoded packets, decoded
+PCM, cover bytes and final file evidence before handing the result to the
+publication pipeline. Cancellation drains work before cleanup. Track and album
+artist roles are now separate in the shared tag reader. Helper bundling, native
+Android preparation and the network coordinator/UI remain subsequent work.
+See [metadata preparation rules](docs/architecture/downloaded-audio-metadata.md).
+
 Database schema v13 preserves existing track IDs and history. Metadata signatures
 are non-unique, feedback changes preserve listening counters, and playback events
 and their counters commit together. Retrying an event's operation ID does not

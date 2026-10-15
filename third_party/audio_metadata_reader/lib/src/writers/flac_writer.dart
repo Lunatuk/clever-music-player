@@ -15,30 +15,30 @@ class FlacWriter extends BaseMetadataWriter<VorbisMetadata> {
 
     final reader = file.openSync();
 
-    reader.setPositionSync(0);
-
-    builder.add(reader.readSync(4));
-
-    bool isLastBlock = false;
-    int i = 0;
-    while (!isLastBlock) {
-      if (i == 1) {
-        _writeVorbisComments(builder, metadata);
-
-        for (var picture in metadata.pictures) {
-          _writePictureBlock(builder, picture);
+    try {
+      reader.setPositionSync(0);
+      builder.add(reader.readSync(4));
+      bool isLastBlock = false;
+      int i = 0;
+      while (!isLastBlock) {
+        final block = _parseMetadataBlock(reader, builder, metadata);
+        if (i == 0) {
+          _writeVorbisComments(builder, metadata);
+          for (var picture in metadata.pictures) {
+            _writePictureBlock(builder, picture);
+          }
         }
+        isLastBlock = block.isLastBlock;
+        i++;
       }
-
-      final block = _parseMetadataBlock(reader, builder, metadata);
-      isLastBlock = block.isLastBlock;
-      i++;
+      // The original last block may have been a replaced comment/picture.
+      // Emit one explicit final empty padding block; copied blocks are nonfinal.
+      _writeBlockHeader(builder, 1, 0, true);
+      final rest = reader.lengthSync() - reader.positionSync();
+      builder.add(reader.readSync(rest));
+    } finally {
+      reader.closeSync();
     }
-
-    final rest = reader.lengthSync() - reader.positionSync();
-    builder.add(reader.readSync(rest));
-
-    reader.closeSync();
     file.writeAsBytesSync(builder.toBytes());
   }
 
@@ -68,7 +68,7 @@ class FlacWriter extends BaseMetadataWriter<VorbisMetadata> {
           builder,
           buffer.readSync(block.length),
           block.type,
-          block.isLastBlock,
+          false,
         );
 
         break;
@@ -88,7 +88,7 @@ class FlacWriter extends BaseMetadataWriter<VorbisMetadata> {
 
   void _writeBlock(
       BytesBuilder builder, Uint8List data, int blockId, bool isLastBlock) {
-    int firstByte = (isLastBlock) ? 255 | blockId : blockId & 255;
+    int firstByte = (isLastBlock ? 128 : 0) | (blockId & 127);
 
     builder.addByte(firstByte);
     builder.add(intToUint24(data.length));
@@ -143,6 +143,7 @@ class FlacWriter extends BaseMetadataWriter<VorbisMetadata> {
     _writeComment(
         "TRACKNUMBER", metadata.trackNumber.map((e) => e.toString()).toList());
     _writeComment("ARTIST", metadata.artist);
+    _writeComment("ALBUMARTIST", metadata.albumArtist);
     _writeComment("PERFORMER", metadata.performer);
     _writeComment("COPYRIGHT", metadata.copyright);
     _writeComment("LICENSE", metadata.license);

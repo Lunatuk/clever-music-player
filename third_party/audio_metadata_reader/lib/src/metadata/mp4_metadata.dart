@@ -8,6 +8,9 @@ class Mp4Metadata extends ParserTag {
   /// Main artist (`©ART`/`aART` depending on source).
   String? artist;
 
+  /// Album-level performer (`aART`).
+  String? albumArtist;
+
   /// Album name (`©alb`).
   String? album;
 
@@ -51,6 +54,7 @@ class Mp4Metadata extends ParserTag {
   Mp4Metadata({
     this.title,
     this.artist,
+    this.albumArtist,
     this.album,
     this.year,
     this.trackNumber,
