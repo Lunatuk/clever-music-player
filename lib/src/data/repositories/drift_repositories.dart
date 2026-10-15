@@ -7,6 +7,7 @@ import '../drift/drift_mappers.dart';
 import 'drift_external_track_repository.dart';
 import 'drift_downloaded_asset_repository.dart';
 import 'drift_remote_library_repository.dart';
+import 'drift_download_job_repository.dart';
 
 final class DriftRepositories implements AppRepositories {
   DriftRepositories(AppDatabase database)
@@ -16,6 +17,7 @@ final class DriftRepositories implements AppRepositories {
         externalTracks = DriftExternalTrackRepository(database),
         downloadedAssets = DriftDownloadedAssetRepository(database),
         remoteLibrary = DriftRemoteLibraryRepository(database),
+        downloadJobs = DriftDownloadJobRepository(database),
         playlists = DriftPlaylistRepository(database),
         playbackEvents = DriftPlaybackEventRepository(database),
         trackUserState = DriftTrackUserStateRepository(database),
@@ -37,6 +39,9 @@ final class DriftRepositories implements AppRepositories {
 
   @override
   final RemoteLibraryRepository remoteLibrary;
+
+  @override
+  final DownloadJobRepository downloadJobs;
 
   @override
   final PlaylistRepository playlists;
@@ -67,9 +72,18 @@ final class DriftLibraryRepository
 
   @override
   Future<int> upsertFolder(LibraryFolder folder) {
-    return _database
-        .into(_database.libraryFolders)
-        .insertOnConflictUpdate(libraryFolderToCompanion(folder));
+    return _database.transaction(() async {
+      final previous = await findFolderByPath(folder.path);
+      final id = await _database
+          .into(_database.libraryFolders)
+          .insertOnConflictUpdate(libraryFolderToCompanion(folder));
+      final saved = (await findFolderByPath(folder.path))!;
+      if (!saved.isEnabled || (folder.id != null && previous == null)) {
+        await invalidateDownloadJobs(_database,
+            folderId: saved.id!, reason: DownloadFailure.destinationDisabled);
+      }
+      return id;
+    });
   }
 
   @override
@@ -110,23 +124,29 @@ final class DriftLibraryRepository
     int id, {
     required bool isEnabled,
     required DateTime updatedAt,
-  }) async {
-    await (_database.update(_database.libraryFolders)
-          ..where((table) => table.id.equals(id)))
-        .write(
-      LibraryFoldersCompanion(
-        isEnabled: Value(isEnabled),
-        updatedAt: Value(updatedAt),
-      ),
-    );
-  }
+  }) =>
+      _database.transaction(() async {
+        await (_database.update(_database.libraryFolders)
+              ..where((table) => table.id.equals(id)))
+            .write(
+          LibraryFoldersCompanion(
+            isEnabled: Value(isEnabled),
+            updatedAt: Value(updatedAt),
+          ),
+        );
+        if (!isEnabled) {
+          await invalidateDownloadJobs(_database,
+              folderId: id, reason: DownloadFailure.destinationDisabled);
+        }
+      });
 
   @override
-  Future<void> deleteFolder(int id) async {
-    await (_database.delete(_database.libraryFolders)
-          ..where((table) => table.id.equals(id)))
-        .go();
-  }
+  Future<void> deleteFolder(int id) => _database.transaction(() async {
+        await deleteDownloadJobsForFolder(_database, id);
+        await (_database.delete(_database.libraryFolders)
+              ..where((table) => table.id.equals(id)))
+            .go();
+      });
 
   @override
   Future<void> removeDisabledFolder(int id) => _database.transaction(() async {
@@ -138,6 +158,7 @@ final class DriftLibraryRepository
           throw StateError('Отключите папку перед удалением из библиотеки.');
         }
         await DriftTrackRepository(_database).deleteTracksByLibraryFolder(id);
+        await deleteDownloadJobsForFolder(_database, id);
         final removed = await (_database.delete(_database.libraryFolders)
               ..where((table) =>
                   table.id.equals(id) & table.isEnabled.equals(false)))

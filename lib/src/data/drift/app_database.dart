@@ -215,6 +215,56 @@ class RemoteCollectionItems extends Table {
   List<String> get customConstraints => ['CHECK (position >= 0)'];
 }
 
+@DataClassName('DownloadJobRow')
+class DownloadJobs extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  IntColumn get libraryFolderId =>
+      integer().references(LibraryFolders, #id, onDelete: KeyAction.cascade)();
+  TextColumn get provider => text()();
+  TextColumn get externalId => text()();
+  TextColumn get variantKey => text()();
+  TextColumn get quality => text()();
+  IntColumn get accountId =>
+      integer().references(RemoteAccounts, #id, onDelete: KeyAction.cascade)();
+  IntColumn get accountRevision => integer()();
+  TextColumn get state => text()();
+  TextColumn get stage => text()();
+  IntColumn get revision => integer()();
+  IntColumn get attemptCount => integer().withDefault(const Constant(0))();
+  IntColumn get maxAttempts => integer()();
+  IntColumn get remainingAttempts => integer()();
+  TextColumn get attemptToken => text().nullable()();
+  IntColumn get leaseUntilMicros => integer().nullable()();
+  IntColumn get retryAtMicros => integer().nullable()();
+  TextColumn get failure => text().nullable()();
+  IntColumn get completedTrackId => integer().nullable()();
+  IntColumn get createdAtMicros => integer()();
+  IntColumn get updatedAtMicros => integer()();
+  @override
+  List<String> get customConstraints => [
+        'UNIQUE (library_folder_id, provider, external_id, variant_key, quality)',
+        'CHECK (revision > 0 AND account_revision > 0 AND attempt_count >= 0 AND max_attempts BETWEEN 1 AND 10 AND remaining_attempts BETWEEN 0 AND max_attempts)',
+        "CHECK ((state IN ('running', 'reconciling') AND attempt_token IS NOT NULL AND lease_until_micros IS NOT NULL) OR (state NOT IN ('running', 'reconciling') AND attempt_token IS NULL AND lease_until_micros IS NULL))"
+      ];
+}
+
+@DataClassName('DownloadAttemptRow')
+class DownloadAttempts extends Table {
+  IntColumn get jobId =>
+      integer().references(DownloadJobs, #id, onDelete: KeyAction.cascade)();
+  IntColumn get number => integer()();
+  TextColumn get token => text().unique()();
+  IntColumn get accountId => integer()();
+  IntColumn get accountRevision => integer()();
+  TextColumn get stage => text()();
+  TextColumn get outcome => text()();
+  IntColumn get startedAtMicros => integer()();
+  IntColumn get finishedAtMicros => integer().nullable()();
+  TextColumn get failure => text().nullable()();
+  @override
+  Set<Column> get primaryKey => {jobId, number};
+}
+
 @DriftDatabase(
   tables: [
     LibraryFolders,
@@ -229,6 +279,8 @@ class RemoteCollectionItems extends Table {
     RemoteAccounts,
     RemoteCollections,
     RemoteCollectionItems,
+    DownloadJobs,
+    DownloadAttempts,
   ],
 )
 class AppDatabase extends _$AppDatabase {
@@ -242,7 +294,7 @@ class AppDatabase extends _$AppDatabase {
       AppDatabase(_openConnection(diagnostics), diagnostics: diagnostics);
 
   @override
-  int get schemaVersion => 12;
+  int get schemaVersion => 13;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -316,6 +368,10 @@ class AppDatabase extends _$AppDatabase {
                     await migrator.createTable(remoteCollections);
                     await migrator.createTable(remoteCollectionItems);
                   }
+                  if (from < 13) {
+                    await migrator.createTable(downloadJobs);
+                    await migrator.createTable(downloadAttempts);
+                  }
                   await _createIndexes();
                   // Commit the version marker with the DDL so an interruption cannot
                   // leave new columns with an old version and break the next upgrade.
@@ -353,6 +409,14 @@ class AppDatabase extends _$AppDatabase {
   }
 
   Future<void> _createIndexes() async {
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_download_jobs_ready '
+      'ON download_jobs(account_id, account_revision, state, retry_at_micros, id);',
+    );
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_download_jobs_target '
+      'ON download_jobs(library_folder_id, provider, external_id, variant_key, state, lease_until_micros);',
+    );
     await customStatement(
       'CREATE UNIQUE INDEX IF NOT EXISTS idx_remote_accounts_active '
       'ON remote_accounts(provider) WHERE is_active = 1;',

@@ -2,8 +2,10 @@ import 'package:drift/drift.dart';
 
 import '../../domain/models/external_track_ref.dart';
 import '../../domain/models/remote_library.dart';
+import '../../domain/models/download_job.dart';
 import '../../domain/repositories/remote_library_repository.dart';
 import '../drift/app_database.dart';
+import 'drift_download_job_repository.dart';
 
 final class DriftRemoteLibraryRepository implements RemoteLibraryRepository {
   const DriftRemoteLibraryRepository(this.database);
@@ -22,6 +24,8 @@ final class DriftRemoteLibraryRepository implements RemoteLibraryRepository {
                 t.accountId.equals(identity.accountId).not()))
           .get();
       for (final row in active) {
+        await invalidateDownloadJobs(database,
+            accountId: row.id, reason: DownloadFailure.accountChanged);
         await (database.update(table)..where((t) => t.id.equals(row.id))).write(
             RemoteAccountsCompanion(
                 isActive: const Value(false),
@@ -38,6 +42,8 @@ final class DriftRemoteLibraryRepository implements RemoteLibraryRepository {
             isActive: true,
             revision: 1));
       } else {
+        await invalidateDownloadJobs(database,
+            accountId: current.id, reason: DownloadFailure.accountChanged);
         await (database.update(table)..where((t) => t.id.equals(current.id)))
             .write(RemoteAccountsCompanion(
                 displayName: Value(displayName),
@@ -70,6 +76,8 @@ final class DriftRemoteLibraryRepository implements RemoteLibraryRepository {
   Future<bool> disconnectAccount(RemoteLibraryAccount expected) =>
       database.transaction(() async {
         if (!await _isCurrentAccount(expected)) return false;
+        await invalidateDownloadJobs(database,
+            accountId: expected.id, reason: DownloadFailure.accountChanged);
         await (database.update(database.remoteAccounts)
               ..where((t) => t.id.equals(expected.id)))
             .write(RemoteAccountsCompanion(

@@ -22,6 +22,8 @@ const _tables = [
   'remote_accounts',
   'remote_collections',
   'remote_collection_items',
+  'download_jobs',
+  'download_attempts',
 ];
 
 typedef _Snapshot = Map<String, List<Map<String, Object?>>>;
@@ -29,7 +31,7 @@ typedef _Snapshot = Map<String, List<Map<String, Object?>>>;
 void main() {
   final schemaV7 = File('test/fixtures/schema_v7.sql').readAsStringSync();
 
-  for (var version = 1; version <= 11; version++) {
+  for (var version = 1; version <= 12; version++) {
     test('schema v$version upgrades without changing existing rows or IDs',
         () async {
       late _Snapshot before;
@@ -85,6 +87,32 @@ void main() {
         await repositories.downloadedAssets.findCandidates(refs.single.identity,
             quality: 'high', libraryFolderId: 3),
         isEmpty);
+  });
+
+  test(
+      'v12 account selections and ordered snapshots survive with an empty job queue',
+      () async {
+    late _Snapshot before;
+    final database = AppDatabase(NativeDatabase.memory(setup: (raw) {
+      _createHistoricalSchema(raw.execute, schemaV7, 12);
+      _seedHistoricalData(raw.execute, 12);
+      before = _snapshot((sql) =>
+          [for (final row in raw.select(sql)) Map<String, Object?>.of(row)]);
+    }));
+    addTearDown(database.close);
+    await _verifyUpgrade(database, () => before);
+    final repositories = DriftRepositories(database);
+    final account = (await repositories.remoteLibrary.listAccounts()).single;
+    expect(account.revision, 5);
+    expect(account.isActive, isTrue);
+    final content = (await repositories.remoteLibrary.readContent(
+        account.identity,
+        RemoteCollectionKey(kind: RemoteCollectionKind.liked)))!;
+    expect(content.collection.revision, 8);
+    expect(content.collection.completedAt!.microsecondsSinceEpoch,
+        1792020000123456);
+    expect(content.items.map((item) => item.externalId), ['00041', '00041']);
+    expect(await repositories.downloadJobs.listJobs(), isEmpty);
   });
 
   test('v11 verified assets survive without inventing accounts or collections',
@@ -151,6 +179,7 @@ void main() {
     'external-index',
     'asset-index',
     'remote-index',
+    'job-index',
     'version'
   ]) {
     test('fresh schema creation rolls back after $failurePoint failure',
@@ -184,11 +213,11 @@ void main() {
       expect(
           (await retry.customSelect('PRAGMA user_version').getSingle())
               .read<int>('user_version'),
-          12);
+          13);
     });
   }
 
-  test('schema v12 remains valid after closing and reopening a migrated file',
+  test('schema v13 remains valid after closing and reopening a migrated file',
       () async {
     final directory =
         await Directory.systemTemp.createTemp('clever_schema_reopen_');
@@ -213,7 +242,7 @@ void main() {
     expect(
         (await reopened.customSelect('PRAGMA user_version').getSingle())
             .read<int>('user_version'),
-        12);
+        13);
     final repositories = DriftRepositories(reopened);
     final original = (await repositories.tracks.findById(41))!;
     await repositories.tracks.upsertTrack(
@@ -231,13 +260,14 @@ void main() {
         hasLength(1));
   });
 
-  for (final version in [1, 7, 8, 9, 10, 11]) {
+  for (final version in [1, 7, 8, 9, 10, 11, 12]) {
     for (final failurePoint in [
       'index',
       'operation-index',
       'external-index',
       'asset-index',
       'remote-index',
+      'job-index',
       'version'
     ]) {
       test(
@@ -272,6 +302,7 @@ void main() {
         late bool hasExternalRefsAfterFailure;
         late bool hasAssetsAfterFailure;
         late bool hasRemoteTablesAfterFailure;
+        late bool hasJobsAfterFailure;
         final retry = AppDatabase(NativeDatabase(
           file,
           setup: (raw) {
@@ -300,6 +331,10 @@ void main() {
                 .select(
                     "SELECT name FROM sqlite_master WHERE name IN ('remote_accounts', 'remote_collections', 'remote_collection_items')")
                 .isNotEmpty;
+            hasJobsAfterFailure = raw
+                .select(
+                    "SELECT name FROM sqlite_master WHERE name IN ('download_jobs', 'download_attempts')")
+                .isNotEmpty;
           },
         ));
         addTearDown(retry.close);
@@ -312,11 +347,12 @@ void main() {
         expect(hasOperationIdAfterFailure, version >= 9);
         expect(hasExternalRefsAfterFailure, version >= 10);
         expect(hasAssetsAfterFailure, version >= 11);
-        expect(hasRemoteTablesAfterFailure, isFalse);
+        expect(hasRemoteTablesAfterFailure, version >= 12);
+        expect(hasJobsAfterFailure, isFalse);
         expect(
             (await retry.customSelect('PRAGMA user_version').getSingle())
                 .read<int>('user_version'),
-            12);
+            13);
       });
     }
   }
@@ -368,6 +404,11 @@ class _FailingMigrationDatabase extends AppDatabase {
       throw StateError('Simulated interruption after adding operation_id');
     }
     await super.customStatement(statement, args);
+    if (failurePoint == 'job-index' &&
+        statement.startsWith(
+            'CREATE INDEX IF NOT EXISTS idx_download_jobs_target ')) {
+      throw StateError('Simulated interruption after creating persistent jobs');
+    }
     if (failurePoint == 'remote-index' &&
         statement.startsWith(
             'CREATE INDEX IF NOT EXISTS idx_remote_collections_selected ')) {
@@ -411,7 +452,7 @@ Future<void> _verifyUpgrade(
   expect(
       (await database.customSelect('PRAGMA user_version').getSingle())
           .read<int>('user_version'),
-      12);
+      13);
   for (final entry in getBefore().entries) {
     final table = entry.key;
     final oldRows = entry.value;
@@ -552,6 +593,14 @@ void _seedHistoricalData(void Function(String) execute, int version) {
     execute("UPDATE tracks SET content_hash = '$hash', file_size_bytes = 123");
     execute(
         "INSERT INTO downloaded_assets (track_id, provider, external_id, variant_key, source, publication_id, requested_quality, actual_quality, container, codec, file_size_bytes, duration_ms, content_hash, verified_at_micros, state, revision) VALUES (41, 'yandex_music', '00041', 'album:live', '/music/original.mp3', 'migration-asset', 'high', 'high', 'mp3', 'mp3', 123, 60000, '$hash', 1792020000123456, 'accessDenied', 7)");
+  }
+  if (version >= 12) {
+    execute(
+        "INSERT INTO remote_accounts (id, provider, account_id, display_name, is_active, revision) VALUES (61, 'yandex_music', '000A', 'Saved', 1, 5)");
+    execute(
+        "INSERT INTO remote_collections (id, account_id, kind, external_id, owner_id, title, is_selected, revision, item_count, remote_revision, completed_at_micros) VALUES (71, 61, 'liked', '', '', 'Liked', 1, 8, 2, 'remote-v1', 1792020000123456)");
+    execute(
+        "INSERT INTO remote_collection_items (collection_id, position, external_id, variant_key) VALUES (71, 0, '00041', 'album:live'), (71, 1, '00041', 'album:live')");
   }
   if (version >= 9) {
     execute("UPDATE playback_events SET operation_id = 'legacy-event-9'");

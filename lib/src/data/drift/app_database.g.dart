@@ -6069,6 +6069,1537 @@ class RemoteCollectionItemsCompanion
   }
 }
 
+class $DownloadJobsTable extends DownloadJobs
+    with TableInfo<$DownloadJobsTable, DownloadJobRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $DownloadJobsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+      'id', aliasedName, false,
+      hasAutoIncrement: true,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultConstraints:
+          GeneratedColumn.constraintIsAlways('PRIMARY KEY AUTOINCREMENT'));
+  static const VerificationMeta _libraryFolderIdMeta =
+      const VerificationMeta('libraryFolderId');
+  @override
+  late final GeneratedColumn<int> libraryFolderId = GeneratedColumn<int>(
+      'library_folder_id', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: true,
+      defaultConstraints: GeneratedColumn.constraintIsAlways(
+          'REFERENCES library_folders (id) ON DELETE CASCADE'));
+  static const VerificationMeta _providerMeta =
+      const VerificationMeta('provider');
+  @override
+  late final GeneratedColumn<String> provider = GeneratedColumn<String>(
+      'provider', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _externalIdMeta =
+      const VerificationMeta('externalId');
+  @override
+  late final GeneratedColumn<String> externalId = GeneratedColumn<String>(
+      'external_id', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _variantKeyMeta =
+      const VerificationMeta('variantKey');
+  @override
+  late final GeneratedColumn<String> variantKey = GeneratedColumn<String>(
+      'variant_key', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _qualityMeta =
+      const VerificationMeta('quality');
+  @override
+  late final GeneratedColumn<String> quality = GeneratedColumn<String>(
+      'quality', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _accountIdMeta =
+      const VerificationMeta('accountId');
+  @override
+  late final GeneratedColumn<int> accountId = GeneratedColumn<int>(
+      'account_id', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: true,
+      defaultConstraints: GeneratedColumn.constraintIsAlways(
+          'REFERENCES remote_accounts (id) ON DELETE CASCADE'));
+  static const VerificationMeta _accountRevisionMeta =
+      const VerificationMeta('accountRevision');
+  @override
+  late final GeneratedColumn<int> accountRevision = GeneratedColumn<int>(
+      'account_revision', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: true);
+  static const VerificationMeta _stateMeta = const VerificationMeta('state');
+  @override
+  late final GeneratedColumn<String> state = GeneratedColumn<String>(
+      'state', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _stageMeta = const VerificationMeta('stage');
+  @override
+  late final GeneratedColumn<String> stage = GeneratedColumn<String>(
+      'stage', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _revisionMeta =
+      const VerificationMeta('revision');
+  @override
+  late final GeneratedColumn<int> revision = GeneratedColumn<int>(
+      'revision', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: true);
+  static const VerificationMeta _attemptCountMeta =
+      const VerificationMeta('attemptCount');
+  @override
+  late final GeneratedColumn<int> attemptCount = GeneratedColumn<int>(
+      'attempt_count', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultValue: const Constant(0));
+  static const VerificationMeta _maxAttemptsMeta =
+      const VerificationMeta('maxAttempts');
+  @override
+  late final GeneratedColumn<int> maxAttempts = GeneratedColumn<int>(
+      'max_attempts', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: true);
+  static const VerificationMeta _remainingAttemptsMeta =
+      const VerificationMeta('remainingAttempts');
+  @override
+  late final GeneratedColumn<int> remainingAttempts = GeneratedColumn<int>(
+      'remaining_attempts', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: true);
+  static const VerificationMeta _attemptTokenMeta =
+      const VerificationMeta('attemptToken');
+  @override
+  late final GeneratedColumn<String> attemptToken = GeneratedColumn<String>(
+      'attempt_token', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _leaseUntilMicrosMeta =
+      const VerificationMeta('leaseUntilMicros');
+  @override
+  late final GeneratedColumn<int> leaseUntilMicros = GeneratedColumn<int>(
+      'lease_until_micros', aliasedName, true,
+      type: DriftSqlType.int, requiredDuringInsert: false);
+  static const VerificationMeta _retryAtMicrosMeta =
+      const VerificationMeta('retryAtMicros');
+  @override
+  late final GeneratedColumn<int> retryAtMicros = GeneratedColumn<int>(
+      'retry_at_micros', aliasedName, true,
+      type: DriftSqlType.int, requiredDuringInsert: false);
+  static const VerificationMeta _failureMeta =
+      const VerificationMeta('failure');
+  @override
+  late final GeneratedColumn<String> failure = GeneratedColumn<String>(
+      'failure', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _completedTrackIdMeta =
+      const VerificationMeta('completedTrackId');
+  @override
+  late final GeneratedColumn<int> completedTrackId = GeneratedColumn<int>(
+      'completed_track_id', aliasedName, true,
+      type: DriftSqlType.int, requiredDuringInsert: false);
+  static const VerificationMeta _createdAtMicrosMeta =
+      const VerificationMeta('createdAtMicros');
+  @override
+  late final GeneratedColumn<int> createdAtMicros = GeneratedColumn<int>(
+      'created_at_micros', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: true);
+  static const VerificationMeta _updatedAtMicrosMeta =
+      const VerificationMeta('updatedAtMicros');
+  @override
+  late final GeneratedColumn<int> updatedAtMicros = GeneratedColumn<int>(
+      'updated_at_micros', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: true);
+  @override
+  List<GeneratedColumn> get $columns => [
+        id,
+        libraryFolderId,
+        provider,
+        externalId,
+        variantKey,
+        quality,
+        accountId,
+        accountRevision,
+        state,
+        stage,
+        revision,
+        attemptCount,
+        maxAttempts,
+        remainingAttempts,
+        attemptToken,
+        leaseUntilMicros,
+        retryAtMicros,
+        failure,
+        completedTrackId,
+        createdAtMicros,
+        updatedAtMicros
+      ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'download_jobs';
+  @override
+  VerificationContext validateIntegrity(Insertable<DownloadJobRow> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('library_folder_id')) {
+      context.handle(
+          _libraryFolderIdMeta,
+          libraryFolderId.isAcceptableOrUnknown(
+              data['library_folder_id']!, _libraryFolderIdMeta));
+    } else if (isInserting) {
+      context.missing(_libraryFolderIdMeta);
+    }
+    if (data.containsKey('provider')) {
+      context.handle(_providerMeta,
+          provider.isAcceptableOrUnknown(data['provider']!, _providerMeta));
+    } else if (isInserting) {
+      context.missing(_providerMeta);
+    }
+    if (data.containsKey('external_id')) {
+      context.handle(
+          _externalIdMeta,
+          externalId.isAcceptableOrUnknown(
+              data['external_id']!, _externalIdMeta));
+    } else if (isInserting) {
+      context.missing(_externalIdMeta);
+    }
+    if (data.containsKey('variant_key')) {
+      context.handle(
+          _variantKeyMeta,
+          variantKey.isAcceptableOrUnknown(
+              data['variant_key']!, _variantKeyMeta));
+    } else if (isInserting) {
+      context.missing(_variantKeyMeta);
+    }
+    if (data.containsKey('quality')) {
+      context.handle(_qualityMeta,
+          quality.isAcceptableOrUnknown(data['quality']!, _qualityMeta));
+    } else if (isInserting) {
+      context.missing(_qualityMeta);
+    }
+    if (data.containsKey('account_id')) {
+      context.handle(_accountIdMeta,
+          accountId.isAcceptableOrUnknown(data['account_id']!, _accountIdMeta));
+    } else if (isInserting) {
+      context.missing(_accountIdMeta);
+    }
+    if (data.containsKey('account_revision')) {
+      context.handle(
+          _accountRevisionMeta,
+          accountRevision.isAcceptableOrUnknown(
+              data['account_revision']!, _accountRevisionMeta));
+    } else if (isInserting) {
+      context.missing(_accountRevisionMeta);
+    }
+    if (data.containsKey('state')) {
+      context.handle(
+          _stateMeta, state.isAcceptableOrUnknown(data['state']!, _stateMeta));
+    } else if (isInserting) {
+      context.missing(_stateMeta);
+    }
+    if (data.containsKey('stage')) {
+      context.handle(
+          _stageMeta, stage.isAcceptableOrUnknown(data['stage']!, _stageMeta));
+    } else if (isInserting) {
+      context.missing(_stageMeta);
+    }
+    if (data.containsKey('revision')) {
+      context.handle(_revisionMeta,
+          revision.isAcceptableOrUnknown(data['revision']!, _revisionMeta));
+    } else if (isInserting) {
+      context.missing(_revisionMeta);
+    }
+    if (data.containsKey('attempt_count')) {
+      context.handle(
+          _attemptCountMeta,
+          attemptCount.isAcceptableOrUnknown(
+              data['attempt_count']!, _attemptCountMeta));
+    }
+    if (data.containsKey('max_attempts')) {
+      context.handle(
+          _maxAttemptsMeta,
+          maxAttempts.isAcceptableOrUnknown(
+              data['max_attempts']!, _maxAttemptsMeta));
+    } else if (isInserting) {
+      context.missing(_maxAttemptsMeta);
+    }
+    if (data.containsKey('remaining_attempts')) {
+      context.handle(
+          _remainingAttemptsMeta,
+          remainingAttempts.isAcceptableOrUnknown(
+              data['remaining_attempts']!, _remainingAttemptsMeta));
+    } else if (isInserting) {
+      context.missing(_remainingAttemptsMeta);
+    }
+    if (data.containsKey('attempt_token')) {
+      context.handle(
+          _attemptTokenMeta,
+          attemptToken.isAcceptableOrUnknown(
+              data['attempt_token']!, _attemptTokenMeta));
+    }
+    if (data.containsKey('lease_until_micros')) {
+      context.handle(
+          _leaseUntilMicrosMeta,
+          leaseUntilMicros.isAcceptableOrUnknown(
+              data['lease_until_micros']!, _leaseUntilMicrosMeta));
+    }
+    if (data.containsKey('retry_at_micros')) {
+      context.handle(
+          _retryAtMicrosMeta,
+          retryAtMicros.isAcceptableOrUnknown(
+              data['retry_at_micros']!, _retryAtMicrosMeta));
+    }
+    if (data.containsKey('failure')) {
+      context.handle(_failureMeta,
+          failure.isAcceptableOrUnknown(data['failure']!, _failureMeta));
+    }
+    if (data.containsKey('completed_track_id')) {
+      context.handle(
+          _completedTrackIdMeta,
+          completedTrackId.isAcceptableOrUnknown(
+              data['completed_track_id']!, _completedTrackIdMeta));
+    }
+    if (data.containsKey('created_at_micros')) {
+      context.handle(
+          _createdAtMicrosMeta,
+          createdAtMicros.isAcceptableOrUnknown(
+              data['created_at_micros']!, _createdAtMicrosMeta));
+    } else if (isInserting) {
+      context.missing(_createdAtMicrosMeta);
+    }
+    if (data.containsKey('updated_at_micros')) {
+      context.handle(
+          _updatedAtMicrosMeta,
+          updatedAtMicros.isAcceptableOrUnknown(
+              data['updated_at_micros']!, _updatedAtMicrosMeta));
+    } else if (isInserting) {
+      context.missing(_updatedAtMicrosMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  DownloadJobRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return DownloadJobRow(
+      id: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}id'])!,
+      libraryFolderId: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}library_folder_id'])!,
+      provider: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}provider'])!,
+      externalId: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}external_id'])!,
+      variantKey: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}variant_key'])!,
+      quality: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}quality'])!,
+      accountId: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}account_id'])!,
+      accountRevision: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}account_revision'])!,
+      state: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}state'])!,
+      stage: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}stage'])!,
+      revision: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}revision'])!,
+      attemptCount: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}attempt_count'])!,
+      maxAttempts: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}max_attempts'])!,
+      remainingAttempts: attachedDatabase.typeMapping.read(
+          DriftSqlType.int, data['${effectivePrefix}remaining_attempts'])!,
+      attemptToken: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}attempt_token']),
+      leaseUntilMicros: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}lease_until_micros']),
+      retryAtMicros: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}retry_at_micros']),
+      failure: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}failure']),
+      completedTrackId: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}completed_track_id']),
+      createdAtMicros: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}created_at_micros'])!,
+      updatedAtMicros: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}updated_at_micros'])!,
+    );
+  }
+
+  @override
+  $DownloadJobsTable createAlias(String alias) {
+    return $DownloadJobsTable(attachedDatabase, alias);
+  }
+}
+
+class DownloadJobRow extends DataClass implements Insertable<DownloadJobRow> {
+  final int id;
+  final int libraryFolderId;
+  final String provider;
+  final String externalId;
+  final String variantKey;
+  final String quality;
+  final int accountId;
+  final int accountRevision;
+  final String state;
+  final String stage;
+  final int revision;
+  final int attemptCount;
+  final int maxAttempts;
+  final int remainingAttempts;
+  final String? attemptToken;
+  final int? leaseUntilMicros;
+  final int? retryAtMicros;
+  final String? failure;
+  final int? completedTrackId;
+  final int createdAtMicros;
+  final int updatedAtMicros;
+  const DownloadJobRow(
+      {required this.id,
+      required this.libraryFolderId,
+      required this.provider,
+      required this.externalId,
+      required this.variantKey,
+      required this.quality,
+      required this.accountId,
+      required this.accountRevision,
+      required this.state,
+      required this.stage,
+      required this.revision,
+      required this.attemptCount,
+      required this.maxAttempts,
+      required this.remainingAttempts,
+      this.attemptToken,
+      this.leaseUntilMicros,
+      this.retryAtMicros,
+      this.failure,
+      this.completedTrackId,
+      required this.createdAtMicros,
+      required this.updatedAtMicros});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['library_folder_id'] = Variable<int>(libraryFolderId);
+    map['provider'] = Variable<String>(provider);
+    map['external_id'] = Variable<String>(externalId);
+    map['variant_key'] = Variable<String>(variantKey);
+    map['quality'] = Variable<String>(quality);
+    map['account_id'] = Variable<int>(accountId);
+    map['account_revision'] = Variable<int>(accountRevision);
+    map['state'] = Variable<String>(state);
+    map['stage'] = Variable<String>(stage);
+    map['revision'] = Variable<int>(revision);
+    map['attempt_count'] = Variable<int>(attemptCount);
+    map['max_attempts'] = Variable<int>(maxAttempts);
+    map['remaining_attempts'] = Variable<int>(remainingAttempts);
+    if (!nullToAbsent || attemptToken != null) {
+      map['attempt_token'] = Variable<String>(attemptToken);
+    }
+    if (!nullToAbsent || leaseUntilMicros != null) {
+      map['lease_until_micros'] = Variable<int>(leaseUntilMicros);
+    }
+    if (!nullToAbsent || retryAtMicros != null) {
+      map['retry_at_micros'] = Variable<int>(retryAtMicros);
+    }
+    if (!nullToAbsent || failure != null) {
+      map['failure'] = Variable<String>(failure);
+    }
+    if (!nullToAbsent || completedTrackId != null) {
+      map['completed_track_id'] = Variable<int>(completedTrackId);
+    }
+    map['created_at_micros'] = Variable<int>(createdAtMicros);
+    map['updated_at_micros'] = Variable<int>(updatedAtMicros);
+    return map;
+  }
+
+  DownloadJobsCompanion toCompanion(bool nullToAbsent) {
+    return DownloadJobsCompanion(
+      id: Value(id),
+      libraryFolderId: Value(libraryFolderId),
+      provider: Value(provider),
+      externalId: Value(externalId),
+      variantKey: Value(variantKey),
+      quality: Value(quality),
+      accountId: Value(accountId),
+      accountRevision: Value(accountRevision),
+      state: Value(state),
+      stage: Value(stage),
+      revision: Value(revision),
+      attemptCount: Value(attemptCount),
+      maxAttempts: Value(maxAttempts),
+      remainingAttempts: Value(remainingAttempts),
+      attemptToken: attemptToken == null && nullToAbsent
+          ? const Value.absent()
+          : Value(attemptToken),
+      leaseUntilMicros: leaseUntilMicros == null && nullToAbsent
+          ? const Value.absent()
+          : Value(leaseUntilMicros),
+      retryAtMicros: retryAtMicros == null && nullToAbsent
+          ? const Value.absent()
+          : Value(retryAtMicros),
+      failure: failure == null && nullToAbsent
+          ? const Value.absent()
+          : Value(failure),
+      completedTrackId: completedTrackId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(completedTrackId),
+      createdAtMicros: Value(createdAtMicros),
+      updatedAtMicros: Value(updatedAtMicros),
+    );
+  }
+
+  factory DownloadJobRow.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return DownloadJobRow(
+      id: serializer.fromJson<int>(json['id']),
+      libraryFolderId: serializer.fromJson<int>(json['libraryFolderId']),
+      provider: serializer.fromJson<String>(json['provider']),
+      externalId: serializer.fromJson<String>(json['externalId']),
+      variantKey: serializer.fromJson<String>(json['variantKey']),
+      quality: serializer.fromJson<String>(json['quality']),
+      accountId: serializer.fromJson<int>(json['accountId']),
+      accountRevision: serializer.fromJson<int>(json['accountRevision']),
+      state: serializer.fromJson<String>(json['state']),
+      stage: serializer.fromJson<String>(json['stage']),
+      revision: serializer.fromJson<int>(json['revision']),
+      attemptCount: serializer.fromJson<int>(json['attemptCount']),
+      maxAttempts: serializer.fromJson<int>(json['maxAttempts']),
+      remainingAttempts: serializer.fromJson<int>(json['remainingAttempts']),
+      attemptToken: serializer.fromJson<String?>(json['attemptToken']),
+      leaseUntilMicros: serializer.fromJson<int?>(json['leaseUntilMicros']),
+      retryAtMicros: serializer.fromJson<int?>(json['retryAtMicros']),
+      failure: serializer.fromJson<String?>(json['failure']),
+      completedTrackId: serializer.fromJson<int?>(json['completedTrackId']),
+      createdAtMicros: serializer.fromJson<int>(json['createdAtMicros']),
+      updatedAtMicros: serializer.fromJson<int>(json['updatedAtMicros']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'libraryFolderId': serializer.toJson<int>(libraryFolderId),
+      'provider': serializer.toJson<String>(provider),
+      'externalId': serializer.toJson<String>(externalId),
+      'variantKey': serializer.toJson<String>(variantKey),
+      'quality': serializer.toJson<String>(quality),
+      'accountId': serializer.toJson<int>(accountId),
+      'accountRevision': serializer.toJson<int>(accountRevision),
+      'state': serializer.toJson<String>(state),
+      'stage': serializer.toJson<String>(stage),
+      'revision': serializer.toJson<int>(revision),
+      'attemptCount': serializer.toJson<int>(attemptCount),
+      'maxAttempts': serializer.toJson<int>(maxAttempts),
+      'remainingAttempts': serializer.toJson<int>(remainingAttempts),
+      'attemptToken': serializer.toJson<String?>(attemptToken),
+      'leaseUntilMicros': serializer.toJson<int?>(leaseUntilMicros),
+      'retryAtMicros': serializer.toJson<int?>(retryAtMicros),
+      'failure': serializer.toJson<String?>(failure),
+      'completedTrackId': serializer.toJson<int?>(completedTrackId),
+      'createdAtMicros': serializer.toJson<int>(createdAtMicros),
+      'updatedAtMicros': serializer.toJson<int>(updatedAtMicros),
+    };
+  }
+
+  DownloadJobRow copyWith(
+          {int? id,
+          int? libraryFolderId,
+          String? provider,
+          String? externalId,
+          String? variantKey,
+          String? quality,
+          int? accountId,
+          int? accountRevision,
+          String? state,
+          String? stage,
+          int? revision,
+          int? attemptCount,
+          int? maxAttempts,
+          int? remainingAttempts,
+          Value<String?> attemptToken = const Value.absent(),
+          Value<int?> leaseUntilMicros = const Value.absent(),
+          Value<int?> retryAtMicros = const Value.absent(),
+          Value<String?> failure = const Value.absent(),
+          Value<int?> completedTrackId = const Value.absent(),
+          int? createdAtMicros,
+          int? updatedAtMicros}) =>
+      DownloadJobRow(
+        id: id ?? this.id,
+        libraryFolderId: libraryFolderId ?? this.libraryFolderId,
+        provider: provider ?? this.provider,
+        externalId: externalId ?? this.externalId,
+        variantKey: variantKey ?? this.variantKey,
+        quality: quality ?? this.quality,
+        accountId: accountId ?? this.accountId,
+        accountRevision: accountRevision ?? this.accountRevision,
+        state: state ?? this.state,
+        stage: stage ?? this.stage,
+        revision: revision ?? this.revision,
+        attemptCount: attemptCount ?? this.attemptCount,
+        maxAttempts: maxAttempts ?? this.maxAttempts,
+        remainingAttempts: remainingAttempts ?? this.remainingAttempts,
+        attemptToken:
+            attemptToken.present ? attemptToken.value : this.attemptToken,
+        leaseUntilMicros: leaseUntilMicros.present
+            ? leaseUntilMicros.value
+            : this.leaseUntilMicros,
+        retryAtMicros:
+            retryAtMicros.present ? retryAtMicros.value : this.retryAtMicros,
+        failure: failure.present ? failure.value : this.failure,
+        completedTrackId: completedTrackId.present
+            ? completedTrackId.value
+            : this.completedTrackId,
+        createdAtMicros: createdAtMicros ?? this.createdAtMicros,
+        updatedAtMicros: updatedAtMicros ?? this.updatedAtMicros,
+      );
+  DownloadJobRow copyWithCompanion(DownloadJobsCompanion data) {
+    return DownloadJobRow(
+      id: data.id.present ? data.id.value : this.id,
+      libraryFolderId: data.libraryFolderId.present
+          ? data.libraryFolderId.value
+          : this.libraryFolderId,
+      provider: data.provider.present ? data.provider.value : this.provider,
+      externalId:
+          data.externalId.present ? data.externalId.value : this.externalId,
+      variantKey:
+          data.variantKey.present ? data.variantKey.value : this.variantKey,
+      quality: data.quality.present ? data.quality.value : this.quality,
+      accountId: data.accountId.present ? data.accountId.value : this.accountId,
+      accountRevision: data.accountRevision.present
+          ? data.accountRevision.value
+          : this.accountRevision,
+      state: data.state.present ? data.state.value : this.state,
+      stage: data.stage.present ? data.stage.value : this.stage,
+      revision: data.revision.present ? data.revision.value : this.revision,
+      attemptCount: data.attemptCount.present
+          ? data.attemptCount.value
+          : this.attemptCount,
+      maxAttempts:
+          data.maxAttempts.present ? data.maxAttempts.value : this.maxAttempts,
+      remainingAttempts: data.remainingAttempts.present
+          ? data.remainingAttempts.value
+          : this.remainingAttempts,
+      attemptToken: data.attemptToken.present
+          ? data.attemptToken.value
+          : this.attemptToken,
+      leaseUntilMicros: data.leaseUntilMicros.present
+          ? data.leaseUntilMicros.value
+          : this.leaseUntilMicros,
+      retryAtMicros: data.retryAtMicros.present
+          ? data.retryAtMicros.value
+          : this.retryAtMicros,
+      failure: data.failure.present ? data.failure.value : this.failure,
+      completedTrackId: data.completedTrackId.present
+          ? data.completedTrackId.value
+          : this.completedTrackId,
+      createdAtMicros: data.createdAtMicros.present
+          ? data.createdAtMicros.value
+          : this.createdAtMicros,
+      updatedAtMicros: data.updatedAtMicros.present
+          ? data.updatedAtMicros.value
+          : this.updatedAtMicros,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('DownloadJobRow(')
+          ..write('id: $id, ')
+          ..write('libraryFolderId: $libraryFolderId, ')
+          ..write('provider: $provider, ')
+          ..write('externalId: $externalId, ')
+          ..write('variantKey: $variantKey, ')
+          ..write('quality: $quality, ')
+          ..write('accountId: $accountId, ')
+          ..write('accountRevision: $accountRevision, ')
+          ..write('state: $state, ')
+          ..write('stage: $stage, ')
+          ..write('revision: $revision, ')
+          ..write('attemptCount: $attemptCount, ')
+          ..write('maxAttempts: $maxAttempts, ')
+          ..write('remainingAttempts: $remainingAttempts, ')
+          ..write('attemptToken: $attemptToken, ')
+          ..write('leaseUntilMicros: $leaseUntilMicros, ')
+          ..write('retryAtMicros: $retryAtMicros, ')
+          ..write('failure: $failure, ')
+          ..write('completedTrackId: $completedTrackId, ')
+          ..write('createdAtMicros: $createdAtMicros, ')
+          ..write('updatedAtMicros: $updatedAtMicros')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hashAll([
+        id,
+        libraryFolderId,
+        provider,
+        externalId,
+        variantKey,
+        quality,
+        accountId,
+        accountRevision,
+        state,
+        stage,
+        revision,
+        attemptCount,
+        maxAttempts,
+        remainingAttempts,
+        attemptToken,
+        leaseUntilMicros,
+        retryAtMicros,
+        failure,
+        completedTrackId,
+        createdAtMicros,
+        updatedAtMicros
+      ]);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is DownloadJobRow &&
+          other.id == this.id &&
+          other.libraryFolderId == this.libraryFolderId &&
+          other.provider == this.provider &&
+          other.externalId == this.externalId &&
+          other.variantKey == this.variantKey &&
+          other.quality == this.quality &&
+          other.accountId == this.accountId &&
+          other.accountRevision == this.accountRevision &&
+          other.state == this.state &&
+          other.stage == this.stage &&
+          other.revision == this.revision &&
+          other.attemptCount == this.attemptCount &&
+          other.maxAttempts == this.maxAttempts &&
+          other.remainingAttempts == this.remainingAttempts &&
+          other.attemptToken == this.attemptToken &&
+          other.leaseUntilMicros == this.leaseUntilMicros &&
+          other.retryAtMicros == this.retryAtMicros &&
+          other.failure == this.failure &&
+          other.completedTrackId == this.completedTrackId &&
+          other.createdAtMicros == this.createdAtMicros &&
+          other.updatedAtMicros == this.updatedAtMicros);
+}
+
+class DownloadJobsCompanion extends UpdateCompanion<DownloadJobRow> {
+  final Value<int> id;
+  final Value<int> libraryFolderId;
+  final Value<String> provider;
+  final Value<String> externalId;
+  final Value<String> variantKey;
+  final Value<String> quality;
+  final Value<int> accountId;
+  final Value<int> accountRevision;
+  final Value<String> state;
+  final Value<String> stage;
+  final Value<int> revision;
+  final Value<int> attemptCount;
+  final Value<int> maxAttempts;
+  final Value<int> remainingAttempts;
+  final Value<String?> attemptToken;
+  final Value<int?> leaseUntilMicros;
+  final Value<int?> retryAtMicros;
+  final Value<String?> failure;
+  final Value<int?> completedTrackId;
+  final Value<int> createdAtMicros;
+  final Value<int> updatedAtMicros;
+  const DownloadJobsCompanion({
+    this.id = const Value.absent(),
+    this.libraryFolderId = const Value.absent(),
+    this.provider = const Value.absent(),
+    this.externalId = const Value.absent(),
+    this.variantKey = const Value.absent(),
+    this.quality = const Value.absent(),
+    this.accountId = const Value.absent(),
+    this.accountRevision = const Value.absent(),
+    this.state = const Value.absent(),
+    this.stage = const Value.absent(),
+    this.revision = const Value.absent(),
+    this.attemptCount = const Value.absent(),
+    this.maxAttempts = const Value.absent(),
+    this.remainingAttempts = const Value.absent(),
+    this.attemptToken = const Value.absent(),
+    this.leaseUntilMicros = const Value.absent(),
+    this.retryAtMicros = const Value.absent(),
+    this.failure = const Value.absent(),
+    this.completedTrackId = const Value.absent(),
+    this.createdAtMicros = const Value.absent(),
+    this.updatedAtMicros = const Value.absent(),
+  });
+  DownloadJobsCompanion.insert({
+    this.id = const Value.absent(),
+    required int libraryFolderId,
+    required String provider,
+    required String externalId,
+    required String variantKey,
+    required String quality,
+    required int accountId,
+    required int accountRevision,
+    required String state,
+    required String stage,
+    required int revision,
+    this.attemptCount = const Value.absent(),
+    required int maxAttempts,
+    required int remainingAttempts,
+    this.attemptToken = const Value.absent(),
+    this.leaseUntilMicros = const Value.absent(),
+    this.retryAtMicros = const Value.absent(),
+    this.failure = const Value.absent(),
+    this.completedTrackId = const Value.absent(),
+    required int createdAtMicros,
+    required int updatedAtMicros,
+  })  : libraryFolderId = Value(libraryFolderId),
+        provider = Value(provider),
+        externalId = Value(externalId),
+        variantKey = Value(variantKey),
+        quality = Value(quality),
+        accountId = Value(accountId),
+        accountRevision = Value(accountRevision),
+        state = Value(state),
+        stage = Value(stage),
+        revision = Value(revision),
+        maxAttempts = Value(maxAttempts),
+        remainingAttempts = Value(remainingAttempts),
+        createdAtMicros = Value(createdAtMicros),
+        updatedAtMicros = Value(updatedAtMicros);
+  static Insertable<DownloadJobRow> custom({
+    Expression<int>? id,
+    Expression<int>? libraryFolderId,
+    Expression<String>? provider,
+    Expression<String>? externalId,
+    Expression<String>? variantKey,
+    Expression<String>? quality,
+    Expression<int>? accountId,
+    Expression<int>? accountRevision,
+    Expression<String>? state,
+    Expression<String>? stage,
+    Expression<int>? revision,
+    Expression<int>? attemptCount,
+    Expression<int>? maxAttempts,
+    Expression<int>? remainingAttempts,
+    Expression<String>? attemptToken,
+    Expression<int>? leaseUntilMicros,
+    Expression<int>? retryAtMicros,
+    Expression<String>? failure,
+    Expression<int>? completedTrackId,
+    Expression<int>? createdAtMicros,
+    Expression<int>? updatedAtMicros,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (libraryFolderId != null) 'library_folder_id': libraryFolderId,
+      if (provider != null) 'provider': provider,
+      if (externalId != null) 'external_id': externalId,
+      if (variantKey != null) 'variant_key': variantKey,
+      if (quality != null) 'quality': quality,
+      if (accountId != null) 'account_id': accountId,
+      if (accountRevision != null) 'account_revision': accountRevision,
+      if (state != null) 'state': state,
+      if (stage != null) 'stage': stage,
+      if (revision != null) 'revision': revision,
+      if (attemptCount != null) 'attempt_count': attemptCount,
+      if (maxAttempts != null) 'max_attempts': maxAttempts,
+      if (remainingAttempts != null) 'remaining_attempts': remainingAttempts,
+      if (attemptToken != null) 'attempt_token': attemptToken,
+      if (leaseUntilMicros != null) 'lease_until_micros': leaseUntilMicros,
+      if (retryAtMicros != null) 'retry_at_micros': retryAtMicros,
+      if (failure != null) 'failure': failure,
+      if (completedTrackId != null) 'completed_track_id': completedTrackId,
+      if (createdAtMicros != null) 'created_at_micros': createdAtMicros,
+      if (updatedAtMicros != null) 'updated_at_micros': updatedAtMicros,
+    });
+  }
+
+  DownloadJobsCompanion copyWith(
+      {Value<int>? id,
+      Value<int>? libraryFolderId,
+      Value<String>? provider,
+      Value<String>? externalId,
+      Value<String>? variantKey,
+      Value<String>? quality,
+      Value<int>? accountId,
+      Value<int>? accountRevision,
+      Value<String>? state,
+      Value<String>? stage,
+      Value<int>? revision,
+      Value<int>? attemptCount,
+      Value<int>? maxAttempts,
+      Value<int>? remainingAttempts,
+      Value<String?>? attemptToken,
+      Value<int?>? leaseUntilMicros,
+      Value<int?>? retryAtMicros,
+      Value<String?>? failure,
+      Value<int?>? completedTrackId,
+      Value<int>? createdAtMicros,
+      Value<int>? updatedAtMicros}) {
+    return DownloadJobsCompanion(
+      id: id ?? this.id,
+      libraryFolderId: libraryFolderId ?? this.libraryFolderId,
+      provider: provider ?? this.provider,
+      externalId: externalId ?? this.externalId,
+      variantKey: variantKey ?? this.variantKey,
+      quality: quality ?? this.quality,
+      accountId: accountId ?? this.accountId,
+      accountRevision: accountRevision ?? this.accountRevision,
+      state: state ?? this.state,
+      stage: stage ?? this.stage,
+      revision: revision ?? this.revision,
+      attemptCount: attemptCount ?? this.attemptCount,
+      maxAttempts: maxAttempts ?? this.maxAttempts,
+      remainingAttempts: remainingAttempts ?? this.remainingAttempts,
+      attemptToken: attemptToken ?? this.attemptToken,
+      leaseUntilMicros: leaseUntilMicros ?? this.leaseUntilMicros,
+      retryAtMicros: retryAtMicros ?? this.retryAtMicros,
+      failure: failure ?? this.failure,
+      completedTrackId: completedTrackId ?? this.completedTrackId,
+      createdAtMicros: createdAtMicros ?? this.createdAtMicros,
+      updatedAtMicros: updatedAtMicros ?? this.updatedAtMicros,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (libraryFolderId.present) {
+      map['library_folder_id'] = Variable<int>(libraryFolderId.value);
+    }
+    if (provider.present) {
+      map['provider'] = Variable<String>(provider.value);
+    }
+    if (externalId.present) {
+      map['external_id'] = Variable<String>(externalId.value);
+    }
+    if (variantKey.present) {
+      map['variant_key'] = Variable<String>(variantKey.value);
+    }
+    if (quality.present) {
+      map['quality'] = Variable<String>(quality.value);
+    }
+    if (accountId.present) {
+      map['account_id'] = Variable<int>(accountId.value);
+    }
+    if (accountRevision.present) {
+      map['account_revision'] = Variable<int>(accountRevision.value);
+    }
+    if (state.present) {
+      map['state'] = Variable<String>(state.value);
+    }
+    if (stage.present) {
+      map['stage'] = Variable<String>(stage.value);
+    }
+    if (revision.present) {
+      map['revision'] = Variable<int>(revision.value);
+    }
+    if (attemptCount.present) {
+      map['attempt_count'] = Variable<int>(attemptCount.value);
+    }
+    if (maxAttempts.present) {
+      map['max_attempts'] = Variable<int>(maxAttempts.value);
+    }
+    if (remainingAttempts.present) {
+      map['remaining_attempts'] = Variable<int>(remainingAttempts.value);
+    }
+    if (attemptToken.present) {
+      map['attempt_token'] = Variable<String>(attemptToken.value);
+    }
+    if (leaseUntilMicros.present) {
+      map['lease_until_micros'] = Variable<int>(leaseUntilMicros.value);
+    }
+    if (retryAtMicros.present) {
+      map['retry_at_micros'] = Variable<int>(retryAtMicros.value);
+    }
+    if (failure.present) {
+      map['failure'] = Variable<String>(failure.value);
+    }
+    if (completedTrackId.present) {
+      map['completed_track_id'] = Variable<int>(completedTrackId.value);
+    }
+    if (createdAtMicros.present) {
+      map['created_at_micros'] = Variable<int>(createdAtMicros.value);
+    }
+    if (updatedAtMicros.present) {
+      map['updated_at_micros'] = Variable<int>(updatedAtMicros.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('DownloadJobsCompanion(')
+          ..write('id: $id, ')
+          ..write('libraryFolderId: $libraryFolderId, ')
+          ..write('provider: $provider, ')
+          ..write('externalId: $externalId, ')
+          ..write('variantKey: $variantKey, ')
+          ..write('quality: $quality, ')
+          ..write('accountId: $accountId, ')
+          ..write('accountRevision: $accountRevision, ')
+          ..write('state: $state, ')
+          ..write('stage: $stage, ')
+          ..write('revision: $revision, ')
+          ..write('attemptCount: $attemptCount, ')
+          ..write('maxAttempts: $maxAttempts, ')
+          ..write('remainingAttempts: $remainingAttempts, ')
+          ..write('attemptToken: $attemptToken, ')
+          ..write('leaseUntilMicros: $leaseUntilMicros, ')
+          ..write('retryAtMicros: $retryAtMicros, ')
+          ..write('failure: $failure, ')
+          ..write('completedTrackId: $completedTrackId, ')
+          ..write('createdAtMicros: $createdAtMicros, ')
+          ..write('updatedAtMicros: $updatedAtMicros')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $DownloadAttemptsTable extends DownloadAttempts
+    with TableInfo<$DownloadAttemptsTable, DownloadAttemptRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $DownloadAttemptsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _jobIdMeta = const VerificationMeta('jobId');
+  @override
+  late final GeneratedColumn<int> jobId = GeneratedColumn<int>(
+      'job_id', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: true,
+      defaultConstraints: GeneratedColumn.constraintIsAlways(
+          'REFERENCES download_jobs (id) ON DELETE CASCADE'));
+  static const VerificationMeta _numberMeta = const VerificationMeta('number');
+  @override
+  late final GeneratedColumn<int> number = GeneratedColumn<int>(
+      'number', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: true);
+  static const VerificationMeta _tokenMeta = const VerificationMeta('token');
+  @override
+  late final GeneratedColumn<String> token = GeneratedColumn<String>(
+      'token', aliasedName, false,
+      type: DriftSqlType.string,
+      requiredDuringInsert: true,
+      defaultConstraints: GeneratedColumn.constraintIsAlways('UNIQUE'));
+  static const VerificationMeta _accountIdMeta =
+      const VerificationMeta('accountId');
+  @override
+  late final GeneratedColumn<int> accountId = GeneratedColumn<int>(
+      'account_id', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: true);
+  static const VerificationMeta _accountRevisionMeta =
+      const VerificationMeta('accountRevision');
+  @override
+  late final GeneratedColumn<int> accountRevision = GeneratedColumn<int>(
+      'account_revision', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: true);
+  static const VerificationMeta _stageMeta = const VerificationMeta('stage');
+  @override
+  late final GeneratedColumn<String> stage = GeneratedColumn<String>(
+      'stage', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _outcomeMeta =
+      const VerificationMeta('outcome');
+  @override
+  late final GeneratedColumn<String> outcome = GeneratedColumn<String>(
+      'outcome', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _startedAtMicrosMeta =
+      const VerificationMeta('startedAtMicros');
+  @override
+  late final GeneratedColumn<int> startedAtMicros = GeneratedColumn<int>(
+      'started_at_micros', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: true);
+  static const VerificationMeta _finishedAtMicrosMeta =
+      const VerificationMeta('finishedAtMicros');
+  @override
+  late final GeneratedColumn<int> finishedAtMicros = GeneratedColumn<int>(
+      'finished_at_micros', aliasedName, true,
+      type: DriftSqlType.int, requiredDuringInsert: false);
+  static const VerificationMeta _failureMeta =
+      const VerificationMeta('failure');
+  @override
+  late final GeneratedColumn<String> failure = GeneratedColumn<String>(
+      'failure', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  @override
+  List<GeneratedColumn> get $columns => [
+        jobId,
+        number,
+        token,
+        accountId,
+        accountRevision,
+        stage,
+        outcome,
+        startedAtMicros,
+        finishedAtMicros,
+        failure
+      ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'download_attempts';
+  @override
+  VerificationContext validateIntegrity(Insertable<DownloadAttemptRow> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('job_id')) {
+      context.handle(
+          _jobIdMeta, jobId.isAcceptableOrUnknown(data['job_id']!, _jobIdMeta));
+    } else if (isInserting) {
+      context.missing(_jobIdMeta);
+    }
+    if (data.containsKey('number')) {
+      context.handle(_numberMeta,
+          number.isAcceptableOrUnknown(data['number']!, _numberMeta));
+    } else if (isInserting) {
+      context.missing(_numberMeta);
+    }
+    if (data.containsKey('token')) {
+      context.handle(
+          _tokenMeta, token.isAcceptableOrUnknown(data['token']!, _tokenMeta));
+    } else if (isInserting) {
+      context.missing(_tokenMeta);
+    }
+    if (data.containsKey('account_id')) {
+      context.handle(_accountIdMeta,
+          accountId.isAcceptableOrUnknown(data['account_id']!, _accountIdMeta));
+    } else if (isInserting) {
+      context.missing(_accountIdMeta);
+    }
+    if (data.containsKey('account_revision')) {
+      context.handle(
+          _accountRevisionMeta,
+          accountRevision.isAcceptableOrUnknown(
+              data['account_revision']!, _accountRevisionMeta));
+    } else if (isInserting) {
+      context.missing(_accountRevisionMeta);
+    }
+    if (data.containsKey('stage')) {
+      context.handle(
+          _stageMeta, stage.isAcceptableOrUnknown(data['stage']!, _stageMeta));
+    } else if (isInserting) {
+      context.missing(_stageMeta);
+    }
+    if (data.containsKey('outcome')) {
+      context.handle(_outcomeMeta,
+          outcome.isAcceptableOrUnknown(data['outcome']!, _outcomeMeta));
+    } else if (isInserting) {
+      context.missing(_outcomeMeta);
+    }
+    if (data.containsKey('started_at_micros')) {
+      context.handle(
+          _startedAtMicrosMeta,
+          startedAtMicros.isAcceptableOrUnknown(
+              data['started_at_micros']!, _startedAtMicrosMeta));
+    } else if (isInserting) {
+      context.missing(_startedAtMicrosMeta);
+    }
+    if (data.containsKey('finished_at_micros')) {
+      context.handle(
+          _finishedAtMicrosMeta,
+          finishedAtMicros.isAcceptableOrUnknown(
+              data['finished_at_micros']!, _finishedAtMicrosMeta));
+    }
+    if (data.containsKey('failure')) {
+      context.handle(_failureMeta,
+          failure.isAcceptableOrUnknown(data['failure']!, _failureMeta));
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {jobId, number};
+  @override
+  DownloadAttemptRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return DownloadAttemptRow(
+      jobId: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}job_id'])!,
+      number: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}number'])!,
+      token: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}token'])!,
+      accountId: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}account_id'])!,
+      accountRevision: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}account_revision'])!,
+      stage: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}stage'])!,
+      outcome: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}outcome'])!,
+      startedAtMicros: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}started_at_micros'])!,
+      finishedAtMicros: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}finished_at_micros']),
+      failure: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}failure']),
+    );
+  }
+
+  @override
+  $DownloadAttemptsTable createAlias(String alias) {
+    return $DownloadAttemptsTable(attachedDatabase, alias);
+  }
+}
+
+class DownloadAttemptRow extends DataClass
+    implements Insertable<DownloadAttemptRow> {
+  final int jobId;
+  final int number;
+  final String token;
+  final int accountId;
+  final int accountRevision;
+  final String stage;
+  final String outcome;
+  final int startedAtMicros;
+  final int? finishedAtMicros;
+  final String? failure;
+  const DownloadAttemptRow(
+      {required this.jobId,
+      required this.number,
+      required this.token,
+      required this.accountId,
+      required this.accountRevision,
+      required this.stage,
+      required this.outcome,
+      required this.startedAtMicros,
+      this.finishedAtMicros,
+      this.failure});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['job_id'] = Variable<int>(jobId);
+    map['number'] = Variable<int>(number);
+    map['token'] = Variable<String>(token);
+    map['account_id'] = Variable<int>(accountId);
+    map['account_revision'] = Variable<int>(accountRevision);
+    map['stage'] = Variable<String>(stage);
+    map['outcome'] = Variable<String>(outcome);
+    map['started_at_micros'] = Variable<int>(startedAtMicros);
+    if (!nullToAbsent || finishedAtMicros != null) {
+      map['finished_at_micros'] = Variable<int>(finishedAtMicros);
+    }
+    if (!nullToAbsent || failure != null) {
+      map['failure'] = Variable<String>(failure);
+    }
+    return map;
+  }
+
+  DownloadAttemptsCompanion toCompanion(bool nullToAbsent) {
+    return DownloadAttemptsCompanion(
+      jobId: Value(jobId),
+      number: Value(number),
+      token: Value(token),
+      accountId: Value(accountId),
+      accountRevision: Value(accountRevision),
+      stage: Value(stage),
+      outcome: Value(outcome),
+      startedAtMicros: Value(startedAtMicros),
+      finishedAtMicros: finishedAtMicros == null && nullToAbsent
+          ? const Value.absent()
+          : Value(finishedAtMicros),
+      failure: failure == null && nullToAbsent
+          ? const Value.absent()
+          : Value(failure),
+    );
+  }
+
+  factory DownloadAttemptRow.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return DownloadAttemptRow(
+      jobId: serializer.fromJson<int>(json['jobId']),
+      number: serializer.fromJson<int>(json['number']),
+      token: serializer.fromJson<String>(json['token']),
+      accountId: serializer.fromJson<int>(json['accountId']),
+      accountRevision: serializer.fromJson<int>(json['accountRevision']),
+      stage: serializer.fromJson<String>(json['stage']),
+      outcome: serializer.fromJson<String>(json['outcome']),
+      startedAtMicros: serializer.fromJson<int>(json['startedAtMicros']),
+      finishedAtMicros: serializer.fromJson<int?>(json['finishedAtMicros']),
+      failure: serializer.fromJson<String?>(json['failure']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'jobId': serializer.toJson<int>(jobId),
+      'number': serializer.toJson<int>(number),
+      'token': serializer.toJson<String>(token),
+      'accountId': serializer.toJson<int>(accountId),
+      'accountRevision': serializer.toJson<int>(accountRevision),
+      'stage': serializer.toJson<String>(stage),
+      'outcome': serializer.toJson<String>(outcome),
+      'startedAtMicros': serializer.toJson<int>(startedAtMicros),
+      'finishedAtMicros': serializer.toJson<int?>(finishedAtMicros),
+      'failure': serializer.toJson<String?>(failure),
+    };
+  }
+
+  DownloadAttemptRow copyWith(
+          {int? jobId,
+          int? number,
+          String? token,
+          int? accountId,
+          int? accountRevision,
+          String? stage,
+          String? outcome,
+          int? startedAtMicros,
+          Value<int?> finishedAtMicros = const Value.absent(),
+          Value<String?> failure = const Value.absent()}) =>
+      DownloadAttemptRow(
+        jobId: jobId ?? this.jobId,
+        number: number ?? this.number,
+        token: token ?? this.token,
+        accountId: accountId ?? this.accountId,
+        accountRevision: accountRevision ?? this.accountRevision,
+        stage: stage ?? this.stage,
+        outcome: outcome ?? this.outcome,
+        startedAtMicros: startedAtMicros ?? this.startedAtMicros,
+        finishedAtMicros: finishedAtMicros.present
+            ? finishedAtMicros.value
+            : this.finishedAtMicros,
+        failure: failure.present ? failure.value : this.failure,
+      );
+  DownloadAttemptRow copyWithCompanion(DownloadAttemptsCompanion data) {
+    return DownloadAttemptRow(
+      jobId: data.jobId.present ? data.jobId.value : this.jobId,
+      number: data.number.present ? data.number.value : this.number,
+      token: data.token.present ? data.token.value : this.token,
+      accountId: data.accountId.present ? data.accountId.value : this.accountId,
+      accountRevision: data.accountRevision.present
+          ? data.accountRevision.value
+          : this.accountRevision,
+      stage: data.stage.present ? data.stage.value : this.stage,
+      outcome: data.outcome.present ? data.outcome.value : this.outcome,
+      startedAtMicros: data.startedAtMicros.present
+          ? data.startedAtMicros.value
+          : this.startedAtMicros,
+      finishedAtMicros: data.finishedAtMicros.present
+          ? data.finishedAtMicros.value
+          : this.finishedAtMicros,
+      failure: data.failure.present ? data.failure.value : this.failure,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('DownloadAttemptRow(')
+          ..write('jobId: $jobId, ')
+          ..write('number: $number, ')
+          ..write('token: $token, ')
+          ..write('accountId: $accountId, ')
+          ..write('accountRevision: $accountRevision, ')
+          ..write('stage: $stage, ')
+          ..write('outcome: $outcome, ')
+          ..write('startedAtMicros: $startedAtMicros, ')
+          ..write('finishedAtMicros: $finishedAtMicros, ')
+          ..write('failure: $failure')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+      jobId,
+      number,
+      token,
+      accountId,
+      accountRevision,
+      stage,
+      outcome,
+      startedAtMicros,
+      finishedAtMicros,
+      failure);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is DownloadAttemptRow &&
+          other.jobId == this.jobId &&
+          other.number == this.number &&
+          other.token == this.token &&
+          other.accountId == this.accountId &&
+          other.accountRevision == this.accountRevision &&
+          other.stage == this.stage &&
+          other.outcome == this.outcome &&
+          other.startedAtMicros == this.startedAtMicros &&
+          other.finishedAtMicros == this.finishedAtMicros &&
+          other.failure == this.failure);
+}
+
+class DownloadAttemptsCompanion extends UpdateCompanion<DownloadAttemptRow> {
+  final Value<int> jobId;
+  final Value<int> number;
+  final Value<String> token;
+  final Value<int> accountId;
+  final Value<int> accountRevision;
+  final Value<String> stage;
+  final Value<String> outcome;
+  final Value<int> startedAtMicros;
+  final Value<int?> finishedAtMicros;
+  final Value<String?> failure;
+  final Value<int> rowid;
+  const DownloadAttemptsCompanion({
+    this.jobId = const Value.absent(),
+    this.number = const Value.absent(),
+    this.token = const Value.absent(),
+    this.accountId = const Value.absent(),
+    this.accountRevision = const Value.absent(),
+    this.stage = const Value.absent(),
+    this.outcome = const Value.absent(),
+    this.startedAtMicros = const Value.absent(),
+    this.finishedAtMicros = const Value.absent(),
+    this.failure = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  DownloadAttemptsCompanion.insert({
+    required int jobId,
+    required int number,
+    required String token,
+    required int accountId,
+    required int accountRevision,
+    required String stage,
+    required String outcome,
+    required int startedAtMicros,
+    this.finishedAtMicros = const Value.absent(),
+    this.failure = const Value.absent(),
+    this.rowid = const Value.absent(),
+  })  : jobId = Value(jobId),
+        number = Value(number),
+        token = Value(token),
+        accountId = Value(accountId),
+        accountRevision = Value(accountRevision),
+        stage = Value(stage),
+        outcome = Value(outcome),
+        startedAtMicros = Value(startedAtMicros);
+  static Insertable<DownloadAttemptRow> custom({
+    Expression<int>? jobId,
+    Expression<int>? number,
+    Expression<String>? token,
+    Expression<int>? accountId,
+    Expression<int>? accountRevision,
+    Expression<String>? stage,
+    Expression<String>? outcome,
+    Expression<int>? startedAtMicros,
+    Expression<int>? finishedAtMicros,
+    Expression<String>? failure,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (jobId != null) 'job_id': jobId,
+      if (number != null) 'number': number,
+      if (token != null) 'token': token,
+      if (accountId != null) 'account_id': accountId,
+      if (accountRevision != null) 'account_revision': accountRevision,
+      if (stage != null) 'stage': stage,
+      if (outcome != null) 'outcome': outcome,
+      if (startedAtMicros != null) 'started_at_micros': startedAtMicros,
+      if (finishedAtMicros != null) 'finished_at_micros': finishedAtMicros,
+      if (failure != null) 'failure': failure,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  DownloadAttemptsCompanion copyWith(
+      {Value<int>? jobId,
+      Value<int>? number,
+      Value<String>? token,
+      Value<int>? accountId,
+      Value<int>? accountRevision,
+      Value<String>? stage,
+      Value<String>? outcome,
+      Value<int>? startedAtMicros,
+      Value<int?>? finishedAtMicros,
+      Value<String?>? failure,
+      Value<int>? rowid}) {
+    return DownloadAttemptsCompanion(
+      jobId: jobId ?? this.jobId,
+      number: number ?? this.number,
+      token: token ?? this.token,
+      accountId: accountId ?? this.accountId,
+      accountRevision: accountRevision ?? this.accountRevision,
+      stage: stage ?? this.stage,
+      outcome: outcome ?? this.outcome,
+      startedAtMicros: startedAtMicros ?? this.startedAtMicros,
+      finishedAtMicros: finishedAtMicros ?? this.finishedAtMicros,
+      failure: failure ?? this.failure,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (jobId.present) {
+      map['job_id'] = Variable<int>(jobId.value);
+    }
+    if (number.present) {
+      map['number'] = Variable<int>(number.value);
+    }
+    if (token.present) {
+      map['token'] = Variable<String>(token.value);
+    }
+    if (accountId.present) {
+      map['account_id'] = Variable<int>(accountId.value);
+    }
+    if (accountRevision.present) {
+      map['account_revision'] = Variable<int>(accountRevision.value);
+    }
+    if (stage.present) {
+      map['stage'] = Variable<String>(stage.value);
+    }
+    if (outcome.present) {
+      map['outcome'] = Variable<String>(outcome.value);
+    }
+    if (startedAtMicros.present) {
+      map['started_at_micros'] = Variable<int>(startedAtMicros.value);
+    }
+    if (finishedAtMicros.present) {
+      map['finished_at_micros'] = Variable<int>(finishedAtMicros.value);
+    }
+    if (failure.present) {
+      map['failure'] = Variable<String>(failure.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('DownloadAttemptsCompanion(')
+          ..write('jobId: $jobId, ')
+          ..write('number: $number, ')
+          ..write('token: $token, ')
+          ..write('accountId: $accountId, ')
+          ..write('accountRevision: $accountRevision, ')
+          ..write('stage: $stage, ')
+          ..write('outcome: $outcome, ')
+          ..write('startedAtMicros: $startedAtMicros, ')
+          ..write('finishedAtMicros: $finishedAtMicros, ')
+          ..write('failure: $failure, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -6089,6 +7620,9 @@ abstract class _$AppDatabase extends GeneratedDatabase {
       $RemoteCollectionsTable(this);
   late final $RemoteCollectionItemsTable remoteCollectionItems =
       $RemoteCollectionItemsTable(this);
+  late final $DownloadJobsTable downloadJobs = $DownloadJobsTable(this);
+  late final $DownloadAttemptsTable downloadAttempts =
+      $DownloadAttemptsTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -6105,7 +7639,9 @@ abstract class _$AppDatabase extends GeneratedDatabase {
         downloadedAssets,
         remoteAccounts,
         remoteCollections,
-        remoteCollectionItems
+        remoteCollectionItems,
+        downloadJobs,
+        downloadAttempts
       ];
   @override
   StreamQueryUpdateRules get streamUpdateRules => const StreamQueryUpdateRules(
@@ -6173,6 +7709,27 @@ abstract class _$AppDatabase extends GeneratedDatabase {
               TableUpdate('remote_collection_items', kind: UpdateKind.delete),
             ],
           ),
+          WritePropagation(
+            on: TableUpdateQuery.onTableName('library_folders',
+                limitUpdateKind: UpdateKind.delete),
+            result: [
+              TableUpdate('download_jobs', kind: UpdateKind.delete),
+            ],
+          ),
+          WritePropagation(
+            on: TableUpdateQuery.onTableName('remote_accounts',
+                limitUpdateKind: UpdateKind.delete),
+            result: [
+              TableUpdate('download_jobs', kind: UpdateKind.delete),
+            ],
+          ),
+          WritePropagation(
+            on: TableUpdateQuery.onTableName('download_jobs',
+                limitUpdateKind: UpdateKind.delete),
+            result: [
+              TableUpdate('download_attempts', kind: UpdateKind.delete),
+            ],
+          ),
         ],
       );
 }
@@ -6216,6 +7773,22 @@ final class $$LibraryFoldersTableReferences extends BaseReferences<
         (f) => f.libraryFolderId.id.sqlEquals($_itemColumn<int>('id')!));
 
     final cache = $_typedResult.readTableOrNull(_tracksRefsTable($_db));
+    return ProcessedTableManager(
+        manager.$state.copyWith(prefetchedData: cache));
+  }
+
+  static MultiTypedResultKey<$DownloadJobsTable, List<DownloadJobRow>>
+      _downloadJobsRefsTable(_$AppDatabase db) =>
+          MultiTypedResultKey.fromTable(db.downloadJobs,
+              aliasName: $_aliasNameGenerator(
+                  db.libraryFolders.id, db.downloadJobs.libraryFolderId));
+
+  $$DownloadJobsTableProcessedTableManager get downloadJobsRefs {
+    final manager = $$DownloadJobsTableTableManager($_db, $_db.downloadJobs)
+        .filter(
+            (f) => f.libraryFolderId.id.sqlEquals($_itemColumn<int>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(_downloadJobsRefsTable($_db));
     return ProcessedTableManager(
         manager.$state.copyWith(prefetchedData: cache));
   }
@@ -6267,6 +7840,27 @@ class $$LibraryFoldersTableFilterComposer
             $$TracksTableFilterComposer(
               $db: $db,
               $table: $db.tracks,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return f(composer);
+  }
+
+  Expression<bool> downloadJobsRefs(
+      Expression<bool> Function($$DownloadJobsTableFilterComposer f) f) {
+    final $$DownloadJobsTableFilterComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.id,
+        referencedTable: $db.downloadJobs,
+        getReferencedColumn: (t) => t.libraryFolderId,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$DownloadJobsTableFilterComposer(
+              $db: $db,
+              $table: $db.downloadJobs,
               $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
               joinBuilder: joinBuilder,
               $removeJoinBuilderFromRootComposer:
@@ -6364,6 +7958,27 @@ class $$LibraryFoldersTableAnnotationComposer
             ));
     return f(composer);
   }
+
+  Expression<T> downloadJobsRefs<T extends Object>(
+      Expression<T> Function($$DownloadJobsTableAnnotationComposer a) f) {
+    final $$DownloadJobsTableAnnotationComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.id,
+        referencedTable: $db.downloadJobs,
+        getReferencedColumn: (t) => t.libraryFolderId,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$DownloadJobsTableAnnotationComposer(
+              $db: $db,
+              $table: $db.downloadJobs,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return f(composer);
+  }
 }
 
 class $$LibraryFoldersTableTableManager extends RootTableManager<
@@ -6377,7 +7992,7 @@ class $$LibraryFoldersTableTableManager extends RootTableManager<
     $$LibraryFoldersTableUpdateCompanionBuilder,
     (LibraryFolderRow, $$LibraryFoldersTableReferences),
     LibraryFolderRow,
-    PrefetchHooks Function({bool tracksRefs})> {
+    PrefetchHooks Function({bool tracksRefs, bool downloadJobsRefs})> {
   $$LibraryFoldersTableTableManager(
       _$AppDatabase db, $LibraryFoldersTable table)
       : super(TableManagerState(
@@ -6435,10 +8050,14 @@ class $$LibraryFoldersTableTableManager extends RootTableManager<
                     $$LibraryFoldersTableReferences(db, table, e)
                   ))
               .toList(),
-          prefetchHooksCallback: ({tracksRefs = false}) {
+          prefetchHooksCallback: (
+              {tracksRefs = false, downloadJobsRefs = false}) {
             return PrefetchHooks(
               db: db,
-              explicitlyWatchedTables: [if (tracksRefs) db.tracks],
+              explicitlyWatchedTables: [
+                if (tracksRefs) db.tracks,
+                if (downloadJobsRefs) db.downloadJobs
+              ],
               addJoins: null,
               getPrefetchedDataCallback: (items) async {
                 return [
@@ -6451,6 +8070,19 @@ class $$LibraryFoldersTableTableManager extends RootTableManager<
                         managerFromTypedResult: (p0) =>
                             $$LibraryFoldersTableReferences(db, table, p0)
                                 .tracksRefs,
+                        referencedItemsForCurrentItem:
+                            (item, referencedItems) => referencedItems
+                                .where((e) => e.libraryFolderId == item.id),
+                        typedResults: items),
+                  if (downloadJobsRefs)
+                    await $_getPrefetchedData<LibraryFolderRow,
+                            $LibraryFoldersTable, DownloadJobRow>(
+                        currentTable: table,
+                        referencedTable: $$LibraryFoldersTableReferences
+                            ._downloadJobsRefsTable(db),
+                        managerFromTypedResult: (p0) =>
+                            $$LibraryFoldersTableReferences(db, table, p0)
+                                .downloadJobsRefs,
                         referencedItemsForCurrentItem:
                             (item, referencedItems) => referencedItems
                                 .where((e) => e.libraryFolderId == item.id),
@@ -6473,7 +8105,7 @@ typedef $$LibraryFoldersTableProcessedTableManager = ProcessedTableManager<
     $$LibraryFoldersTableUpdateCompanionBuilder,
     (LibraryFolderRow, $$LibraryFoldersTableReferences),
     LibraryFolderRow,
-    PrefetchHooks Function({bool tracksRefs})>;
+    PrefetchHooks Function({bool tracksRefs, bool downloadJobsRefs})>;
 typedef $$TracksTableCreateCompanionBuilder = TracksCompanion Function({
   Value<int> id,
   Value<int?> libraryFolderId,
@@ -9727,6 +11359,21 @@ final class $$RemoteAccountsTableReferences extends BaseReferences<
     return ProcessedTableManager(
         manager.$state.copyWith(prefetchedData: cache));
   }
+
+  static MultiTypedResultKey<$DownloadJobsTable, List<DownloadJobRow>>
+      _downloadJobsRefsTable(_$AppDatabase db) =>
+          MultiTypedResultKey.fromTable(db.downloadJobs,
+              aliasName: $_aliasNameGenerator(
+                  db.remoteAccounts.id, db.downloadJobs.accountId));
+
+  $$DownloadJobsTableProcessedTableManager get downloadJobsRefs {
+    final manager = $$DownloadJobsTableTableManager($_db, $_db.downloadJobs)
+        .filter((f) => f.accountId.id.sqlEquals($_itemColumn<int>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(_downloadJobsRefsTable($_db));
+    return ProcessedTableManager(
+        manager.$state.copyWith(prefetchedData: cache));
+  }
 }
 
 class $$RemoteAccountsTableFilterComposer
@@ -9769,6 +11416,27 @@ class $$RemoteAccountsTableFilterComposer
             $$RemoteCollectionsTableFilterComposer(
               $db: $db,
               $table: $db.remoteCollections,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return f(composer);
+  }
+
+  Expression<bool> downloadJobsRefs(
+      Expression<bool> Function($$DownloadJobsTableFilterComposer f) f) {
+    final $$DownloadJobsTableFilterComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.id,
+        referencedTable: $db.downloadJobs,
+        getReferencedColumn: (t) => t.accountId,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$DownloadJobsTableFilterComposer(
+              $db: $db,
+              $table: $db.downloadJobs,
               $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
               joinBuilder: joinBuilder,
               $removeJoinBuilderFromRootComposer:
@@ -9854,6 +11522,27 @@ class $$RemoteAccountsTableAnnotationComposer
                 ));
     return f(composer);
   }
+
+  Expression<T> downloadJobsRefs<T extends Object>(
+      Expression<T> Function($$DownloadJobsTableAnnotationComposer a) f) {
+    final $$DownloadJobsTableAnnotationComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.id,
+        referencedTable: $db.downloadJobs,
+        getReferencedColumn: (t) => t.accountId,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$DownloadJobsTableAnnotationComposer(
+              $db: $db,
+              $table: $db.downloadJobs,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return f(composer);
+  }
 }
 
 class $$RemoteAccountsTableTableManager extends RootTableManager<
@@ -9867,7 +11556,8 @@ class $$RemoteAccountsTableTableManager extends RootTableManager<
     $$RemoteAccountsTableUpdateCompanionBuilder,
     (RemoteAccountRow, $$RemoteAccountsTableReferences),
     RemoteAccountRow,
-    PrefetchHooks Function({bool remoteCollectionsRefs})> {
+    PrefetchHooks Function(
+        {bool remoteCollectionsRefs, bool downloadJobsRefs})> {
   $$RemoteAccountsTableTableManager(
       _$AppDatabase db, $RemoteAccountsTable table)
       : super(TableManagerState(
@@ -9917,11 +11607,13 @@ class $$RemoteAccountsTableTableManager extends RootTableManager<
                     $$RemoteAccountsTableReferences(db, table, e)
                   ))
               .toList(),
-          prefetchHooksCallback: ({remoteCollectionsRefs = false}) {
+          prefetchHooksCallback: (
+              {remoteCollectionsRefs = false, downloadJobsRefs = false}) {
             return PrefetchHooks(
               db: db,
               explicitlyWatchedTables: [
-                if (remoteCollectionsRefs) db.remoteCollections
+                if (remoteCollectionsRefs) db.remoteCollections,
+                if (downloadJobsRefs) db.downloadJobs
               ],
               addJoins: null,
               getPrefetchedDataCallback: (items) async {
@@ -9935,6 +11627,19 @@ class $$RemoteAccountsTableTableManager extends RootTableManager<
                         managerFromTypedResult: (p0) =>
                             $$RemoteAccountsTableReferences(db, table, p0)
                                 .remoteCollectionsRefs,
+                        referencedItemsForCurrentItem:
+                            (item, referencedItems) => referencedItems
+                                .where((e) => e.accountId == item.id),
+                        typedResults: items),
+                  if (downloadJobsRefs)
+                    await $_getPrefetchedData<RemoteAccountRow,
+                            $RemoteAccountsTable, DownloadJobRow>(
+                        currentTable: table,
+                        referencedTable: $$RemoteAccountsTableReferences
+                            ._downloadJobsRefsTable(db),
+                        managerFromTypedResult: (p0) =>
+                            $$RemoteAccountsTableReferences(db, table, p0)
+                                .downloadJobsRefs,
                         referencedItemsForCurrentItem:
                             (item, referencedItems) => referencedItems
                                 .where((e) => e.accountId == item.id),
@@ -9957,7 +11662,8 @@ typedef $$RemoteAccountsTableProcessedTableManager = ProcessedTableManager<
     $$RemoteAccountsTableUpdateCompanionBuilder,
     (RemoteAccountRow, $$RemoteAccountsTableReferences),
     RemoteAccountRow,
-    PrefetchHooks Function({bool remoteCollectionsRefs})>;
+    PrefetchHooks Function(
+        {bool remoteCollectionsRefs, bool downloadJobsRefs})>;
 typedef $$RemoteCollectionsTableCreateCompanionBuilder
     = RemoteCollectionsCompanion Function({
   Value<int> id,
@@ -10676,6 +12382,1045 @@ typedef $$RemoteCollectionItemsTableProcessedTableManager
         (RemoteCollectionItemRow, $$RemoteCollectionItemsTableReferences),
         RemoteCollectionItemRow,
         PrefetchHooks Function({bool collectionId})>;
+typedef $$DownloadJobsTableCreateCompanionBuilder = DownloadJobsCompanion
+    Function({
+  Value<int> id,
+  required int libraryFolderId,
+  required String provider,
+  required String externalId,
+  required String variantKey,
+  required String quality,
+  required int accountId,
+  required int accountRevision,
+  required String state,
+  required String stage,
+  required int revision,
+  Value<int> attemptCount,
+  required int maxAttempts,
+  required int remainingAttempts,
+  Value<String?> attemptToken,
+  Value<int?> leaseUntilMicros,
+  Value<int?> retryAtMicros,
+  Value<String?> failure,
+  Value<int?> completedTrackId,
+  required int createdAtMicros,
+  required int updatedAtMicros,
+});
+typedef $$DownloadJobsTableUpdateCompanionBuilder = DownloadJobsCompanion
+    Function({
+  Value<int> id,
+  Value<int> libraryFolderId,
+  Value<String> provider,
+  Value<String> externalId,
+  Value<String> variantKey,
+  Value<String> quality,
+  Value<int> accountId,
+  Value<int> accountRevision,
+  Value<String> state,
+  Value<String> stage,
+  Value<int> revision,
+  Value<int> attemptCount,
+  Value<int> maxAttempts,
+  Value<int> remainingAttempts,
+  Value<String?> attemptToken,
+  Value<int?> leaseUntilMicros,
+  Value<int?> retryAtMicros,
+  Value<String?> failure,
+  Value<int?> completedTrackId,
+  Value<int> createdAtMicros,
+  Value<int> updatedAtMicros,
+});
+
+final class $$DownloadJobsTableReferences
+    extends BaseReferences<_$AppDatabase, $DownloadJobsTable, DownloadJobRow> {
+  $$DownloadJobsTableReferences(super.$_db, super.$_table, super.$_typedResult);
+
+  static $LibraryFoldersTable _libraryFolderIdTable(_$AppDatabase db) =>
+      db.libraryFolders.createAlias($_aliasNameGenerator(
+          db.downloadJobs.libraryFolderId, db.libraryFolders.id));
+
+  $$LibraryFoldersTableProcessedTableManager get libraryFolderId {
+    final $_column = $_itemColumn<int>('library_folder_id')!;
+
+    final manager = $$LibraryFoldersTableTableManager($_db, $_db.libraryFolders)
+        .filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_libraryFolderIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+        manager.$state.copyWith(prefetchedData: [item]));
+  }
+
+  static $RemoteAccountsTable _accountIdTable(_$AppDatabase db) =>
+      db.remoteAccounts.createAlias($_aliasNameGenerator(
+          db.downloadJobs.accountId, db.remoteAccounts.id));
+
+  $$RemoteAccountsTableProcessedTableManager get accountId {
+    final $_column = $_itemColumn<int>('account_id')!;
+
+    final manager = $$RemoteAccountsTableTableManager($_db, $_db.remoteAccounts)
+        .filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_accountIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+        manager.$state.copyWith(prefetchedData: [item]));
+  }
+
+  static MultiTypedResultKey<$DownloadAttemptsTable, List<DownloadAttemptRow>>
+      _downloadAttemptsRefsTable(_$AppDatabase db) =>
+          MultiTypedResultKey.fromTable(db.downloadAttempts,
+              aliasName: $_aliasNameGenerator(
+                  db.downloadJobs.id, db.downloadAttempts.jobId));
+
+  $$DownloadAttemptsTableProcessedTableManager get downloadAttemptsRefs {
+    final manager =
+        $$DownloadAttemptsTableTableManager($_db, $_db.downloadAttempts)
+            .filter((f) => f.jobId.id.sqlEquals($_itemColumn<int>('id')!));
+
+    final cache =
+        $_typedResult.readTableOrNull(_downloadAttemptsRefsTable($_db));
+    return ProcessedTableManager(
+        manager.$state.copyWith(prefetchedData: cache));
+  }
+}
+
+class $$DownloadJobsTableFilterComposer
+    extends Composer<_$AppDatabase, $DownloadJobsTable> {
+  $$DownloadJobsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get provider => $composableBuilder(
+      column: $table.provider, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get externalId => $composableBuilder(
+      column: $table.externalId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get variantKey => $composableBuilder(
+      column: $table.variantKey, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get quality => $composableBuilder(
+      column: $table.quality, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get accountRevision => $composableBuilder(
+      column: $table.accountRevision,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get state => $composableBuilder(
+      column: $table.state, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get stage => $composableBuilder(
+      column: $table.stage, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get revision => $composableBuilder(
+      column: $table.revision, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get attemptCount => $composableBuilder(
+      column: $table.attemptCount, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get maxAttempts => $composableBuilder(
+      column: $table.maxAttempts, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get remainingAttempts => $composableBuilder(
+      column: $table.remainingAttempts,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get attemptToken => $composableBuilder(
+      column: $table.attemptToken, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get leaseUntilMicros => $composableBuilder(
+      column: $table.leaseUntilMicros,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get retryAtMicros => $composableBuilder(
+      column: $table.retryAtMicros, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get failure => $composableBuilder(
+      column: $table.failure, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get completedTrackId => $composableBuilder(
+      column: $table.completedTrackId,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get createdAtMicros => $composableBuilder(
+      column: $table.createdAtMicros,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get updatedAtMicros => $composableBuilder(
+      column: $table.updatedAtMicros,
+      builder: (column) => ColumnFilters(column));
+
+  $$LibraryFoldersTableFilterComposer get libraryFolderId {
+    final $$LibraryFoldersTableFilterComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.libraryFolderId,
+        referencedTable: $db.libraryFolders,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$LibraryFoldersTableFilterComposer(
+              $db: $db,
+              $table: $db.libraryFolders,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+
+  $$RemoteAccountsTableFilterComposer get accountId {
+    final $$RemoteAccountsTableFilterComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.accountId,
+        referencedTable: $db.remoteAccounts,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$RemoteAccountsTableFilterComposer(
+              $db: $db,
+              $table: $db.remoteAccounts,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+
+  Expression<bool> downloadAttemptsRefs(
+      Expression<bool> Function($$DownloadAttemptsTableFilterComposer f) f) {
+    final $$DownloadAttemptsTableFilterComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.id,
+        referencedTable: $db.downloadAttempts,
+        getReferencedColumn: (t) => t.jobId,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$DownloadAttemptsTableFilterComposer(
+              $db: $db,
+              $table: $db.downloadAttempts,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return f(composer);
+  }
+}
+
+class $$DownloadJobsTableOrderingComposer
+    extends Composer<_$AppDatabase, $DownloadJobsTable> {
+  $$DownloadJobsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get provider => $composableBuilder(
+      column: $table.provider, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get externalId => $composableBuilder(
+      column: $table.externalId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get variantKey => $composableBuilder(
+      column: $table.variantKey, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get quality => $composableBuilder(
+      column: $table.quality, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get accountRevision => $composableBuilder(
+      column: $table.accountRevision,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get state => $composableBuilder(
+      column: $table.state, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get stage => $composableBuilder(
+      column: $table.stage, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get revision => $composableBuilder(
+      column: $table.revision, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get attemptCount => $composableBuilder(
+      column: $table.attemptCount,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get maxAttempts => $composableBuilder(
+      column: $table.maxAttempts, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get remainingAttempts => $composableBuilder(
+      column: $table.remainingAttempts,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get attemptToken => $composableBuilder(
+      column: $table.attemptToken,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get leaseUntilMicros => $composableBuilder(
+      column: $table.leaseUntilMicros,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get retryAtMicros => $composableBuilder(
+      column: $table.retryAtMicros,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get failure => $composableBuilder(
+      column: $table.failure, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get completedTrackId => $composableBuilder(
+      column: $table.completedTrackId,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get createdAtMicros => $composableBuilder(
+      column: $table.createdAtMicros,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get updatedAtMicros => $composableBuilder(
+      column: $table.updatedAtMicros,
+      builder: (column) => ColumnOrderings(column));
+
+  $$LibraryFoldersTableOrderingComposer get libraryFolderId {
+    final $$LibraryFoldersTableOrderingComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.libraryFolderId,
+        referencedTable: $db.libraryFolders,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$LibraryFoldersTableOrderingComposer(
+              $db: $db,
+              $table: $db.libraryFolders,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+
+  $$RemoteAccountsTableOrderingComposer get accountId {
+    final $$RemoteAccountsTableOrderingComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.accountId,
+        referencedTable: $db.remoteAccounts,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$RemoteAccountsTableOrderingComposer(
+              $db: $db,
+              $table: $db.remoteAccounts,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+}
+
+class $$DownloadJobsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $DownloadJobsTable> {
+  $$DownloadJobsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get provider =>
+      $composableBuilder(column: $table.provider, builder: (column) => column);
+
+  GeneratedColumn<String> get externalId => $composableBuilder(
+      column: $table.externalId, builder: (column) => column);
+
+  GeneratedColumn<String> get variantKey => $composableBuilder(
+      column: $table.variantKey, builder: (column) => column);
+
+  GeneratedColumn<String> get quality =>
+      $composableBuilder(column: $table.quality, builder: (column) => column);
+
+  GeneratedColumn<int> get accountRevision => $composableBuilder(
+      column: $table.accountRevision, builder: (column) => column);
+
+  GeneratedColumn<String> get state =>
+      $composableBuilder(column: $table.state, builder: (column) => column);
+
+  GeneratedColumn<String> get stage =>
+      $composableBuilder(column: $table.stage, builder: (column) => column);
+
+  GeneratedColumn<int> get revision =>
+      $composableBuilder(column: $table.revision, builder: (column) => column);
+
+  GeneratedColumn<int> get attemptCount => $composableBuilder(
+      column: $table.attemptCount, builder: (column) => column);
+
+  GeneratedColumn<int> get maxAttempts => $composableBuilder(
+      column: $table.maxAttempts, builder: (column) => column);
+
+  GeneratedColumn<int> get remainingAttempts => $composableBuilder(
+      column: $table.remainingAttempts, builder: (column) => column);
+
+  GeneratedColumn<String> get attemptToken => $composableBuilder(
+      column: $table.attemptToken, builder: (column) => column);
+
+  GeneratedColumn<int> get leaseUntilMicros => $composableBuilder(
+      column: $table.leaseUntilMicros, builder: (column) => column);
+
+  GeneratedColumn<int> get retryAtMicros => $composableBuilder(
+      column: $table.retryAtMicros, builder: (column) => column);
+
+  GeneratedColumn<String> get failure =>
+      $composableBuilder(column: $table.failure, builder: (column) => column);
+
+  GeneratedColumn<int> get completedTrackId => $composableBuilder(
+      column: $table.completedTrackId, builder: (column) => column);
+
+  GeneratedColumn<int> get createdAtMicros => $composableBuilder(
+      column: $table.createdAtMicros, builder: (column) => column);
+
+  GeneratedColumn<int> get updatedAtMicros => $composableBuilder(
+      column: $table.updatedAtMicros, builder: (column) => column);
+
+  $$LibraryFoldersTableAnnotationComposer get libraryFolderId {
+    final $$LibraryFoldersTableAnnotationComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.libraryFolderId,
+        referencedTable: $db.libraryFolders,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$LibraryFoldersTableAnnotationComposer(
+              $db: $db,
+              $table: $db.libraryFolders,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+
+  $$RemoteAccountsTableAnnotationComposer get accountId {
+    final $$RemoteAccountsTableAnnotationComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.accountId,
+        referencedTable: $db.remoteAccounts,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$RemoteAccountsTableAnnotationComposer(
+              $db: $db,
+              $table: $db.remoteAccounts,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+
+  Expression<T> downloadAttemptsRefs<T extends Object>(
+      Expression<T> Function($$DownloadAttemptsTableAnnotationComposer a) f) {
+    final $$DownloadAttemptsTableAnnotationComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.id,
+        referencedTable: $db.downloadAttempts,
+        getReferencedColumn: (t) => t.jobId,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$DownloadAttemptsTableAnnotationComposer(
+              $db: $db,
+              $table: $db.downloadAttempts,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return f(composer);
+  }
+}
+
+class $$DownloadJobsTableTableManager extends RootTableManager<
+    _$AppDatabase,
+    $DownloadJobsTable,
+    DownloadJobRow,
+    $$DownloadJobsTableFilterComposer,
+    $$DownloadJobsTableOrderingComposer,
+    $$DownloadJobsTableAnnotationComposer,
+    $$DownloadJobsTableCreateCompanionBuilder,
+    $$DownloadJobsTableUpdateCompanionBuilder,
+    (DownloadJobRow, $$DownloadJobsTableReferences),
+    DownloadJobRow,
+    PrefetchHooks Function(
+        {bool libraryFolderId, bool accountId, bool downloadAttemptsRefs})> {
+  $$DownloadJobsTableTableManager(_$AppDatabase db, $DownloadJobsTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$DownloadJobsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$DownloadJobsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$DownloadJobsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<int> id = const Value.absent(),
+            Value<int> libraryFolderId = const Value.absent(),
+            Value<String> provider = const Value.absent(),
+            Value<String> externalId = const Value.absent(),
+            Value<String> variantKey = const Value.absent(),
+            Value<String> quality = const Value.absent(),
+            Value<int> accountId = const Value.absent(),
+            Value<int> accountRevision = const Value.absent(),
+            Value<String> state = const Value.absent(),
+            Value<String> stage = const Value.absent(),
+            Value<int> revision = const Value.absent(),
+            Value<int> attemptCount = const Value.absent(),
+            Value<int> maxAttempts = const Value.absent(),
+            Value<int> remainingAttempts = const Value.absent(),
+            Value<String?> attemptToken = const Value.absent(),
+            Value<int?> leaseUntilMicros = const Value.absent(),
+            Value<int?> retryAtMicros = const Value.absent(),
+            Value<String?> failure = const Value.absent(),
+            Value<int?> completedTrackId = const Value.absent(),
+            Value<int> createdAtMicros = const Value.absent(),
+            Value<int> updatedAtMicros = const Value.absent(),
+          }) =>
+              DownloadJobsCompanion(
+            id: id,
+            libraryFolderId: libraryFolderId,
+            provider: provider,
+            externalId: externalId,
+            variantKey: variantKey,
+            quality: quality,
+            accountId: accountId,
+            accountRevision: accountRevision,
+            state: state,
+            stage: stage,
+            revision: revision,
+            attemptCount: attemptCount,
+            maxAttempts: maxAttempts,
+            remainingAttempts: remainingAttempts,
+            attemptToken: attemptToken,
+            leaseUntilMicros: leaseUntilMicros,
+            retryAtMicros: retryAtMicros,
+            failure: failure,
+            completedTrackId: completedTrackId,
+            createdAtMicros: createdAtMicros,
+            updatedAtMicros: updatedAtMicros,
+          ),
+          createCompanionCallback: ({
+            Value<int> id = const Value.absent(),
+            required int libraryFolderId,
+            required String provider,
+            required String externalId,
+            required String variantKey,
+            required String quality,
+            required int accountId,
+            required int accountRevision,
+            required String state,
+            required String stage,
+            required int revision,
+            Value<int> attemptCount = const Value.absent(),
+            required int maxAttempts,
+            required int remainingAttempts,
+            Value<String?> attemptToken = const Value.absent(),
+            Value<int?> leaseUntilMicros = const Value.absent(),
+            Value<int?> retryAtMicros = const Value.absent(),
+            Value<String?> failure = const Value.absent(),
+            Value<int?> completedTrackId = const Value.absent(),
+            required int createdAtMicros,
+            required int updatedAtMicros,
+          }) =>
+              DownloadJobsCompanion.insert(
+            id: id,
+            libraryFolderId: libraryFolderId,
+            provider: provider,
+            externalId: externalId,
+            variantKey: variantKey,
+            quality: quality,
+            accountId: accountId,
+            accountRevision: accountRevision,
+            state: state,
+            stage: stage,
+            revision: revision,
+            attemptCount: attemptCount,
+            maxAttempts: maxAttempts,
+            remainingAttempts: remainingAttempts,
+            attemptToken: attemptToken,
+            leaseUntilMicros: leaseUntilMicros,
+            retryAtMicros: retryAtMicros,
+            failure: failure,
+            completedTrackId: completedTrackId,
+            createdAtMicros: createdAtMicros,
+            updatedAtMicros: updatedAtMicros,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (
+                    e.readTable(table),
+                    $$DownloadJobsTableReferences(db, table, e)
+                  ))
+              .toList(),
+          prefetchHooksCallback: (
+              {libraryFolderId = false,
+              accountId = false,
+              downloadAttemptsRefs = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [
+                if (downloadAttemptsRefs) db.downloadAttempts
+              ],
+              addJoins: <
+                  T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic>>(state) {
+                if (libraryFolderId) {
+                  state = state.withJoin(
+                    currentTable: table,
+                    currentColumn: table.libraryFolderId,
+                    referencedTable:
+                        $$DownloadJobsTableReferences._libraryFolderIdTable(db),
+                    referencedColumn: $$DownloadJobsTableReferences
+                        ._libraryFolderIdTable(db)
+                        .id,
+                  ) as T;
+                }
+                if (accountId) {
+                  state = state.withJoin(
+                    currentTable: table,
+                    currentColumn: table.accountId,
+                    referencedTable:
+                        $$DownloadJobsTableReferences._accountIdTable(db),
+                    referencedColumn:
+                        $$DownloadJobsTableReferences._accountIdTable(db).id,
+                  ) as T;
+                }
+
+                return state;
+              },
+              getPrefetchedDataCallback: (items) async {
+                return [
+                  if (downloadAttemptsRefs)
+                    await $_getPrefetchedData<DownloadJobRow,
+                            $DownloadJobsTable, DownloadAttemptRow>(
+                        currentTable: table,
+                        referencedTable: $$DownloadJobsTableReferences
+                            ._downloadAttemptsRefsTable(db),
+                        managerFromTypedResult: (p0) =>
+                            $$DownloadJobsTableReferences(db, table, p0)
+                                .downloadAttemptsRefs,
+                        referencedItemsForCurrentItem: (item,
+                                referencedItems) =>
+                            referencedItems.where((e) => e.jobId == item.id),
+                        typedResults: items)
+                ];
+              },
+            );
+          },
+        ));
+}
+
+typedef $$DownloadJobsTableProcessedTableManager = ProcessedTableManager<
+    _$AppDatabase,
+    $DownloadJobsTable,
+    DownloadJobRow,
+    $$DownloadJobsTableFilterComposer,
+    $$DownloadJobsTableOrderingComposer,
+    $$DownloadJobsTableAnnotationComposer,
+    $$DownloadJobsTableCreateCompanionBuilder,
+    $$DownloadJobsTableUpdateCompanionBuilder,
+    (DownloadJobRow, $$DownloadJobsTableReferences),
+    DownloadJobRow,
+    PrefetchHooks Function(
+        {bool libraryFolderId, bool accountId, bool downloadAttemptsRefs})>;
+typedef $$DownloadAttemptsTableCreateCompanionBuilder
+    = DownloadAttemptsCompanion Function({
+  required int jobId,
+  required int number,
+  required String token,
+  required int accountId,
+  required int accountRevision,
+  required String stage,
+  required String outcome,
+  required int startedAtMicros,
+  Value<int?> finishedAtMicros,
+  Value<String?> failure,
+  Value<int> rowid,
+});
+typedef $$DownloadAttemptsTableUpdateCompanionBuilder
+    = DownloadAttemptsCompanion Function({
+  Value<int> jobId,
+  Value<int> number,
+  Value<String> token,
+  Value<int> accountId,
+  Value<int> accountRevision,
+  Value<String> stage,
+  Value<String> outcome,
+  Value<int> startedAtMicros,
+  Value<int?> finishedAtMicros,
+  Value<String?> failure,
+  Value<int> rowid,
+});
+
+final class $$DownloadAttemptsTableReferences extends BaseReferences<
+    _$AppDatabase, $DownloadAttemptsTable, DownloadAttemptRow> {
+  $$DownloadAttemptsTableReferences(
+      super.$_db, super.$_table, super.$_typedResult);
+
+  static $DownloadJobsTable _jobIdTable(_$AppDatabase db) =>
+      db.downloadJobs.createAlias(
+          $_aliasNameGenerator(db.downloadAttempts.jobId, db.downloadJobs.id));
+
+  $$DownloadJobsTableProcessedTableManager get jobId {
+    final $_column = $_itemColumn<int>('job_id')!;
+
+    final manager = $$DownloadJobsTableTableManager($_db, $_db.downloadJobs)
+        .filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_jobIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+        manager.$state.copyWith(prefetchedData: [item]));
+  }
+}
+
+class $$DownloadAttemptsTableFilterComposer
+    extends Composer<_$AppDatabase, $DownloadAttemptsTable> {
+  $$DownloadAttemptsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get number => $composableBuilder(
+      column: $table.number, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get token => $composableBuilder(
+      column: $table.token, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get accountId => $composableBuilder(
+      column: $table.accountId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get accountRevision => $composableBuilder(
+      column: $table.accountRevision,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get stage => $composableBuilder(
+      column: $table.stage, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get outcome => $composableBuilder(
+      column: $table.outcome, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get startedAtMicros => $composableBuilder(
+      column: $table.startedAtMicros,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get finishedAtMicros => $composableBuilder(
+      column: $table.finishedAtMicros,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get failure => $composableBuilder(
+      column: $table.failure, builder: (column) => ColumnFilters(column));
+
+  $$DownloadJobsTableFilterComposer get jobId {
+    final $$DownloadJobsTableFilterComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.jobId,
+        referencedTable: $db.downloadJobs,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$DownloadJobsTableFilterComposer(
+              $db: $db,
+              $table: $db.downloadJobs,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+}
+
+class $$DownloadAttemptsTableOrderingComposer
+    extends Composer<_$AppDatabase, $DownloadAttemptsTable> {
+  $$DownloadAttemptsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get number => $composableBuilder(
+      column: $table.number, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get token => $composableBuilder(
+      column: $table.token, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get accountId => $composableBuilder(
+      column: $table.accountId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get accountRevision => $composableBuilder(
+      column: $table.accountRevision,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get stage => $composableBuilder(
+      column: $table.stage, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get outcome => $composableBuilder(
+      column: $table.outcome, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get startedAtMicros => $composableBuilder(
+      column: $table.startedAtMicros,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get finishedAtMicros => $composableBuilder(
+      column: $table.finishedAtMicros,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get failure => $composableBuilder(
+      column: $table.failure, builder: (column) => ColumnOrderings(column));
+
+  $$DownloadJobsTableOrderingComposer get jobId {
+    final $$DownloadJobsTableOrderingComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.jobId,
+        referencedTable: $db.downloadJobs,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$DownloadJobsTableOrderingComposer(
+              $db: $db,
+              $table: $db.downloadJobs,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+}
+
+class $$DownloadAttemptsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $DownloadAttemptsTable> {
+  $$DownloadAttemptsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get number =>
+      $composableBuilder(column: $table.number, builder: (column) => column);
+
+  GeneratedColumn<String> get token =>
+      $composableBuilder(column: $table.token, builder: (column) => column);
+
+  GeneratedColumn<int> get accountId =>
+      $composableBuilder(column: $table.accountId, builder: (column) => column);
+
+  GeneratedColumn<int> get accountRevision => $composableBuilder(
+      column: $table.accountRevision, builder: (column) => column);
+
+  GeneratedColumn<String> get stage =>
+      $composableBuilder(column: $table.stage, builder: (column) => column);
+
+  GeneratedColumn<String> get outcome =>
+      $composableBuilder(column: $table.outcome, builder: (column) => column);
+
+  GeneratedColumn<int> get startedAtMicros => $composableBuilder(
+      column: $table.startedAtMicros, builder: (column) => column);
+
+  GeneratedColumn<int> get finishedAtMicros => $composableBuilder(
+      column: $table.finishedAtMicros, builder: (column) => column);
+
+  GeneratedColumn<String> get failure =>
+      $composableBuilder(column: $table.failure, builder: (column) => column);
+
+  $$DownloadJobsTableAnnotationComposer get jobId {
+    final $$DownloadJobsTableAnnotationComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.jobId,
+        referencedTable: $db.downloadJobs,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$DownloadJobsTableAnnotationComposer(
+              $db: $db,
+              $table: $db.downloadJobs,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+}
+
+class $$DownloadAttemptsTableTableManager extends RootTableManager<
+    _$AppDatabase,
+    $DownloadAttemptsTable,
+    DownloadAttemptRow,
+    $$DownloadAttemptsTableFilterComposer,
+    $$DownloadAttemptsTableOrderingComposer,
+    $$DownloadAttemptsTableAnnotationComposer,
+    $$DownloadAttemptsTableCreateCompanionBuilder,
+    $$DownloadAttemptsTableUpdateCompanionBuilder,
+    (DownloadAttemptRow, $$DownloadAttemptsTableReferences),
+    DownloadAttemptRow,
+    PrefetchHooks Function({bool jobId})> {
+  $$DownloadAttemptsTableTableManager(
+      _$AppDatabase db, $DownloadAttemptsTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$DownloadAttemptsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$DownloadAttemptsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$DownloadAttemptsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<int> jobId = const Value.absent(),
+            Value<int> number = const Value.absent(),
+            Value<String> token = const Value.absent(),
+            Value<int> accountId = const Value.absent(),
+            Value<int> accountRevision = const Value.absent(),
+            Value<String> stage = const Value.absent(),
+            Value<String> outcome = const Value.absent(),
+            Value<int> startedAtMicros = const Value.absent(),
+            Value<int?> finishedAtMicros = const Value.absent(),
+            Value<String?> failure = const Value.absent(),
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              DownloadAttemptsCompanion(
+            jobId: jobId,
+            number: number,
+            token: token,
+            accountId: accountId,
+            accountRevision: accountRevision,
+            stage: stage,
+            outcome: outcome,
+            startedAtMicros: startedAtMicros,
+            finishedAtMicros: finishedAtMicros,
+            failure: failure,
+            rowid: rowid,
+          ),
+          createCompanionCallback: ({
+            required int jobId,
+            required int number,
+            required String token,
+            required int accountId,
+            required int accountRevision,
+            required String stage,
+            required String outcome,
+            required int startedAtMicros,
+            Value<int?> finishedAtMicros = const Value.absent(),
+            Value<String?> failure = const Value.absent(),
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              DownloadAttemptsCompanion.insert(
+            jobId: jobId,
+            number: number,
+            token: token,
+            accountId: accountId,
+            accountRevision: accountRevision,
+            stage: stage,
+            outcome: outcome,
+            startedAtMicros: startedAtMicros,
+            finishedAtMicros: finishedAtMicros,
+            failure: failure,
+            rowid: rowid,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (
+                    e.readTable(table),
+                    $$DownloadAttemptsTableReferences(db, table, e)
+                  ))
+              .toList(),
+          prefetchHooksCallback: ({jobId = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [],
+              addJoins: <
+                  T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic>>(state) {
+                if (jobId) {
+                  state = state.withJoin(
+                    currentTable: table,
+                    currentColumn: table.jobId,
+                    referencedTable:
+                        $$DownloadAttemptsTableReferences._jobIdTable(db),
+                    referencedColumn:
+                        $$DownloadAttemptsTableReferences._jobIdTable(db).id,
+                  ) as T;
+                }
+
+                return state;
+              },
+              getPrefetchedDataCallback: (items) async {
+                return [];
+              },
+            );
+          },
+        ));
+}
+
+typedef $$DownloadAttemptsTableProcessedTableManager = ProcessedTableManager<
+    _$AppDatabase,
+    $DownloadAttemptsTable,
+    DownloadAttemptRow,
+    $$DownloadAttemptsTableFilterComposer,
+    $$DownloadAttemptsTableOrderingComposer,
+    $$DownloadAttemptsTableAnnotationComposer,
+    $$DownloadAttemptsTableCreateCompanionBuilder,
+    $$DownloadAttemptsTableUpdateCompanionBuilder,
+    (DownloadAttemptRow, $$DownloadAttemptsTableReferences),
+    DownloadAttemptRow,
+    PrefetchHooks Function({bool jobId})>;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -10704,4 +13449,8 @@ class $AppDatabaseManager {
       $$RemoteCollectionsTableTableManager(_db, _db.remoteCollections);
   $$RemoteCollectionItemsTableTableManager get remoteCollectionItems =>
       $$RemoteCollectionItemsTableTableManager(_db, _db.remoteCollectionItems);
+  $$DownloadJobsTableTableManager get downloadJobs =>
+      $$DownloadJobsTableTableManager(_db, _db.downloadJobs);
+  $$DownloadAttemptsTableTableManager get downloadAttempts =>
+      $$DownloadAttemptsTableTableManager(_db, _db.downloadAttempts);
 }

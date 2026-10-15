@@ -54,13 +54,13 @@ void main() {
     expect(entries.map((e) => e['event']),
         ['migrationStarted', 'migrationCompleted', 'databaseOpened']);
     expect(entries[0]['schemaFrom'], 0);
-    expect(entries[1]['schemaTo'], 12);
+    expect(entries[1]['schemaTo'], 13);
     expect(
         await database
             .customSelect('PRAGMA user_version')
             .getSingle()
             .then((r) => r.data.values.single),
-        12);
+        13);
   });
 
   test('failed migration is reported without a false success or raw SQL',
@@ -75,7 +75,7 @@ void main() {
     expect(entries.map((e) => e['event']),
         ['migrationStarted', 'migrationFailed']);
     expect(entries.last['schemaFrom'], 8);
-    expect(entries.last['schemaTo'], 12);
+    expect(entries.last['schemaTo'], 13);
   });
 
   test('scanner and cache report outcomes while preserving source bytes',
