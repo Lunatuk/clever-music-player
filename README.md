@@ -64,6 +64,14 @@ bytes preserve previous audio-format evidence; this is not a decoder for new
 downloads. The checker is lazy and internal; login/download UI follows later.
 See [physical check rules](docs/architecture/downloaded-asset-byte-checks.md).
 
+Package 30 adds read-only validation of completed staging audio: actual container,
+codec/encoding policy, expected tags and duration, full audio/cover decode, and
+stable SHA-256 before/after. Its desktop FFmpeg adapter uses explicit executable
+paths, bounded child-process output and cancellation. Real synthetic MP3/M4A/FLAC
+checks cover PNG/JPEG, corruption and truncation. Helper packaging and the Android
+native backend remain subsequent work; ordinary playback does not run this module.
+See [new audio validation rules](docs/architecture/downloaded-audio-validation.md).
+
 Database schema v13 preserves existing track IDs and history. Metadata signatures
 are non-unique, feedback changes preserve listening counters, and playback events
 and their counters commit together. Retrying an event's operation ID does not

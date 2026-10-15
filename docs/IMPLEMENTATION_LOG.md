@@ -1802,3 +1802,131 @@ CI не проверялся. macOS/физический Android SAF не зап
 назначения и журналом, сверка прерванной работы, координатор/сетевой адаптер,
 авторизация/выбор коллекций и ручная кнопка. Позже расписание. Подбор «Волны»
 по решению пользователя отложен. [Контракт проверки](architecture/downloaded-asset-byte-checks.md).
+
+
+**15 октября 2026 — пакет 30, проверка нового аудио перед публикацией**
+
+Пользователь подтвердил пакет 29 сообщением «все работает». Добавлены
+DownloadedAudioExpectation/Inspection/Result, DownloadedAudioValidator,
+AudioValidationBackend, FfmpegAudioValidationBackend и BoundedMediaProcessRunner.
+Схема остаётся 13; AppDatabase и generated Dart совпадают SHA-256 с пакетом 29.
+Новых миграций/таблиц, фоновой синхронизации или сетевого доступа нет.
+
+Проверяется завершённый staging-файл после записи метаданных/обложки: фактические
+контейнер/кодек, размер/длительность, явная числовая политика кодирования,
+ожидаемые теги, полное декодирование аудио и встроенного JPEG/PNG-кадра,
+SHA-256/размер/даты до и после. Только полный успех создаёт доказательство.
+Расширение не определяет формат. Для lossy-политики обязателен минимум bit rate;
+неизвестный bit rate/sample rate/bit depth не удовлетворяет заданному минимуму.
+Opaque quality получает имя выбранной проверяемой политики, не угадывается
+по имени файла; правила реальных категорий Яндекса ещё предстоит обосновать
+в сетевом адаптере. Expected tags сравниваются точно, без filename fallback,
+карты immutable; конфликт case/albumartist/stream/format отвергается.
+
+Пределы: 8 ГиБ, 12 часов, 1–8 каналов, 8–192 кГц, до 4096 символов на тег,
+один audio stream и максимум одна attached_pic JPEG/PNG до 4096×4096.
+Обычное видео не считается обложкой. Обложка обязательна только по явной
+политике; отсутствие картинки у провайдера можно допустить без ложного успеха
+«картинка встроена». Ошибка картинки/декодирования не создаёт verification.
+Положительные заявленная и декодированная длительности сверяются с ожидаемой
+и между собой; допуск по умолчанию 500 мс (явный диапазон 0–10 с).
+Допуск/ограничения декодера не являются абсолютным доказательством каждого
+исходного сэмпла или музыкальной идентичности. Provider/ID/source пока доверяются
+будущему адаптеру загрузки, названия не связывают разные записи.
+
+FFmpeg запускается отдельно от PlayerService, без вывода звука и изменения
+файла. Audio decode в null muxer использует xerror, max_error_rate 0,
+err_detect crccheck+bitstream+buffer+explode, финальный progress=end и
+положительный out_time_us; cover decode требует один кадр. Проверка с
+настоящим AAC выявила ложный успех по одним PTS: две секунды сэмплов и
+трёхсекундный разрыв временных меток выглядели как пять секунд. Новый
+asetpts=N/SR/TB считает непрерывное время по сэмплам, сценарий отклоняется.
+Лог до исправления .dart_tool/core30-native-gap-before-fix.log воспроизводит
+verified вместо invalidAudio; финальный набор из 14 реальных сценариев проходит.
+Это исправление валидатора, переходы/слышимый проигрыватель не менялись.
+
+Пути ffprobe/ffmpeg передаются явно абсолютными. Адаптер не ищет PATH и
+не требует D:\YaDown/Python. Разрешены formats mp3/mov/flac и protocols file/pipe,
+max_streams 2, probesize 2 МиБ, analyzeduration 10 с, max_alloc 64 МиБ на одно
+выделение, decoder/filter threads 1. Это не общий лимит памяти или OS sandbox.
+Запуск без shell, аргументы раздельные. stdin закрыт, оба output pipe дренируются,
+256/64 КиБ stdout/stderr, переполнение прекращает child. Произвольные stderr/
+тексты исключений не экспортируются. Фиксированные ошибки отличают отсутствие
+executable, IO и лимит вывода. Ненулевой exit/error-level stderr не даёт успех.
+
+Один validate/child; concurrent admission отклоняется. Общая отмена/timeout
+(10 минут по умолчанию, до 30) дренирует Process.start/child/pipe/hash session,
+close ждёт принятую операцию, затем пытается закрыть session/backend вместе.
+Сигнал не отправляется повторно после подтверждённого exit. Отмена не бросает
+живой Future. Зависший системный вызов не получает обещания жёсткого таймаута.
+Файл/SQLite при ошибке не записываются и не удаляются.
+
+Валидатор пока внутренний, не подключён к AppDependencies/UI. Executables не
+вложены в ZIP/APK: готовый комплект помощника с версиями/лицензиями/совместимостью
+нужен до пользовательского скачивания. Обычное воспроизведение не использует
+эти инструменты, пользователю ничего устанавливать не требуется. Android
+content URI возвращает unsupportedSource, нативный Android backend ещё впереди.
+Проверенное временное имя не объявляется опубликованным ресурсом: staging,
+блокировка/fencing/журнал и повторная сверка назначения остаются следующим шагом.
+
+| Проверка | Результат |
+| --- | --- |
+| Целевой Flutter-набор | 75 passed |
+| Финальный полный Flutter-набор | 1148 passed; 75 новых |
+| Flutter analyze | No issues found |
+| dart format lib/test + новый integration tool | 196 файлов, 0 изменений |
+| Drift generation check | Успешно; первый 80,6 с, финальный повтор 9.4 с, generated Dart не изменился |
+| Native Windows audio contract | MSVC compiled, protocol fixture matched |
+| Real FFmpeg 7.1 | 14 сценариев passed на самостоятельно созданных файлах |
+| Android arm64 release | Успешно, финальная incremental-сборка 23.9 с |
+| Native JVM | 15 passed, без изменений native source |
+| Native lint | 0 errors, 6 прежних warnings |
+| APK | CRC/v2 signature/ZIP и ELF LOAD/RELRO 16 КиБ; signer совпадает с 29, versionCode 2030, target SDK 36; прежние service/notification/permissions/folder/fingerprint methods присутствуют |
+| Windows x64 release | Успешно, финальная incremental-сборка 14.2 с |
+| Windows ZIP | 17 файлов, CRC/байты payload/PE x64; состав и production SQLite manifest совпадают с 29, тестового sidecar нет |
+
+75 новых Flutter-сценариев: 33 validator/model/lifecycle/файлы, 35 ffprobe/
+helper protocol и 7 настоящий child-process runner. Включены policy/типы/bounds,
+изменение байтов при прежнем размере, wrong/absent cover, codec/sample rate/
+bit rate/bit depth, длительность/граница допуска, теги/conflicts, malformed JSON/
+progress, неполный decode, ошибки executable/вывода, отмена/timeout/busy/close,
+литеральные кавычки/кириллица/shell syntax и kill+drain живого child.
+Дочерние тесты используют Dart из FLUTTER_ROOT. Реальный integration tool
+создаёт собственные MP3/M4A/FLAC, PNG/JPEG и повреждённые варианты в systemTemp;
+пользовательские файлы не открывает. Проверены ошибка формата, неправильные
+теги/политика, смена расширения, optional/required cover, повреждённый PNG,
+обрезанный MP3 при совпавшем полученном размере, PTS gap и отсутствующий helper.
+
+После выявления PTS-ошибки повторены 14 native media checks, полный Flutter-набор
+и analyze; product/test/tool source после финальных проверок не менялся.
+Начальная release-копия успешно собрала Android/Windows за 107,5/97,9 с, но
+source-manifest guard отклонил её из-за изменившегося tool. Этот кандидат не
+упаковывался. Его исходники/логи сохранены в candidate-before-sample-clock-fix
+в сборочной копии; окончательные оба release перестроены и сверены с финальным
+manifest. Локальная копия %LOCALAPPDATA%/CleverMusicPlayerBuilds/core30-20261015,
+346 исходных файлов проверены SHA-256. Flutter tests не запускались
+в release-копии. Прежние Windows warnings resolve_symlinks.ps1 (скрытый AppData)
+и jni C4090, Android SDK XML warning сохранены; dependency patches не добавлены.
+Исходники пользовательской БД/музыки не читались и не менялись.
+
+Логи .dart_tool/core30-targeted-tests.log, core30-full-tests-final.log,
+core30-analyze-final.log, core30-format-final.log, core30-native-windows-protocol.log,
+core30-native-media-final.log, core30-native-gap-before-fix.log,
+core30-source-manifest.json, core30-build-result.json, core30-verify-result.json,
+core30-package.json, core30-apk-*.log; release/native логи в сборочной копии.
+CI Android build-number переключён на 30, desktop format включает новый tool.
+Реальные FFmpeg-сценарии пока локальные Windows, не обещаются выполненными в CI.
+Удалённый статус CI не проверялся; macOS/Android validator/физический телефон
+не запускались. Ручная проверка пакета 30 пользователем ещё не получена.
+Достаточно знакомого трека/перезапуска Windows; телефон можно оставить на 29.
+
+Артефакты:
+
+- dist/clever-music-player-core-30-android-arm64.apk: 20814336 байт, SHA-256 58a879b0716e7b3ea6f881dc492b7cde4d9f99c1aa87b01b93f4a03fc293f562.
+- dist/clever-music-player-core-30-windows-x64.zip: 14378687 байт, SHA-256 81d497c1a6a58d52562c8f28dad828c1e1c54ce293436010f56d8fb981bfdbd6.
+- dist/clever-music-player-core-30-checks.txt, manual-checks.txt и .sha256.
+
+Далее staging/блокировки/журнал/публикация, комплект desktop-помощника и запись
+тегов/обложек, координатор/сеть/авторизация/кнопка. Android использует общую
+политику с отдельным нативным backend на своём этапе. Расписание позже,
+рекомендации отложены. [Контракт](architecture/downloaded-audio-validation.md).
