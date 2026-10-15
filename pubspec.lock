@@ -184,6 +184,13 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.1.2"
+  cmp_file_ops:
+    dependency: "direct main"
+    description:
+      path: "third_party/cmp_file_ops"
+      relative: true
+    source: path
+    version: "0.1.0"
   code_assets:
     dependency: transitive
     description:

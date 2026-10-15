@@ -8,6 +8,8 @@ environment:
   sdk: ^3.6.0
 
 dependencies:
+  cmp_file_ops:
+    path: third_party/cmp_file_ops
   audio_service: 0.18.19
   audio_session: 0.2.3
   crypto: ^3.0.6

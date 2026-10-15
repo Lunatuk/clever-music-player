@@ -41,4 +41,12 @@ abstract interface class DownloadJobRepository {
 
   /// Only expired leases: startup never steals work from another live runner.
   Future<int> recoverExpired({required DateTime now});
+
+  /// Holds SQLite's writer reservation while a SHORT physical effect is accepted.
+  /// Rechecks the full lease/session/folder after obtaining the reservation.
+  /// Never hash, download, decode or call another connection inside [action].
+  /// The filesystem effect cannot be rolled back with SQLite: journal first.
+  Future<T?> withOwnedDestination<T extends Object>(DownloadJob expected,
+      {required DateTime Function() clock,
+      required Future<T> Function(String destinationPath) action});
 }

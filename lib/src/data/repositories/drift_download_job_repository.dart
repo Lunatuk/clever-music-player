@@ -363,6 +363,29 @@ final class DriftDownloadJobRepository implements DownloadJobRepository {
   Future<int> recoverExpired({required DateTime now}) =>
       database.transaction(() => _recover(now));
 
+  @override
+  Future<T?> withOwnedDestination<T extends Object>(DownloadJob expected,
+          {required DateTime Function() clock,
+          required Future<T> Function(String destinationPath) action}) =>
+      database.transaction(() async {
+        // A deferred read transaction alone does not fence other connections.
+        // Acquire the SQLite writer reservation before reading ownership.
+        await database.customUpdate(
+            'UPDATE download_jobs SET revision = revision WHERE id = ?',
+            variables: [Variable.withInt(expected.id)],
+            updates: {});
+        if (!await _owned(expected, clock())) return null;
+        final folder = await (database.select(database.libraryFolders)
+              ..where((t) => t.id.equals(expected.key.libraryFolderId)))
+            .getSingle();
+        final acceptedAt = clock();
+        if (acceptedAt.isBefore(expected.updatedAt) ||
+            !expected.leaseUntil!.isAfter(acceptedAt)) {
+          return null;
+        }
+        return action(folder.path);
+      });
+
   Future<int> _recover(DateTime now) async {
     final rows = await (database.select(database.downloadJobs)
           ..where((t) =>

@@ -72,6 +72,14 @@ checks cover PNG/JPEG, corruption and truncation. Helper packaging and the Andro
 native backend remain subsequent work; ordinary playback does not run this module.
 See [new audio validation rules](docs/architecture/downloaded-audio-validation.md).
 
+Package 31 adds desktop staging, an immutable publication journal, OS resource
+locks and publication that refuses to replace an existing file. SQLite reserves
+its writer before checking the current lease/session/destination for a short
+physical effect; hashing and decoding stay outside that transaction. Explicit
+reconciliation verifies the final bytes after interrupted publication. A small
+bundled C asset captures OS errors before returning through Dart FFI. Import,
+network access and UI integration still follow. See [publication rules](docs/architecture/desktop-file-publication.md).
+
 Database schema v13 preserves existing track IDs and history. Metadata signatures
 are non-unique, feedback changes preserve listening counters, and playback events
 and their counters commit together. Retrying an event's operation ID does not

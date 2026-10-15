@@ -1,0 +1,10 @@
+name: cmp_file_ops
+description: Internal atomic filesystem operations with captured OS error codes.
+version: 0.1.0
+publish_to: none
+environment:
+  sdk: ^3.11.0
+dependencies:
+  code_assets: 1.0.0
+  hooks: 1.0.3
+  native_toolchain_c: 0.17.6

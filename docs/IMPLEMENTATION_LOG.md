@@ -1930,3 +1930,146 @@ CI Android build-number переключён на 30, desktop format включ�
 тегов/обложек, координатор/сеть/авторизация/кнопка. Android использует общую
 политику с отдельным нативным backend на своём этапе. Расписание позже,
 рекомендации отложены. [Контракт](architecture/downloaded-audio-validation.md).
+
+
+**15 октября 2026 — пакет 31, desktop staging и публикация без замены файлов**
+
+Пользователь подтвердил пакет 30 сообщением «все нормально». Добавлены
+DesktopPublicationStore/PublicationWorkspace, PublicationIntent/Receipt,
+NativePublicationFiles и локальный code asset cmp_file_ops. Ресурсы создаются
+только по явному run; startup/UI не подключают публикацию. Схема остаётся 13:
+AppDatabase и generated Dart совпадают SHA-256 с пакетом 30. Добавилась только
+локальная dependency cmp_file_ops, прежние hosted-версии lockfile не обновлялись.
+C asset использует уже зафиксированные code_assets 1.0.0, hooks 1.0.3,
+native_toolchain_c 0.17.6. Для установленного плеера компилятор не требуется.
+
+DownloadJobRepository.withOwnedDestination получает SQLite writer reservation
+через no-op UPDATE до полного CAS/lease/session/folder read. Время проверяется
+после reservation и перед callback; Job/revision не меняются. Второй writer,
+новый claim, отключение папки или смена аккаунта не опережают уже принятый
+короткий эффект. Hash/decode/сеть не входят в такую транзакцию. SQLite и ФС
+не становятся общей транзакцией: ошибка/rollback после физического эффекта
+оставляет работу для явной сверки. Начальный захват OS-lock неблокирующий,
+взаимного ожидания SQLite и занятого OS-lock нет.
+
+Управляемая .cmp-publications-v1 содержит фиксированный owner marker, постоянные
+lock-файлы и operation dirs с 256-битным случайным publicationId. ID/версии
+хэшируются для путей; quality/account/folder-row-ID не включаются в физический
+resource key, поэтому качества/алиасы назначения сериализуются. Чужая папка
+без маркера не присваивается. Компоненты проверяются без следования links,
+корень канонизируется; модуль не объявляется sandbox против враждебной подмены
+дерева между syscalls. Внешние процессы не должны изменять управляемую область.
+
+writeAudio создаёт только .part, проверяет точный размер до 8 ГиБ/диапазон байтов,
+пишет блоками до 256 КиБ, прерывает 16 пустых chunks, flush/close до возврата.
+Metadata writer и validator пакета 30 должны закончиться до publish. Проверяются
+running/publication, исходные job/key/session/token и proof текущей попытки.
+После read seal и полного SHA-256 сначала атомарно фиксируется immutable intent,
+затем под новой DB fence публикуется готовое имя без замены существующего файла.
+Совпавшие имена не присваиваются даже при одинаковых байтах. После возможного
+эффекта ошибки требуют reconciliation; исходные/готовые/чужие файлы автоматически
+не удаляются. Отмена после принятого переноса дренирует hash/receipt и сообщает
+реальную публикацию. Это не completed задания и не Track/asset import.
+
+Windows использует CreateFileW share mode 0 для назначения и READ/DELETE без
+WRITE sharing для seal, MoveFileExW без REPLACE_EXISTING/COPY_ALLOWED. Поддержаны
+UTF-16/extended paths. macOS/Linux C путь использует flock EX|NB, NOFOLLOW/CLOEXEC,
+link→unlink одной FS с EEXIST без замены. Advisory-ограничения Unix описаны;
+macOS/Linux физически здесь не запускались. Между link/unlink при сбое возможны
+две ссылки на один inode — восстановление отличает это от чужой копии.
+
+intent/published JSON immutable, canonical, до 16 КиБ, фиксированные поля/типы,
+без абсолютных путей, signed URL и credentials. Reconcile явно получает ID,
+проверяет ключ/job, фактические байты и marker. Оставшийся staging должен быть
+тем же inode, одинакового содержимого недостаточно. Отсутствие итогового файла
+не превращается в успех и не вызывает слепое копирование. Receipt получает
+свежее время проверки. pendingPublications bounded: 10 000 entries/256 текущих
+intent без усечения. GC/retention/квота ещё нужны до подключения public downloader.
+Flush и no-replace закрывают ошибки процесса; power-loss durability без
+испытаний питания/directory fsync не заявляется.
+
+В нативном слое тесты воспроизвели GetLastError=0 после отдельного FFI-вызова:
+ошибки collision/busy/создания каталога неверно классифицировались. Eager lookup
+помог части случаев, но не атомарности перехода VM. Операция+GetLastError/errno
+перенесены в маленький C bridge, возвращающий фиксированный числовой результат.
+С shim все 8 native filesystem сценариев проходят, включая два процесса и
+освобождение lock после kill владельца. Native call выполняется в worker,
+живой OS handle принадлежит workspace до дренирования. Забытый вызывающим
+Future также дренируется перед закрытием/освобождением lock. Admission commit
+failure после создания workspace не оставляет занятую блокировку.
+
+| Проверка | Результат |
+| --- | --- |
+| Финальный полный Flutter-набор | 1194 passed, 46 новых |
+| Новые сценарии | 8 native files + 28 workspace/journal + 10 SQLite fence/integration |
+| Root Flutter analyze | No issues found |
+| Отдельный Dart analyze cmp_file_ops | No issues found |
+| Форматирование lib/test/tool и shim lib/hook | 206 файлов, 0 изменений |
+| Drift generation | Успешно, первый 63,2 с, повтор 16.1 с; схема не изменилась |
+| Native Windows audio contract | MSVC compiled, protocol fixture matched |
+| Real FFmpeg 7.1 | 14 прежних synthetic media checks повторены и прошли |
+| Release C DLL smoke | DLL из готовой сборки загружена, mkdir/exclusion/seal/move/collision и сохранность байтов проверены |
+| Android arm64 release | Успешно, 115.0 с вместе с запуском процесса |
+| Native JVM | 15 passed, прежние 6 traversal + 9 fingerprint |
+| Native lint | 0 errors, 6 прежних warnings |
+| APK | CRC/v2 signature/ZIP и все ELF LOAD/RELRO 16 КиБ, включая libcmp_file_ops.so; signer совпадает с 30, versionCode 2031, target SDK 36, прежние permissions/service/notification/folder/fingerprint methods сохранены |
+| Windows x64 release | Успешно, 93.4 с вместе с запуском процесса |
+| Windows ZIP | 18 файлов, добавлен только cmp_file_ops.dll; exports/PE x64/CRC/байты payload, production SQLite mapping сохранён; test sidecar отсутствует |
+| Sidecar archive | Синтетическая проверка: JSON сохранён вне release-dir, DLL не затронута, повтор idempotent |
+
+Новые проверки включают обычную/racing коллизию без потери байтов, изменённый
+staging/target, exact stream/empty chunks, callback failure, old token/lease,
+потерю владения после intent, отказ до/после move/receipt, reopen/reconciliation,
+неполный/oversized journal, чужую управляемую папку, release после admission
+failure, сериализацию quality/folder aliases и независимость variants,
+late cancel после реального эффекта, stalled stream/forgotten Future/close,
+канонический JSON и точные ID, extended Windows paths, два OS-процесса и их
+завершение, два отдельных SQLite connections с проверкой clock после ожидания
+writer reservation, отказ UPDATE/rollback и отмену после принятого эффекта.
+Drift debug предупреждает о двух экземплярах БД в намеренном независимом
+connection-тесте; QueryExecutor у них различается, это проверяемая конфигурация.
+
+Первый полный прогон: 1193 passed + 1 failure в тестовом IPC marker. Родитель
+успевал увидеть файл до записи четырёх байтов held. Ожидание исправлено на
+содержимое marker, финальный повтор: 1194 passed. Ошибка была в синхронизации
+теста, не в native lock. Дочерний тест загружает уже собранный C asset через
+stdlib FFI и bare Dart с package_config; он не требует отдельного C build.
+Самостоятельный dart run в этой среде выбирал MSVC 14.44 и давал C1034 stdint.h
+из default toolchain discovery, тогда как Flutter-configured compiler успешно
+собирает shim. Pure-Dart FFmpeg tool выполнен напрямую Dart VM с --packages,
+без ненужного повторного build hooks; все 14 checks прошли. Установленный плеер
+использует упакованный asset и не зависит от локального MSVC/Dart CLI.
+
+Сборочная копия %LOCALAPPDATA%/CleverMusicPlayerBuilds/core31-20261015.
+359 исходных файлов сверены SHA-256 после обеих сборок; после финальных
+тестов/сборок product/test/hook/C source не менялись. Flutter tests шли только
+в рабочем дереве, не release-копии. Прежние Windows warnings resolve_symlinks.ps1
+(скрытый AppData)/jni C4090 и Android SDK XML warning сохранены. Пользовательские
+музыка/SQLite/профиль не читались и не менялись; тестовые каталоги свои systemTemp.
+Native asset bridge проверен в APK/ZIP, FFmpeg/download helper пока не вложен.
+
+Desktop CI форматирует shim и архивирует test-only native_assets.json до release,
+не удаляя DLL: иначе абсолютные тестовые пути могли попасть в продукт. Android
+CI build-number 31. Удалённый CI-статус не проверялся. macOS/Linux/Android SAF
+publication/физический телефон не проверялись. Android ABI/упаковка C asset
+проверены, но desktop store не заменяет SAF-публикацию. Пользовательские ручные
+проверки пакета 31 ещё не получены; достаточно Windows track/restart, телефон
+можно оставить на уже проверенной версии.
+
+Логи .dart_tool/core31-full-tests-final.log, core31-analyze-final.log,
+core31-shim-analyze.log, core31-format-final.log, core31-filesystem-targeted.log,
+core31-native-files-initial.log, core31-native-files-after-error-fix.log,
+core31-native-files-shim.log, core31-fence-tests.log, core31-process-lock-final.log,
+core31-native-windows-protocol.log, core31-native-media-final.log,
+core31-source-manifest.json, core31-build-result.json, core31-verify-result.json,
+core31-package.json, core31-apk-*.log; release/native логи в сборочной копии.
+
+Артефакты:
+
+- dist/clever-music-player-core-31-android-arm64.apk: 20830818 байт, SHA-256 5269d9eee1111b966cadd826ee2ab2cfa98979ced55db6a86037441603d6df26.
+- dist/clever-music-player-core-31-windows-x64.zip: 14424693 байт, SHA-256 1c6cd7d21ac02838f416ee8304d0f14bb4a6a149cd5dde1ba7cdb4a4acec6ff0.
+- dist/clever-music-player-core-31-checks.txt, manual-checks.txt и .sha256.
+
+Далее комплект desktop-помощника/запись тегов и обложек, координатор и атомарный
+Track/ref/asset import, retention журнала, сеть/вход/коллекции/кнопка. Android
+SAF-публикация отдельная; рекомендации отложены. [Контракт](architecture/desktop-file-publication.md).
