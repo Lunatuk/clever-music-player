@@ -1,5 +1,6 @@
 export 'app_repositories.dart';
 export 'external_track_repository.dart';
+export 'downloaded_asset_repository.dart';
 export 'library_repository.dart';
 export 'playback_event_repository.dart';
 export 'playlist_repository.dart';

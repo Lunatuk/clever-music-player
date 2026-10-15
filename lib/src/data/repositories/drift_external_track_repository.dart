@@ -103,9 +103,18 @@ final class DriftExternalTrackRepository implements ExternalTrackRepository {
   @override
   Future<void> unlink(int trackId, ExternalTrackIdentity identity) async {
     _validateTrackId(trackId);
-    await (database.delete(database.externalTrackRefs)
-          ..where((t) => _matches(t, trackId, identity)))
-        .go();
+    await database.transaction(() async {
+      await (database.delete(database.downloadedAssets)
+            ..where((t) =>
+                t.trackId.equals(trackId) &
+                t.provider.equals(identity.provider) &
+                t.externalId.equals(identity.externalId) &
+                t.variantKey.equals(identity.variantKey)))
+          .go();
+      await (database.delete(database.externalTrackRefs)
+            ..where((t) => _matches(t, trackId, identity)))
+          .go();
+    });
   }
 
   static Expression<bool> _identityMatches(

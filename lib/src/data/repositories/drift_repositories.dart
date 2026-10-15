@@ -5,6 +5,7 @@ import '../../domain/repositories/repositories.dart';
 import '../drift/app_database.dart';
 import '../drift/drift_mappers.dart';
 import 'drift_external_track_repository.dart';
+import 'drift_downloaded_asset_repository.dart';
 
 final class DriftRepositories implements AppRepositories {
   DriftRepositories(AppDatabase database)
@@ -12,6 +13,7 @@ final class DriftRepositories implements AppRepositories {
         libraryFolders = DriftLibraryRepository(database),
         tracks = DriftTrackRepository(database),
         externalTracks = DriftExternalTrackRepository(database),
+        downloadedAssets = DriftDownloadedAssetRepository(database),
         playlists = DriftPlaylistRepository(database),
         playbackEvents = DriftPlaybackEventRepository(database),
         trackUserState = DriftTrackUserStateRepository(database),
@@ -27,6 +29,9 @@ final class DriftRepositories implements AppRepositories {
 
   @override
   final ExternalTrackRepository externalTracks;
+
+  @override
+  final DownloadedAssetRepository downloadedAssets;
 
   @override
   final PlaylistRepository playlists;
@@ -436,6 +441,9 @@ final class DriftTrackRepository
         return;
       }
 
+      await (_database.delete(_database.downloadedAssets)
+            ..where((table) => table.trackId.isIn(trackIds)))
+          .go();
       await (_database.delete(_database.externalTrackRefs)
             ..where((table) => table.trackId.isIn(trackIds)))
           .go();
@@ -458,6 +466,9 @@ final class DriftTrackRepository
   @override
   Future<void> deleteTrack(int id) async {
     await _database.transaction(() async {
+      await (_database.delete(_database.downloadedAssets)
+            ..where((table) => table.trackId.equals(id)))
+          .go();
       await (_database.delete(_database.externalTrackRefs)
             ..where((table) => table.trackId.equals(id)))
           .go();

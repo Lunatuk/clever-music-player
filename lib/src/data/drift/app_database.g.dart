@@ -4095,6 +4095,775 @@ class ExternalTrackRefsCompanion extends UpdateCompanion<ExternalTrackRefRow> {
   }
 }
 
+class $DownloadedAssetsTable extends DownloadedAssets
+    with TableInfo<$DownloadedAssetsTable, DownloadedAssetRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $DownloadedAssetsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _trackIdMeta =
+      const VerificationMeta('trackId');
+  @override
+  late final GeneratedColumn<int> trackId = GeneratedColumn<int>(
+      'track_id', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultConstraints: GeneratedColumn.constraintIsAlways(
+          'REFERENCES tracks (id) ON DELETE CASCADE'));
+  static const VerificationMeta _providerMeta =
+      const VerificationMeta('provider');
+  @override
+  late final GeneratedColumn<String> provider = GeneratedColumn<String>(
+      'provider', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _externalIdMeta =
+      const VerificationMeta('externalId');
+  @override
+  late final GeneratedColumn<String> externalId = GeneratedColumn<String>(
+      'external_id', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _variantKeyMeta =
+      const VerificationMeta('variantKey');
+  @override
+  late final GeneratedColumn<String> variantKey = GeneratedColumn<String>(
+      'variant_key', aliasedName, false,
+      type: DriftSqlType.string,
+      requiredDuringInsert: false,
+      defaultValue: const Constant(''));
+  static const VerificationMeta _sourceMeta = const VerificationMeta('source');
+  @override
+  late final GeneratedColumn<String> source = GeneratedColumn<String>(
+      'source', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _publicationIdMeta =
+      const VerificationMeta('publicationId');
+  @override
+  late final GeneratedColumn<String> publicationId = GeneratedColumn<String>(
+      'publication_id', aliasedName, false,
+      type: DriftSqlType.string,
+      requiredDuringInsert: true,
+      defaultConstraints: GeneratedColumn.constraintIsAlways('UNIQUE'));
+  static const VerificationMeta _requestedQualityMeta =
+      const VerificationMeta('requestedQuality');
+  @override
+  late final GeneratedColumn<String> requestedQuality = GeneratedColumn<String>(
+      'requested_quality', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _actualQualityMeta =
+      const VerificationMeta('actualQuality');
+  @override
+  late final GeneratedColumn<String> actualQuality = GeneratedColumn<String>(
+      'actual_quality', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _containerMeta =
+      const VerificationMeta('container');
+  @override
+  late final GeneratedColumn<String> container = GeneratedColumn<String>(
+      'container', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _codecMeta = const VerificationMeta('codec');
+  @override
+  late final GeneratedColumn<String> codec = GeneratedColumn<String>(
+      'codec', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _fileSizeBytesMeta =
+      const VerificationMeta('fileSizeBytes');
+  @override
+  late final GeneratedColumn<int> fileSizeBytes = GeneratedColumn<int>(
+      'file_size_bytes', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: true);
+  static const VerificationMeta _durationMsMeta =
+      const VerificationMeta('durationMs');
+  @override
+  late final GeneratedColumn<int> durationMs = GeneratedColumn<int>(
+      'duration_ms', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: true);
+  static const VerificationMeta _contentHashMeta =
+      const VerificationMeta('contentHash');
+  @override
+  late final GeneratedColumn<String> contentHash = GeneratedColumn<String>(
+      'content_hash', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _verifiedAtMicrosMeta =
+      const VerificationMeta('verifiedAtMicros');
+  @override
+  late final GeneratedColumn<int> verifiedAtMicros = GeneratedColumn<int>(
+      'verified_at_micros', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: true);
+  static const VerificationMeta _stateMeta = const VerificationMeta('state');
+  @override
+  late final GeneratedColumn<String> state = GeneratedColumn<String>(
+      'state', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _revisionMeta =
+      const VerificationMeta('revision');
+  @override
+  late final GeneratedColumn<int> revision = GeneratedColumn<int>(
+      'revision', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultValue: const Constant(1));
+  @override
+  List<GeneratedColumn> get $columns => [
+        trackId,
+        provider,
+        externalId,
+        variantKey,
+        source,
+        publicationId,
+        requestedQuality,
+        actualQuality,
+        container,
+        codec,
+        fileSizeBytes,
+        durationMs,
+        contentHash,
+        verifiedAtMicros,
+        state,
+        revision
+      ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'downloaded_assets';
+  @override
+  VerificationContext validateIntegrity(Insertable<DownloadedAssetRow> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('track_id')) {
+      context.handle(_trackIdMeta,
+          trackId.isAcceptableOrUnknown(data['track_id']!, _trackIdMeta));
+    }
+    if (data.containsKey('provider')) {
+      context.handle(_providerMeta,
+          provider.isAcceptableOrUnknown(data['provider']!, _providerMeta));
+    } else if (isInserting) {
+      context.missing(_providerMeta);
+    }
+    if (data.containsKey('external_id')) {
+      context.handle(
+          _externalIdMeta,
+          externalId.isAcceptableOrUnknown(
+              data['external_id']!, _externalIdMeta));
+    } else if (isInserting) {
+      context.missing(_externalIdMeta);
+    }
+    if (data.containsKey('variant_key')) {
+      context.handle(
+          _variantKeyMeta,
+          variantKey.isAcceptableOrUnknown(
+              data['variant_key']!, _variantKeyMeta));
+    }
+    if (data.containsKey('source')) {
+      context.handle(_sourceMeta,
+          source.isAcceptableOrUnknown(data['source']!, _sourceMeta));
+    } else if (isInserting) {
+      context.missing(_sourceMeta);
+    }
+    if (data.containsKey('publication_id')) {
+      context.handle(
+          _publicationIdMeta,
+          publicationId.isAcceptableOrUnknown(
+              data['publication_id']!, _publicationIdMeta));
+    } else if (isInserting) {
+      context.missing(_publicationIdMeta);
+    }
+    if (data.containsKey('requested_quality')) {
+      context.handle(
+          _requestedQualityMeta,
+          requestedQuality.isAcceptableOrUnknown(
+              data['requested_quality']!, _requestedQualityMeta));
+    } else if (isInserting) {
+      context.missing(_requestedQualityMeta);
+    }
+    if (data.containsKey('actual_quality')) {
+      context.handle(
+          _actualQualityMeta,
+          actualQuality.isAcceptableOrUnknown(
+              data['actual_quality']!, _actualQualityMeta));
+    } else if (isInserting) {
+      context.missing(_actualQualityMeta);
+    }
+    if (data.containsKey('container')) {
+      context.handle(_containerMeta,
+          container.isAcceptableOrUnknown(data['container']!, _containerMeta));
+    } else if (isInserting) {
+      context.missing(_containerMeta);
+    }
+    if (data.containsKey('codec')) {
+      context.handle(
+          _codecMeta, codec.isAcceptableOrUnknown(data['codec']!, _codecMeta));
+    } else if (isInserting) {
+      context.missing(_codecMeta);
+    }
+    if (data.containsKey('file_size_bytes')) {
+      context.handle(
+          _fileSizeBytesMeta,
+          fileSizeBytes.isAcceptableOrUnknown(
+              data['file_size_bytes']!, _fileSizeBytesMeta));
+    } else if (isInserting) {
+      context.missing(_fileSizeBytesMeta);
+    }
+    if (data.containsKey('duration_ms')) {
+      context.handle(
+          _durationMsMeta,
+          durationMs.isAcceptableOrUnknown(
+              data['duration_ms']!, _durationMsMeta));
+    } else if (isInserting) {
+      context.missing(_durationMsMeta);
+    }
+    if (data.containsKey('content_hash')) {
+      context.handle(
+          _contentHashMeta,
+          contentHash.isAcceptableOrUnknown(
+              data['content_hash']!, _contentHashMeta));
+    } else if (isInserting) {
+      context.missing(_contentHashMeta);
+    }
+    if (data.containsKey('verified_at_micros')) {
+      context.handle(
+          _verifiedAtMicrosMeta,
+          verifiedAtMicros.isAcceptableOrUnknown(
+              data['verified_at_micros']!, _verifiedAtMicrosMeta));
+    } else if (isInserting) {
+      context.missing(_verifiedAtMicrosMeta);
+    }
+    if (data.containsKey('state')) {
+      context.handle(
+          _stateMeta, state.isAcceptableOrUnknown(data['state']!, _stateMeta));
+    } else if (isInserting) {
+      context.missing(_stateMeta);
+    }
+    if (data.containsKey('revision')) {
+      context.handle(_revisionMeta,
+          revision.isAcceptableOrUnknown(data['revision']!, _revisionMeta));
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {trackId};
+  @override
+  DownloadedAssetRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return DownloadedAssetRow(
+      trackId: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}track_id'])!,
+      provider: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}provider'])!,
+      externalId: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}external_id'])!,
+      variantKey: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}variant_key'])!,
+      source: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}source'])!,
+      publicationId: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}publication_id'])!,
+      requestedQuality: attachedDatabase.typeMapping.read(
+          DriftSqlType.string, data['${effectivePrefix}requested_quality'])!,
+      actualQuality: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}actual_quality'])!,
+      container: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}container'])!,
+      codec: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}codec'])!,
+      fileSizeBytes: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}file_size_bytes'])!,
+      durationMs: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}duration_ms'])!,
+      contentHash: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}content_hash'])!,
+      verifiedAtMicros: attachedDatabase.typeMapping.read(
+          DriftSqlType.int, data['${effectivePrefix}verified_at_micros'])!,
+      state: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}state'])!,
+      revision: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}revision'])!,
+    );
+  }
+
+  @override
+  $DownloadedAssetsTable createAlias(String alias) {
+    return $DownloadedAssetsTable(attachedDatabase, alias);
+  }
+}
+
+class DownloadedAssetRow extends DataClass
+    implements Insertable<DownloadedAssetRow> {
+  final int trackId;
+  final String provider;
+  final String externalId;
+  final String variantKey;
+  final String source;
+  final String publicationId;
+  final String requestedQuality;
+  final String actualQuality;
+  final String container;
+  final String codec;
+  final int fileSizeBytes;
+  final int durationMs;
+  final String contentHash;
+  final int verifiedAtMicros;
+  final String state;
+  final int revision;
+  const DownloadedAssetRow(
+      {required this.trackId,
+      required this.provider,
+      required this.externalId,
+      required this.variantKey,
+      required this.source,
+      required this.publicationId,
+      required this.requestedQuality,
+      required this.actualQuality,
+      required this.container,
+      required this.codec,
+      required this.fileSizeBytes,
+      required this.durationMs,
+      required this.contentHash,
+      required this.verifiedAtMicros,
+      required this.state,
+      required this.revision});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['track_id'] = Variable<int>(trackId);
+    map['provider'] = Variable<String>(provider);
+    map['external_id'] = Variable<String>(externalId);
+    map['variant_key'] = Variable<String>(variantKey);
+    map['source'] = Variable<String>(source);
+    map['publication_id'] = Variable<String>(publicationId);
+    map['requested_quality'] = Variable<String>(requestedQuality);
+    map['actual_quality'] = Variable<String>(actualQuality);
+    map['container'] = Variable<String>(container);
+    map['codec'] = Variable<String>(codec);
+    map['file_size_bytes'] = Variable<int>(fileSizeBytes);
+    map['duration_ms'] = Variable<int>(durationMs);
+    map['content_hash'] = Variable<String>(contentHash);
+    map['verified_at_micros'] = Variable<int>(verifiedAtMicros);
+    map['state'] = Variable<String>(state);
+    map['revision'] = Variable<int>(revision);
+    return map;
+  }
+
+  DownloadedAssetsCompanion toCompanion(bool nullToAbsent) {
+    return DownloadedAssetsCompanion(
+      trackId: Value(trackId),
+      provider: Value(provider),
+      externalId: Value(externalId),
+      variantKey: Value(variantKey),
+      source: Value(source),
+      publicationId: Value(publicationId),
+      requestedQuality: Value(requestedQuality),
+      actualQuality: Value(actualQuality),
+      container: Value(container),
+      codec: Value(codec),
+      fileSizeBytes: Value(fileSizeBytes),
+      durationMs: Value(durationMs),
+      contentHash: Value(contentHash),
+      verifiedAtMicros: Value(verifiedAtMicros),
+      state: Value(state),
+      revision: Value(revision),
+    );
+  }
+
+  factory DownloadedAssetRow.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return DownloadedAssetRow(
+      trackId: serializer.fromJson<int>(json['trackId']),
+      provider: serializer.fromJson<String>(json['provider']),
+      externalId: serializer.fromJson<String>(json['externalId']),
+      variantKey: serializer.fromJson<String>(json['variantKey']),
+      source: serializer.fromJson<String>(json['source']),
+      publicationId: serializer.fromJson<String>(json['publicationId']),
+      requestedQuality: serializer.fromJson<String>(json['requestedQuality']),
+      actualQuality: serializer.fromJson<String>(json['actualQuality']),
+      container: serializer.fromJson<String>(json['container']),
+      codec: serializer.fromJson<String>(json['codec']),
+      fileSizeBytes: serializer.fromJson<int>(json['fileSizeBytes']),
+      durationMs: serializer.fromJson<int>(json['durationMs']),
+      contentHash: serializer.fromJson<String>(json['contentHash']),
+      verifiedAtMicros: serializer.fromJson<int>(json['verifiedAtMicros']),
+      state: serializer.fromJson<String>(json['state']),
+      revision: serializer.fromJson<int>(json['revision']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'trackId': serializer.toJson<int>(trackId),
+      'provider': serializer.toJson<String>(provider),
+      'externalId': serializer.toJson<String>(externalId),
+      'variantKey': serializer.toJson<String>(variantKey),
+      'source': serializer.toJson<String>(source),
+      'publicationId': serializer.toJson<String>(publicationId),
+      'requestedQuality': serializer.toJson<String>(requestedQuality),
+      'actualQuality': serializer.toJson<String>(actualQuality),
+      'container': serializer.toJson<String>(container),
+      'codec': serializer.toJson<String>(codec),
+      'fileSizeBytes': serializer.toJson<int>(fileSizeBytes),
+      'durationMs': serializer.toJson<int>(durationMs),
+      'contentHash': serializer.toJson<String>(contentHash),
+      'verifiedAtMicros': serializer.toJson<int>(verifiedAtMicros),
+      'state': serializer.toJson<String>(state),
+      'revision': serializer.toJson<int>(revision),
+    };
+  }
+
+  DownloadedAssetRow copyWith(
+          {int? trackId,
+          String? provider,
+          String? externalId,
+          String? variantKey,
+          String? source,
+          String? publicationId,
+          String? requestedQuality,
+          String? actualQuality,
+          String? container,
+          String? codec,
+          int? fileSizeBytes,
+          int? durationMs,
+          String? contentHash,
+          int? verifiedAtMicros,
+          String? state,
+          int? revision}) =>
+      DownloadedAssetRow(
+        trackId: trackId ?? this.trackId,
+        provider: provider ?? this.provider,
+        externalId: externalId ?? this.externalId,
+        variantKey: variantKey ?? this.variantKey,
+        source: source ?? this.source,
+        publicationId: publicationId ?? this.publicationId,
+        requestedQuality: requestedQuality ?? this.requestedQuality,
+        actualQuality: actualQuality ?? this.actualQuality,
+        container: container ?? this.container,
+        codec: codec ?? this.codec,
+        fileSizeBytes: fileSizeBytes ?? this.fileSizeBytes,
+        durationMs: durationMs ?? this.durationMs,
+        contentHash: contentHash ?? this.contentHash,
+        verifiedAtMicros: verifiedAtMicros ?? this.verifiedAtMicros,
+        state: state ?? this.state,
+        revision: revision ?? this.revision,
+      );
+  DownloadedAssetRow copyWithCompanion(DownloadedAssetsCompanion data) {
+    return DownloadedAssetRow(
+      trackId: data.trackId.present ? data.trackId.value : this.trackId,
+      provider: data.provider.present ? data.provider.value : this.provider,
+      externalId:
+          data.externalId.present ? data.externalId.value : this.externalId,
+      variantKey:
+          data.variantKey.present ? data.variantKey.value : this.variantKey,
+      source: data.source.present ? data.source.value : this.source,
+      publicationId: data.publicationId.present
+          ? data.publicationId.value
+          : this.publicationId,
+      requestedQuality: data.requestedQuality.present
+          ? data.requestedQuality.value
+          : this.requestedQuality,
+      actualQuality: data.actualQuality.present
+          ? data.actualQuality.value
+          : this.actualQuality,
+      container: data.container.present ? data.container.value : this.container,
+      codec: data.codec.present ? data.codec.value : this.codec,
+      fileSizeBytes: data.fileSizeBytes.present
+          ? data.fileSizeBytes.value
+          : this.fileSizeBytes,
+      durationMs:
+          data.durationMs.present ? data.durationMs.value : this.durationMs,
+      contentHash:
+          data.contentHash.present ? data.contentHash.value : this.contentHash,
+      verifiedAtMicros: data.verifiedAtMicros.present
+          ? data.verifiedAtMicros.value
+          : this.verifiedAtMicros,
+      state: data.state.present ? data.state.value : this.state,
+      revision: data.revision.present ? data.revision.value : this.revision,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('DownloadedAssetRow(')
+          ..write('trackId: $trackId, ')
+          ..write('provider: $provider, ')
+          ..write('externalId: $externalId, ')
+          ..write('variantKey: $variantKey, ')
+          ..write('source: $source, ')
+          ..write('publicationId: $publicationId, ')
+          ..write('requestedQuality: $requestedQuality, ')
+          ..write('actualQuality: $actualQuality, ')
+          ..write('container: $container, ')
+          ..write('codec: $codec, ')
+          ..write('fileSizeBytes: $fileSizeBytes, ')
+          ..write('durationMs: $durationMs, ')
+          ..write('contentHash: $contentHash, ')
+          ..write('verifiedAtMicros: $verifiedAtMicros, ')
+          ..write('state: $state, ')
+          ..write('revision: $revision')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+      trackId,
+      provider,
+      externalId,
+      variantKey,
+      source,
+      publicationId,
+      requestedQuality,
+      actualQuality,
+      container,
+      codec,
+      fileSizeBytes,
+      durationMs,
+      contentHash,
+      verifiedAtMicros,
+      state,
+      revision);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is DownloadedAssetRow &&
+          other.trackId == this.trackId &&
+          other.provider == this.provider &&
+          other.externalId == this.externalId &&
+          other.variantKey == this.variantKey &&
+          other.source == this.source &&
+          other.publicationId == this.publicationId &&
+          other.requestedQuality == this.requestedQuality &&
+          other.actualQuality == this.actualQuality &&
+          other.container == this.container &&
+          other.codec == this.codec &&
+          other.fileSizeBytes == this.fileSizeBytes &&
+          other.durationMs == this.durationMs &&
+          other.contentHash == this.contentHash &&
+          other.verifiedAtMicros == this.verifiedAtMicros &&
+          other.state == this.state &&
+          other.revision == this.revision);
+}
+
+class DownloadedAssetsCompanion extends UpdateCompanion<DownloadedAssetRow> {
+  final Value<int> trackId;
+  final Value<String> provider;
+  final Value<String> externalId;
+  final Value<String> variantKey;
+  final Value<String> source;
+  final Value<String> publicationId;
+  final Value<String> requestedQuality;
+  final Value<String> actualQuality;
+  final Value<String> container;
+  final Value<String> codec;
+  final Value<int> fileSizeBytes;
+  final Value<int> durationMs;
+  final Value<String> contentHash;
+  final Value<int> verifiedAtMicros;
+  final Value<String> state;
+  final Value<int> revision;
+  const DownloadedAssetsCompanion({
+    this.trackId = const Value.absent(),
+    this.provider = const Value.absent(),
+    this.externalId = const Value.absent(),
+    this.variantKey = const Value.absent(),
+    this.source = const Value.absent(),
+    this.publicationId = const Value.absent(),
+    this.requestedQuality = const Value.absent(),
+    this.actualQuality = const Value.absent(),
+    this.container = const Value.absent(),
+    this.codec = const Value.absent(),
+    this.fileSizeBytes = const Value.absent(),
+    this.durationMs = const Value.absent(),
+    this.contentHash = const Value.absent(),
+    this.verifiedAtMicros = const Value.absent(),
+    this.state = const Value.absent(),
+    this.revision = const Value.absent(),
+  });
+  DownloadedAssetsCompanion.insert({
+    this.trackId = const Value.absent(),
+    required String provider,
+    required String externalId,
+    this.variantKey = const Value.absent(),
+    required String source,
+    required String publicationId,
+    required String requestedQuality,
+    required String actualQuality,
+    required String container,
+    required String codec,
+    required int fileSizeBytes,
+    required int durationMs,
+    required String contentHash,
+    required int verifiedAtMicros,
+    required String state,
+    this.revision = const Value.absent(),
+  })  : provider = Value(provider),
+        externalId = Value(externalId),
+        source = Value(source),
+        publicationId = Value(publicationId),
+        requestedQuality = Value(requestedQuality),
+        actualQuality = Value(actualQuality),
+        container = Value(container),
+        codec = Value(codec),
+        fileSizeBytes = Value(fileSizeBytes),
+        durationMs = Value(durationMs),
+        contentHash = Value(contentHash),
+        verifiedAtMicros = Value(verifiedAtMicros),
+        state = Value(state);
+  static Insertable<DownloadedAssetRow> custom({
+    Expression<int>? trackId,
+    Expression<String>? provider,
+    Expression<String>? externalId,
+    Expression<String>? variantKey,
+    Expression<String>? source,
+    Expression<String>? publicationId,
+    Expression<String>? requestedQuality,
+    Expression<String>? actualQuality,
+    Expression<String>? container,
+    Expression<String>? codec,
+    Expression<int>? fileSizeBytes,
+    Expression<int>? durationMs,
+    Expression<String>? contentHash,
+    Expression<int>? verifiedAtMicros,
+    Expression<String>? state,
+    Expression<int>? revision,
+  }) {
+    return RawValuesInsertable({
+      if (trackId != null) 'track_id': trackId,
+      if (provider != null) 'provider': provider,
+      if (externalId != null) 'external_id': externalId,
+      if (variantKey != null) 'variant_key': variantKey,
+      if (source != null) 'source': source,
+      if (publicationId != null) 'publication_id': publicationId,
+      if (requestedQuality != null) 'requested_quality': requestedQuality,
+      if (actualQuality != null) 'actual_quality': actualQuality,
+      if (container != null) 'container': container,
+      if (codec != null) 'codec': codec,
+      if (fileSizeBytes != null) 'file_size_bytes': fileSizeBytes,
+      if (durationMs != null) 'duration_ms': durationMs,
+      if (contentHash != null) 'content_hash': contentHash,
+      if (verifiedAtMicros != null) 'verified_at_micros': verifiedAtMicros,
+      if (state != null) 'state': state,
+      if (revision != null) 'revision': revision,
+    });
+  }
+
+  DownloadedAssetsCompanion copyWith(
+      {Value<int>? trackId,
+      Value<String>? provider,
+      Value<String>? externalId,
+      Value<String>? variantKey,
+      Value<String>? source,
+      Value<String>? publicationId,
+      Value<String>? requestedQuality,
+      Value<String>? actualQuality,
+      Value<String>? container,
+      Value<String>? codec,
+      Value<int>? fileSizeBytes,
+      Value<int>? durationMs,
+      Value<String>? contentHash,
+      Value<int>? verifiedAtMicros,
+      Value<String>? state,
+      Value<int>? revision}) {
+    return DownloadedAssetsCompanion(
+      trackId: trackId ?? this.trackId,
+      provider: provider ?? this.provider,
+      externalId: externalId ?? this.externalId,
+      variantKey: variantKey ?? this.variantKey,
+      source: source ?? this.source,
+      publicationId: publicationId ?? this.publicationId,
+      requestedQuality: requestedQuality ?? this.requestedQuality,
+      actualQuality: actualQuality ?? this.actualQuality,
+      container: container ?? this.container,
+      codec: codec ?? this.codec,
+      fileSizeBytes: fileSizeBytes ?? this.fileSizeBytes,
+      durationMs: durationMs ?? this.durationMs,
+      contentHash: contentHash ?? this.contentHash,
+      verifiedAtMicros: verifiedAtMicros ?? this.verifiedAtMicros,
+      state: state ?? this.state,
+      revision: revision ?? this.revision,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (trackId.present) {
+      map['track_id'] = Variable<int>(trackId.value);
+    }
+    if (provider.present) {
+      map['provider'] = Variable<String>(provider.value);
+    }
+    if (externalId.present) {
+      map['external_id'] = Variable<String>(externalId.value);
+    }
+    if (variantKey.present) {
+      map['variant_key'] = Variable<String>(variantKey.value);
+    }
+    if (source.present) {
+      map['source'] = Variable<String>(source.value);
+    }
+    if (publicationId.present) {
+      map['publication_id'] = Variable<String>(publicationId.value);
+    }
+    if (requestedQuality.present) {
+      map['requested_quality'] = Variable<String>(requestedQuality.value);
+    }
+    if (actualQuality.present) {
+      map['actual_quality'] = Variable<String>(actualQuality.value);
+    }
+    if (container.present) {
+      map['container'] = Variable<String>(container.value);
+    }
+    if (codec.present) {
+      map['codec'] = Variable<String>(codec.value);
+    }
+    if (fileSizeBytes.present) {
+      map['file_size_bytes'] = Variable<int>(fileSizeBytes.value);
+    }
+    if (durationMs.present) {
+      map['duration_ms'] = Variable<int>(durationMs.value);
+    }
+    if (contentHash.present) {
+      map['content_hash'] = Variable<String>(contentHash.value);
+    }
+    if (verifiedAtMicros.present) {
+      map['verified_at_micros'] = Variable<int>(verifiedAtMicros.value);
+    }
+    if (state.present) {
+      map['state'] = Variable<String>(state.value);
+    }
+    if (revision.present) {
+      map['revision'] = Variable<int>(revision.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('DownloadedAssetsCompanion(')
+          ..write('trackId: $trackId, ')
+          ..write('provider: $provider, ')
+          ..write('externalId: $externalId, ')
+          ..write('variantKey: $variantKey, ')
+          ..write('source: $source, ')
+          ..write('publicationId: $publicationId, ')
+          ..write('requestedQuality: $requestedQuality, ')
+          ..write('actualQuality: $actualQuality, ')
+          ..write('container: $container, ')
+          ..write('codec: $codec, ')
+          ..write('fileSizeBytes: $fileSizeBytes, ')
+          ..write('durationMs: $durationMs, ')
+          ..write('contentHash: $contentHash, ')
+          ..write('verifiedAtMicros: $verifiedAtMicros, ')
+          ..write('state: $state, ')
+          ..write('revision: $revision')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -4108,6 +4877,8 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $AppSettingsTable appSettings = $AppSettingsTable(this);
   late final $ExternalTrackRefsTable externalTrackRefs =
       $ExternalTrackRefsTable(this);
+  late final $DownloadedAssetsTable downloadedAssets =
+      $DownloadedAssetsTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -4120,7 +4891,8 @@ abstract class _$AppDatabase extends GeneratedDatabase {
         playbackEvents,
         trackUserStates,
         appSettings,
-        externalTrackRefs
+        externalTrackRefs,
+        downloadedAssets
       ];
   @override
   StreamQueryUpdateRules get streamUpdateRules => const StreamQueryUpdateRules(
@@ -4165,6 +4937,13 @@ abstract class _$AppDatabase extends GeneratedDatabase {
                 limitUpdateKind: UpdateKind.delete),
             result: [
               TableUpdate('external_track_refs', kind: UpdateKind.delete),
+            ],
+          ),
+          WritePropagation(
+            on: TableUpdateQuery.onTableName('tracks',
+                limitUpdateKind: UpdateKind.delete),
+            result: [
+              TableUpdate('downloaded_assets', kind: UpdateKind.delete),
             ],
           ),
         ],
@@ -4613,6 +5392,23 @@ final class $$TracksTableReferences
     return ProcessedTableManager(
         manager.$state.copyWith(prefetchedData: cache));
   }
+
+  static MultiTypedResultKey<$DownloadedAssetsTable, List<DownloadedAssetRow>>
+      _downloadedAssetsRefsTable(_$AppDatabase db) =>
+          MultiTypedResultKey.fromTable(db.downloadedAssets,
+              aliasName: $_aliasNameGenerator(
+                  db.tracks.id, db.downloadedAssets.trackId));
+
+  $$DownloadedAssetsTableProcessedTableManager get downloadedAssetsRefs {
+    final manager =
+        $$DownloadedAssetsTableTableManager($_db, $_db.downloadedAssets)
+            .filter((f) => f.trackId.id.sqlEquals($_itemColumn<int>('id')!));
+
+    final cache =
+        $_typedResult.readTableOrNull(_downloadedAssetsRefsTable($_db));
+    return ProcessedTableManager(
+        manager.$state.copyWith(prefetchedData: cache));
+  }
 }
 
 class $$TracksTableFilterComposer
@@ -4810,6 +5606,27 @@ class $$TracksTableFilterComposer
             $$ExternalTrackRefsTableFilterComposer(
               $db: $db,
               $table: $db.externalTrackRefs,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return f(composer);
+  }
+
+  Expression<bool> downloadedAssetsRefs(
+      Expression<bool> Function($$DownloadedAssetsTableFilterComposer f) f) {
+    final $$DownloadedAssetsTableFilterComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.id,
+        referencedTable: $db.downloadedAssets,
+        getReferencedColumn: (t) => t.trackId,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$DownloadedAssetsTableFilterComposer(
+              $db: $db,
+              $table: $db.downloadedAssets,
               $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
               joinBuilder: joinBuilder,
               $removeJoinBuilderFromRootComposer:
@@ -5137,6 +5954,27 @@ class $$TracksTableAnnotationComposer
                 ));
     return f(composer);
   }
+
+  Expression<T> downloadedAssetsRefs<T extends Object>(
+      Expression<T> Function($$DownloadedAssetsTableAnnotationComposer a) f) {
+    final $$DownloadedAssetsTableAnnotationComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.id,
+        referencedTable: $db.downloadedAssets,
+        getReferencedColumn: (t) => t.trackId,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$DownloadedAssetsTableAnnotationComposer(
+              $db: $db,
+              $table: $db.downloadedAssets,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return f(composer);
+  }
 }
 
 class $$TracksTableTableManager extends RootTableManager<
@@ -5155,7 +5993,8 @@ class $$TracksTableTableManager extends RootTableManager<
         bool playlistTracksRefs,
         bool playbackEventsRefs,
         bool trackUserStatesRefs,
-        bool externalTrackRefsRefs})> {
+        bool externalTrackRefsRefs,
+        bool downloadedAssetsRefs})> {
   $$TracksTableTableManager(_$AppDatabase db, $TracksTable table)
       : super(TableManagerState(
           db: db,
@@ -5299,14 +6138,16 @@ class $$TracksTableTableManager extends RootTableManager<
               playlistTracksRefs = false,
               playbackEventsRefs = false,
               trackUserStatesRefs = false,
-              externalTrackRefsRefs = false}) {
+              externalTrackRefsRefs = false,
+              downloadedAssetsRefs = false}) {
             return PrefetchHooks(
               db: db,
               explicitlyWatchedTables: [
                 if (playlistTracksRefs) db.playlistTracks,
                 if (playbackEventsRefs) db.playbackEvents,
                 if (trackUserStatesRefs) db.trackUserStates,
-                if (externalTrackRefsRefs) db.externalTrackRefs
+                if (externalTrackRefsRefs) db.externalTrackRefs,
+                if (downloadedAssetsRefs) db.downloadedAssets
               ],
               addJoins: <
                   T extends TableManagerState<
@@ -5387,6 +6228,19 @@ class $$TracksTableTableManager extends RootTableManager<
                         referencedItemsForCurrentItem: (item,
                                 referencedItems) =>
                             referencedItems.where((e) => e.trackId == item.id),
+                        typedResults: items),
+                  if (downloadedAssetsRefs)
+                    await $_getPrefetchedData<TrackRow, $TracksTable,
+                            DownloadedAssetRow>(
+                        currentTable: table,
+                        referencedTable: $$TracksTableReferences
+                            ._downloadedAssetsRefsTable(db),
+                        managerFromTypedResult: (p0) =>
+                            $$TracksTableReferences(db, table, p0)
+                                .downloadedAssetsRefs,
+                        referencedItemsForCurrentItem: (item,
+                                referencedItems) =>
+                            referencedItems.where((e) => e.trackId == item.id),
                         typedResults: items)
                 ];
               },
@@ -5411,7 +6265,8 @@ typedef $$TracksTableProcessedTableManager = ProcessedTableManager<
         bool playlistTracksRefs,
         bool playbackEventsRefs,
         bool trackUserStatesRefs,
-        bool externalTrackRefsRefs})>;
+        bool externalTrackRefsRefs,
+        bool downloadedAssetsRefs})>;
 typedef $$PlaylistsTableCreateCompanionBuilder = PlaylistsCompanion Function({
   Value<int> id,
   required String name,
@@ -7163,6 +8018,448 @@ typedef $$ExternalTrackRefsTableProcessedTableManager = ProcessedTableManager<
     (ExternalTrackRefRow, $$ExternalTrackRefsTableReferences),
     ExternalTrackRefRow,
     PrefetchHooks Function({bool trackId})>;
+typedef $$DownloadedAssetsTableCreateCompanionBuilder
+    = DownloadedAssetsCompanion Function({
+  Value<int> trackId,
+  required String provider,
+  required String externalId,
+  Value<String> variantKey,
+  required String source,
+  required String publicationId,
+  required String requestedQuality,
+  required String actualQuality,
+  required String container,
+  required String codec,
+  required int fileSizeBytes,
+  required int durationMs,
+  required String contentHash,
+  required int verifiedAtMicros,
+  required String state,
+  Value<int> revision,
+});
+typedef $$DownloadedAssetsTableUpdateCompanionBuilder
+    = DownloadedAssetsCompanion Function({
+  Value<int> trackId,
+  Value<String> provider,
+  Value<String> externalId,
+  Value<String> variantKey,
+  Value<String> source,
+  Value<String> publicationId,
+  Value<String> requestedQuality,
+  Value<String> actualQuality,
+  Value<String> container,
+  Value<String> codec,
+  Value<int> fileSizeBytes,
+  Value<int> durationMs,
+  Value<String> contentHash,
+  Value<int> verifiedAtMicros,
+  Value<String> state,
+  Value<int> revision,
+});
+
+final class $$DownloadedAssetsTableReferences extends BaseReferences<
+    _$AppDatabase, $DownloadedAssetsTable, DownloadedAssetRow> {
+  $$DownloadedAssetsTableReferences(
+      super.$_db, super.$_table, super.$_typedResult);
+
+  static $TracksTable _trackIdTable(_$AppDatabase db) => db.tracks.createAlias(
+      $_aliasNameGenerator(db.downloadedAssets.trackId, db.tracks.id));
+
+  $$TracksTableProcessedTableManager get trackId {
+    final $_column = $_itemColumn<int>('track_id')!;
+
+    final manager = $$TracksTableTableManager($_db, $_db.tracks)
+        .filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_trackIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+        manager.$state.copyWith(prefetchedData: [item]));
+  }
+}
+
+class $$DownloadedAssetsTableFilterComposer
+    extends Composer<_$AppDatabase, $DownloadedAssetsTable> {
+  $$DownloadedAssetsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get provider => $composableBuilder(
+      column: $table.provider, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get externalId => $composableBuilder(
+      column: $table.externalId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get variantKey => $composableBuilder(
+      column: $table.variantKey, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get source => $composableBuilder(
+      column: $table.source, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get publicationId => $composableBuilder(
+      column: $table.publicationId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get requestedQuality => $composableBuilder(
+      column: $table.requestedQuality,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get actualQuality => $composableBuilder(
+      column: $table.actualQuality, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get container => $composableBuilder(
+      column: $table.container, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get codec => $composableBuilder(
+      column: $table.codec, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get fileSizeBytes => $composableBuilder(
+      column: $table.fileSizeBytes, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get durationMs => $composableBuilder(
+      column: $table.durationMs, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get contentHash => $composableBuilder(
+      column: $table.contentHash, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get verifiedAtMicros => $composableBuilder(
+      column: $table.verifiedAtMicros,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get state => $composableBuilder(
+      column: $table.state, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get revision => $composableBuilder(
+      column: $table.revision, builder: (column) => ColumnFilters(column));
+
+  $$TracksTableFilterComposer get trackId {
+    final $$TracksTableFilterComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.trackId,
+        referencedTable: $db.tracks,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$TracksTableFilterComposer(
+              $db: $db,
+              $table: $db.tracks,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+}
+
+class $$DownloadedAssetsTableOrderingComposer
+    extends Composer<_$AppDatabase, $DownloadedAssetsTable> {
+  $$DownloadedAssetsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get provider => $composableBuilder(
+      column: $table.provider, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get externalId => $composableBuilder(
+      column: $table.externalId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get variantKey => $composableBuilder(
+      column: $table.variantKey, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get source => $composableBuilder(
+      column: $table.source, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get publicationId => $composableBuilder(
+      column: $table.publicationId,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get requestedQuality => $composableBuilder(
+      column: $table.requestedQuality,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get actualQuality => $composableBuilder(
+      column: $table.actualQuality,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get container => $composableBuilder(
+      column: $table.container, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get codec => $composableBuilder(
+      column: $table.codec, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get fileSizeBytes => $composableBuilder(
+      column: $table.fileSizeBytes,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get durationMs => $composableBuilder(
+      column: $table.durationMs, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get contentHash => $composableBuilder(
+      column: $table.contentHash, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get verifiedAtMicros => $composableBuilder(
+      column: $table.verifiedAtMicros,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get state => $composableBuilder(
+      column: $table.state, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get revision => $composableBuilder(
+      column: $table.revision, builder: (column) => ColumnOrderings(column));
+
+  $$TracksTableOrderingComposer get trackId {
+    final $$TracksTableOrderingComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.trackId,
+        referencedTable: $db.tracks,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$TracksTableOrderingComposer(
+              $db: $db,
+              $table: $db.tracks,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+}
+
+class $$DownloadedAssetsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $DownloadedAssetsTable> {
+  $$DownloadedAssetsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get provider =>
+      $composableBuilder(column: $table.provider, builder: (column) => column);
+
+  GeneratedColumn<String> get externalId => $composableBuilder(
+      column: $table.externalId, builder: (column) => column);
+
+  GeneratedColumn<String> get variantKey => $composableBuilder(
+      column: $table.variantKey, builder: (column) => column);
+
+  GeneratedColumn<String> get source =>
+      $composableBuilder(column: $table.source, builder: (column) => column);
+
+  GeneratedColumn<String> get publicationId => $composableBuilder(
+      column: $table.publicationId, builder: (column) => column);
+
+  GeneratedColumn<String> get requestedQuality => $composableBuilder(
+      column: $table.requestedQuality, builder: (column) => column);
+
+  GeneratedColumn<String> get actualQuality => $composableBuilder(
+      column: $table.actualQuality, builder: (column) => column);
+
+  GeneratedColumn<String> get container =>
+      $composableBuilder(column: $table.container, builder: (column) => column);
+
+  GeneratedColumn<String> get codec =>
+      $composableBuilder(column: $table.codec, builder: (column) => column);
+
+  GeneratedColumn<int> get fileSizeBytes => $composableBuilder(
+      column: $table.fileSizeBytes, builder: (column) => column);
+
+  GeneratedColumn<int> get durationMs => $composableBuilder(
+      column: $table.durationMs, builder: (column) => column);
+
+  GeneratedColumn<String> get contentHash => $composableBuilder(
+      column: $table.contentHash, builder: (column) => column);
+
+  GeneratedColumn<int> get verifiedAtMicros => $composableBuilder(
+      column: $table.verifiedAtMicros, builder: (column) => column);
+
+  GeneratedColumn<String> get state =>
+      $composableBuilder(column: $table.state, builder: (column) => column);
+
+  GeneratedColumn<int> get revision =>
+      $composableBuilder(column: $table.revision, builder: (column) => column);
+
+  $$TracksTableAnnotationComposer get trackId {
+    final $$TracksTableAnnotationComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.trackId,
+        referencedTable: $db.tracks,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$TracksTableAnnotationComposer(
+              $db: $db,
+              $table: $db.tracks,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+}
+
+class $$DownloadedAssetsTableTableManager extends RootTableManager<
+    _$AppDatabase,
+    $DownloadedAssetsTable,
+    DownloadedAssetRow,
+    $$DownloadedAssetsTableFilterComposer,
+    $$DownloadedAssetsTableOrderingComposer,
+    $$DownloadedAssetsTableAnnotationComposer,
+    $$DownloadedAssetsTableCreateCompanionBuilder,
+    $$DownloadedAssetsTableUpdateCompanionBuilder,
+    (DownloadedAssetRow, $$DownloadedAssetsTableReferences),
+    DownloadedAssetRow,
+    PrefetchHooks Function({bool trackId})> {
+  $$DownloadedAssetsTableTableManager(
+      _$AppDatabase db, $DownloadedAssetsTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$DownloadedAssetsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$DownloadedAssetsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$DownloadedAssetsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<int> trackId = const Value.absent(),
+            Value<String> provider = const Value.absent(),
+            Value<String> externalId = const Value.absent(),
+            Value<String> variantKey = const Value.absent(),
+            Value<String> source = const Value.absent(),
+            Value<String> publicationId = const Value.absent(),
+            Value<String> requestedQuality = const Value.absent(),
+            Value<String> actualQuality = const Value.absent(),
+            Value<String> container = const Value.absent(),
+            Value<String> codec = const Value.absent(),
+            Value<int> fileSizeBytes = const Value.absent(),
+            Value<int> durationMs = const Value.absent(),
+            Value<String> contentHash = const Value.absent(),
+            Value<int> verifiedAtMicros = const Value.absent(),
+            Value<String> state = const Value.absent(),
+            Value<int> revision = const Value.absent(),
+          }) =>
+              DownloadedAssetsCompanion(
+            trackId: trackId,
+            provider: provider,
+            externalId: externalId,
+            variantKey: variantKey,
+            source: source,
+            publicationId: publicationId,
+            requestedQuality: requestedQuality,
+            actualQuality: actualQuality,
+            container: container,
+            codec: codec,
+            fileSizeBytes: fileSizeBytes,
+            durationMs: durationMs,
+            contentHash: contentHash,
+            verifiedAtMicros: verifiedAtMicros,
+            state: state,
+            revision: revision,
+          ),
+          createCompanionCallback: ({
+            Value<int> trackId = const Value.absent(),
+            required String provider,
+            required String externalId,
+            Value<String> variantKey = const Value.absent(),
+            required String source,
+            required String publicationId,
+            required String requestedQuality,
+            required String actualQuality,
+            required String container,
+            required String codec,
+            required int fileSizeBytes,
+            required int durationMs,
+            required String contentHash,
+            required int verifiedAtMicros,
+            required String state,
+            Value<int> revision = const Value.absent(),
+          }) =>
+              DownloadedAssetsCompanion.insert(
+            trackId: trackId,
+            provider: provider,
+            externalId: externalId,
+            variantKey: variantKey,
+            source: source,
+            publicationId: publicationId,
+            requestedQuality: requestedQuality,
+            actualQuality: actualQuality,
+            container: container,
+            codec: codec,
+            fileSizeBytes: fileSizeBytes,
+            durationMs: durationMs,
+            contentHash: contentHash,
+            verifiedAtMicros: verifiedAtMicros,
+            state: state,
+            revision: revision,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (
+                    e.readTable(table),
+                    $$DownloadedAssetsTableReferences(db, table, e)
+                  ))
+              .toList(),
+          prefetchHooksCallback: ({trackId = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [],
+              addJoins: <
+                  T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic>>(state) {
+                if (trackId) {
+                  state = state.withJoin(
+                    currentTable: table,
+                    currentColumn: table.trackId,
+                    referencedTable:
+                        $$DownloadedAssetsTableReferences._trackIdTable(db),
+                    referencedColumn:
+                        $$DownloadedAssetsTableReferences._trackIdTable(db).id,
+                  ) as T;
+                }
+
+                return state;
+              },
+              getPrefetchedDataCallback: (items) async {
+                return [];
+              },
+            );
+          },
+        ));
+}
+
+typedef $$DownloadedAssetsTableProcessedTableManager = ProcessedTableManager<
+    _$AppDatabase,
+    $DownloadedAssetsTable,
+    DownloadedAssetRow,
+    $$DownloadedAssetsTableFilterComposer,
+    $$DownloadedAssetsTableOrderingComposer,
+    $$DownloadedAssetsTableAnnotationComposer,
+    $$DownloadedAssetsTableCreateCompanionBuilder,
+    $$DownloadedAssetsTableUpdateCompanionBuilder,
+    (DownloadedAssetRow, $$DownloadedAssetsTableReferences),
+    DownloadedAssetRow,
+    PrefetchHooks Function({bool trackId})>;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -7183,4 +8480,6 @@ class $AppDatabaseManager {
       $$AppSettingsTableTableManager(_db, _db.appSettings);
   $$ExternalTrackRefsTableTableManager get externalTrackRefs =>
       $$ExternalTrackRefsTableTableManager(_db, _db.externalTrackRefs);
+  $$DownloadedAssetsTableTableManager get downloadedAssets =>
+      $$DownloadedAssetsTableTableManager(_db, _db.downloadedAssets);
 }

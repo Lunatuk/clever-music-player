@@ -140,6 +140,34 @@ class ExternalTrackRefs extends Table {
   Set<Column> get primaryKey => {trackId, provider, externalId, variantKey};
 }
 
+@DataClassName('DownloadedAssetRow')
+class DownloadedAssets extends Table {
+  IntColumn get trackId =>
+      integer().references(Tracks, #id, onDelete: KeyAction.cascade)();
+  TextColumn get provider => text()();
+  TextColumn get externalId => text()();
+  TextColumn get variantKey => text().withDefault(const Constant(''))();
+  TextColumn get source => text()();
+  TextColumn get publicationId => text().unique()();
+  TextColumn get requestedQuality => text()();
+  TextColumn get actualQuality => text()();
+  TextColumn get container => text()();
+  TextColumn get codec => text()();
+  IntColumn get fileSizeBytes => integer()();
+  IntColumn get durationMs => integer()();
+  TextColumn get contentHash => text()();
+  IntColumn get verifiedAtMicros => integer()();
+  TextColumn get state => text()();
+  IntColumn get revision => integer().withDefault(const Constant(1))();
+  @override
+  Set<Column> get primaryKey => {trackId};
+  @override
+  List<String> get customConstraints => [
+        'FOREIGN KEY (track_id, provider, external_id, variant_key) REFERENCES '
+            'external_track_refs(track_id, provider, external_id, variant_key) ON DELETE CASCADE'
+      ];
+}
+
 @DriftDatabase(
   tables: [
     LibraryFolders,
@@ -150,6 +178,7 @@ class ExternalTrackRefs extends Table {
     TrackUserStates,
     AppSettings,
     ExternalTrackRefs,
+    DownloadedAssets,
   ],
 )
 class AppDatabase extends _$AppDatabase {
@@ -163,7 +192,7 @@ class AppDatabase extends _$AppDatabase {
       AppDatabase(_openConnection(diagnostics), diagnostics: diagnostics);
 
   @override
-  int get schemaVersion => 10;
+  int get schemaVersion => 11;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -229,6 +258,9 @@ class AppDatabase extends _$AppDatabase {
                   if (from < 10) {
                     await migrator.createTable(externalTrackRefs);
                   }
+                  if (from < 11) {
+                    await migrator.createTable(downloadedAssets);
+                  }
                   await _createIndexes();
                   // Commit the version marker with the DDL so an interruption cannot
                   // leave new columns with an old version and break the next upgrade.
@@ -266,6 +298,10 @@ class AppDatabase extends _$AppDatabase {
   }
 
   Future<void> _createIndexes() async {
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_downloaded_assets_identity '
+      'ON downloaded_assets(provider, external_id, variant_key, actual_quality, state, track_id);',
+    );
     await customStatement(
       'CREATE INDEX IF NOT EXISTS idx_external_track_refs_identity '
       'ON external_track_refs(provider, external_id, variant_key, track_id);',

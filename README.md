@@ -30,10 +30,17 @@ Package 24 introduces provider IDs with optional album/version context, provenan
 and exact, indexed lookup. Several independent local copies can share an external
 ID; matching names never creates associations. Bounded writes are atomic and
 idempotent. Existing records and user data survive migration from schemas 1-9.
-This is groundwork for Yandex synchronization; account access, downloading and
-verified asset tracking are subsequent work. See [identity rules](docs/architecture/external-track-identities.md).
+This is groundwork for Yandex synchronization; account access and downloading
+are subsequent work. See [identity rules](docs/architecture/external-track-identities.md).
 
-Database schema v10 preserves existing track IDs and history. Metadata signatures
+Package 25 records completed publications, their actual format/quality and file
+verification evidence separately from external identities. Replays are idempotent;
+snapshot checks reject stale operations. Candidate reuse respects the destination,
+source, known file properties and availability, and still requires a current OS/file
+check. No existing music is marked as a verified download during migration.
+See [downloaded asset rules](docs/architecture/downloaded-assets.md).
+
+Database schema v11 preserves existing track IDs and history. Metadata signatures
 are non-unique, feedback changes preserve listening counters, and playback events
 and their counters commit together. Retrying an event's operation ID does not
 count it twice. Keep a consistent SQLite backup before upgrading; use a
@@ -84,9 +91,9 @@ are available in the prototype; URI hashing and bulk library import remain
 separate work. Background audio uses the existing shared runtime.
 See [the source reference contract](docs/architecture/audio-source-references.md).
 
-## Android preview (package 24)
+## Android preview (package 25)
 
-`dist/clever-music-player-core-24-android-arm64.apk` updates **Clever Music Preview**
+`dist/clever-music-player-core-25-android-arm64.apk` updates **Clever Music Preview**
 in its own Android sandbox. The compact screen selects up to 64 audio documents
 at a time through the system picker, stores read-only persistent grants and uses
 the shared database/player/queue. Re-selecting the same URI keeps the existing
@@ -112,8 +119,8 @@ queue and Wave history. Notification/lock-screen/headset commands control this
 runtime. Audio interruptions and headphone removal pause both crossfade decks;
 resume explicitly with Play. Stop ends playback and removes the notification.
 This is a debug-signed release-mode prototype, not the final design or store release.
-Package 24 also provides `dist/clever-music-player-core-24-windows-x64.zip`.
-Both platforms use schema 10 with separate external track associations.
+Package 25 also provides `dist/clever-music-player-core-25-windows-x64.zip`.
+Both platforms use schema 11 with separate external identities and downloaded asset evidence.
 See [targeted checks](docs/MANUAL_CHECKS.md)
 and [background playback contract](docs/architecture/android-background-playback.md).
 

@@ -16,6 +16,7 @@ const _tables = [
   'playlist_tracks',
   'app_settings',
   'external_track_refs',
+  'downloaded_assets',
 ];
 
 typedef _Snapshot = Map<String, List<Map<String, Object?>>>;
@@ -23,7 +24,7 @@ typedef _Snapshot = Map<String, List<Map<String, Object?>>>;
 void main() {
   final schemaV7 = File('test/fixtures/schema_v7.sql').readAsStringSync();
 
-  for (var version = 1; version <= 9; version++) {
+  for (var version = 1; version <= 10; version++) {
     test('schema v$version upgrades without changing existing rows or IDs',
         () async {
       late _Snapshot before;
@@ -56,6 +57,30 @@ void main() {
       expect((await repository.findById(41))?.filePath, '/music/original.mp3');
     });
   }
+
+  test(
+      'v10 external references survive but are not manufactured into downloads',
+      () async {
+    late _Snapshot before;
+    final database = AppDatabase(NativeDatabase.memory(setup: (raw) {
+      _createHistoricalSchema(raw.execute, schemaV7, 10);
+      _seedHistoricalData(raw.execute, 10);
+      before = _snapshot((sql) =>
+          [for (final row in raw.select(sql)) Map<String, Object?>.of(row)]);
+    }));
+    addTearDown(database.close);
+    await _verifyUpgrade(database, () => before);
+    final repositories = DriftRepositories(database);
+    final refs = await repositories.externalTracks.listForTrack(41);
+    expect(refs.single.identity.externalId, '00041');
+    expect(refs.single.identity.variantKey, 'album:live');
+    expect(refs.single.origin.storageKey, 'manual');
+    expect(await repositories.downloadedAssets.findForTrack(41), isNull);
+    expect(
+        await repositories.downloadedAssets.findCandidates(refs.single.identity,
+            quality: 'high', libraryFolderId: 3),
+        isEmpty);
+  });
 
   test(
       'v9 Android ownership, URI, genre, settings and user data survive upgrade',
@@ -92,7 +117,7 @@ void main() {
     expect(await repository.externalTracks.listForTrack(42), isEmpty);
   });
 
-  for (final failurePoint in ['external-index', 'version']) {
+  for (final failurePoint in ['external-index', 'asset-index', 'version']) {
     test('fresh schema creation rolls back after $failurePoint failure',
         () async {
       final dir =
@@ -124,11 +149,11 @@ void main() {
       expect(
           (await retry.customSelect('PRAGMA user_version').getSingle())
               .read<int>('user_version'),
-          10);
+          11);
     });
   }
 
-  test('schema v10 remains valid after closing and reopening a migrated file',
+  test('schema v11 remains valid after closing and reopening a migrated file',
       () async {
     final directory =
         await Directory.systemTemp.createTemp('clever_schema_reopen_');
@@ -153,7 +178,7 @@ void main() {
     expect(
         (await reopened.customSelect('PRAGMA user_version').getSingle())
             .read<int>('user_version'),
-        10);
+        11);
     final repositories = DriftRepositories(reopened);
     final original = (await repositories.tracks.findById(41))!;
     await repositories.tracks.upsertTrack(
@@ -171,11 +196,12 @@ void main() {
         hasLength(1));
   });
 
-  for (final version in [1, 7, 8, 9]) {
+  for (final version in [1, 7, 8, 9, 10]) {
     for (final failurePoint in [
       'index',
       'operation-index',
       'external-index',
+      'asset-index',
       'version'
     ]) {
       test(
@@ -208,6 +234,7 @@ void main() {
         late bool hasStableIdAfterFailure;
         late bool hasOperationIdAfterFailure;
         late bool hasExternalRefsAfterFailure;
+        late bool hasAssetsAfterFailure;
         final retry = AppDatabase(NativeDatabase(
           file,
           setup: (raw) {
@@ -228,6 +255,10 @@ void main() {
                 .select(
                     "SELECT name FROM sqlite_master WHERE name = 'external_track_refs'")
                 .isNotEmpty;
+            hasAssetsAfterFailure = raw
+                .select(
+                    "SELECT name FROM sqlite_master WHERE name = 'downloaded_assets'")
+                .isNotEmpty;
           },
         ));
         addTearDown(retry.close);
@@ -238,11 +269,12 @@ void main() {
             uniqueAfterFailure, version == 1 ? isNull : (version < 8 ? 1 : 0));
         expect(hasStableIdAfterFailure, version >= 2);
         expect(hasOperationIdAfterFailure, version >= 9);
-        expect(hasExternalRefsAfterFailure, isFalse);
+        expect(hasExternalRefsAfterFailure, version >= 10);
+        expect(hasAssetsAfterFailure, isFalse);
         expect(
             (await retry.customSelect('PRAGMA user_version').getSingle())
                 .read<int>('user_version'),
-            10);
+            11);
       });
     }
   }
@@ -294,6 +326,12 @@ class _FailingMigrationDatabase extends AppDatabase {
       throw StateError('Simulated interruption after adding operation_id');
     }
     await super.customStatement(statement, args);
+    if (failurePoint == 'asset-index' &&
+        statement.startsWith(
+            'CREATE INDEX IF NOT EXISTS idx_downloaded_assets_identity ')) {
+      throw StateError('Simulated interruption after adding downloaded assets');
+    }
+
     if (failurePoint == 'external-index' &&
         statement.startsWith(
             'CREATE INDEX IF NOT EXISTS idx_external_track_refs_identity ')) {
@@ -325,7 +363,7 @@ Future<void> _verifyUpgrade(
   expect(
       (await database.customSelect('PRAGMA user_version').getSingle())
           .read<int>('user_version'),
-      10);
+      11);
   for (final entry in getBefore().entries) {
     final table = entry.key;
     final oldRows = entry.value;
@@ -371,8 +409,8 @@ void _createHistoricalSchema(
   String schemaV7,
   int version,
 ) {
-  final schema = version == 9
-      ? File('test/fixtures/schema_v9.sql').readAsStringSync()
+  final schema = version >= 9
+      ? File('test/fixtures/schema_v$version.sql').readAsStringSync()
       : schemaV7;
   for (final sql in schema.split(';')) {
     if (sql.trim().isNotEmpty) {
@@ -456,6 +494,10 @@ void _seedHistoricalData(void Function(String) execute, int version) {
   if (version >= 6) {
     execute("UPDATE tracks SET artwork_path = '/app/artwork/cover.png', "
         "artwork_hash = 'embedded-hash', artwork_mime_type = 'image/png'");
+  }
+  if (version >= 10) {
+    execute(
+        "INSERT INTO external_track_refs (track_id, provider, external_id, variant_key, origin, linked_at) VALUES (41, 'yandex_music', '00041', 'album:live', 'manual', 2)");
   }
   if (version >= 9) {
     execute("UPDATE playback_events SET operation_id = 'legacy-event-9'");

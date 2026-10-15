@@ -1444,6 +1444,10 @@ final class _FakeAppRepositories implements AppRepositories {
       'External identities are not used by this UI fixture.');
 
   @override
+  DownloadedAssetRepository get downloadedAssets => throw UnsupportedError(
+      'Downloaded assets are not used by this UI fixture.');
+
+  @override
   final PlaybackEventRepository playbackEvents;
 
   @override
