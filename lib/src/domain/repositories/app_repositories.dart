@@ -1,6 +1,7 @@
 import 'library_repository.dart';
 import 'external_track_repository.dart';
 import 'downloaded_asset_repository.dart';
+import 'remote_library_repository.dart';
 import 'playback_event_repository.dart';
 import 'playlist_repository.dart';
 import 'settings_repository.dart';
@@ -15,6 +16,8 @@ abstract interface class AppRepositories {
   ExternalTrackRepository get externalTracks;
 
   DownloadedAssetRepository get downloadedAssets;
+
+  RemoteLibraryRepository get remoteLibrary;
 
   PlaybackEventRepository get playbackEvents;
 

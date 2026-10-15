@@ -170,7 +170,7 @@ void main() {
             filePath: 'content://provider/document/Song/One')));
   });
 
-  test('schema 11 persists both address types and distinguishes provider IDs',
+  test('schema 12 persists both address types and distinguishes provider IDs',
       () async {
     final database = AppDatabase(NativeDatabase.memory());
     addTearDown(database.close);
@@ -196,7 +196,7 @@ void main() {
     expect(
         (await database.customSelect('PRAGMA user_version').getSingle())
             .read<int>('user_version'),
-        11);
+        12);
   });
 
   test(

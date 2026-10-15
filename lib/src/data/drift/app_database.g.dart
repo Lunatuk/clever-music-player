@@ -4864,6 +4864,1211 @@ class DownloadedAssetsCompanion extends UpdateCompanion<DownloadedAssetRow> {
   }
 }
 
+class $RemoteAccountsTable extends RemoteAccounts
+    with TableInfo<$RemoteAccountsTable, RemoteAccountRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $RemoteAccountsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+      'id', aliasedName, false,
+      hasAutoIncrement: true,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultConstraints:
+          GeneratedColumn.constraintIsAlways('PRIMARY KEY AUTOINCREMENT'));
+  static const VerificationMeta _providerMeta =
+      const VerificationMeta('provider');
+  @override
+  late final GeneratedColumn<String> provider = GeneratedColumn<String>(
+      'provider', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _accountIdMeta =
+      const VerificationMeta('accountId');
+  @override
+  late final GeneratedColumn<String> accountId = GeneratedColumn<String>(
+      'account_id', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _displayNameMeta =
+      const VerificationMeta('displayName');
+  @override
+  late final GeneratedColumn<String> displayName = GeneratedColumn<String>(
+      'display_name', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _isActiveMeta =
+      const VerificationMeta('isActive');
+  @override
+  late final GeneratedColumn<bool> isActive = GeneratedColumn<bool>(
+      'is_active', aliasedName, false,
+      type: DriftSqlType.bool,
+      requiredDuringInsert: true,
+      defaultConstraints:
+          GeneratedColumn.constraintIsAlways('CHECK ("is_active" IN (0, 1))'));
+  static const VerificationMeta _revisionMeta =
+      const VerificationMeta('revision');
+  @override
+  late final GeneratedColumn<int> revision = GeneratedColumn<int>(
+      'revision', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: true);
+  @override
+  List<GeneratedColumn> get $columns =>
+      [id, provider, accountId, displayName, isActive, revision];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'remote_accounts';
+  @override
+  VerificationContext validateIntegrity(Insertable<RemoteAccountRow> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('provider')) {
+      context.handle(_providerMeta,
+          provider.isAcceptableOrUnknown(data['provider']!, _providerMeta));
+    } else if (isInserting) {
+      context.missing(_providerMeta);
+    }
+    if (data.containsKey('account_id')) {
+      context.handle(_accountIdMeta,
+          accountId.isAcceptableOrUnknown(data['account_id']!, _accountIdMeta));
+    } else if (isInserting) {
+      context.missing(_accountIdMeta);
+    }
+    if (data.containsKey('display_name')) {
+      context.handle(
+          _displayNameMeta,
+          displayName.isAcceptableOrUnknown(
+              data['display_name']!, _displayNameMeta));
+    }
+    if (data.containsKey('is_active')) {
+      context.handle(_isActiveMeta,
+          isActive.isAcceptableOrUnknown(data['is_active']!, _isActiveMeta));
+    } else if (isInserting) {
+      context.missing(_isActiveMeta);
+    }
+    if (data.containsKey('revision')) {
+      context.handle(_revisionMeta,
+          revision.isAcceptableOrUnknown(data['revision']!, _revisionMeta));
+    } else if (isInserting) {
+      context.missing(_revisionMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  RemoteAccountRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return RemoteAccountRow(
+      id: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}id'])!,
+      provider: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}provider'])!,
+      accountId: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}account_id'])!,
+      displayName: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}display_name']),
+      isActive: attachedDatabase.typeMapping
+          .read(DriftSqlType.bool, data['${effectivePrefix}is_active'])!,
+      revision: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}revision'])!,
+    );
+  }
+
+  @override
+  $RemoteAccountsTable createAlias(String alias) {
+    return $RemoteAccountsTable(attachedDatabase, alias);
+  }
+}
+
+class RemoteAccountRow extends DataClass
+    implements Insertable<RemoteAccountRow> {
+  final int id;
+  final String provider;
+  final String accountId;
+  final String? displayName;
+  final bool isActive;
+  final int revision;
+  const RemoteAccountRow(
+      {required this.id,
+      required this.provider,
+      required this.accountId,
+      this.displayName,
+      required this.isActive,
+      required this.revision});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['provider'] = Variable<String>(provider);
+    map['account_id'] = Variable<String>(accountId);
+    if (!nullToAbsent || displayName != null) {
+      map['display_name'] = Variable<String>(displayName);
+    }
+    map['is_active'] = Variable<bool>(isActive);
+    map['revision'] = Variable<int>(revision);
+    return map;
+  }
+
+  RemoteAccountsCompanion toCompanion(bool nullToAbsent) {
+    return RemoteAccountsCompanion(
+      id: Value(id),
+      provider: Value(provider),
+      accountId: Value(accountId),
+      displayName: displayName == null && nullToAbsent
+          ? const Value.absent()
+          : Value(displayName),
+      isActive: Value(isActive),
+      revision: Value(revision),
+    );
+  }
+
+  factory RemoteAccountRow.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return RemoteAccountRow(
+      id: serializer.fromJson<int>(json['id']),
+      provider: serializer.fromJson<String>(json['provider']),
+      accountId: serializer.fromJson<String>(json['accountId']),
+      displayName: serializer.fromJson<String?>(json['displayName']),
+      isActive: serializer.fromJson<bool>(json['isActive']),
+      revision: serializer.fromJson<int>(json['revision']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'provider': serializer.toJson<String>(provider),
+      'accountId': serializer.toJson<String>(accountId),
+      'displayName': serializer.toJson<String?>(displayName),
+      'isActive': serializer.toJson<bool>(isActive),
+      'revision': serializer.toJson<int>(revision),
+    };
+  }
+
+  RemoteAccountRow copyWith(
+          {int? id,
+          String? provider,
+          String? accountId,
+          Value<String?> displayName = const Value.absent(),
+          bool? isActive,
+          int? revision}) =>
+      RemoteAccountRow(
+        id: id ?? this.id,
+        provider: provider ?? this.provider,
+        accountId: accountId ?? this.accountId,
+        displayName: displayName.present ? displayName.value : this.displayName,
+        isActive: isActive ?? this.isActive,
+        revision: revision ?? this.revision,
+      );
+  RemoteAccountRow copyWithCompanion(RemoteAccountsCompanion data) {
+    return RemoteAccountRow(
+      id: data.id.present ? data.id.value : this.id,
+      provider: data.provider.present ? data.provider.value : this.provider,
+      accountId: data.accountId.present ? data.accountId.value : this.accountId,
+      displayName:
+          data.displayName.present ? data.displayName.value : this.displayName,
+      isActive: data.isActive.present ? data.isActive.value : this.isActive,
+      revision: data.revision.present ? data.revision.value : this.revision,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('RemoteAccountRow(')
+          ..write('id: $id, ')
+          ..write('provider: $provider, ')
+          ..write('accountId: $accountId, ')
+          ..write('displayName: $displayName, ')
+          ..write('isActive: $isActive, ')
+          ..write('revision: $revision')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(id, provider, accountId, displayName, isActive, revision);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is RemoteAccountRow &&
+          other.id == this.id &&
+          other.provider == this.provider &&
+          other.accountId == this.accountId &&
+          other.displayName == this.displayName &&
+          other.isActive == this.isActive &&
+          other.revision == this.revision);
+}
+
+class RemoteAccountsCompanion extends UpdateCompanion<RemoteAccountRow> {
+  final Value<int> id;
+  final Value<String> provider;
+  final Value<String> accountId;
+  final Value<String?> displayName;
+  final Value<bool> isActive;
+  final Value<int> revision;
+  const RemoteAccountsCompanion({
+    this.id = const Value.absent(),
+    this.provider = const Value.absent(),
+    this.accountId = const Value.absent(),
+    this.displayName = const Value.absent(),
+    this.isActive = const Value.absent(),
+    this.revision = const Value.absent(),
+  });
+  RemoteAccountsCompanion.insert({
+    this.id = const Value.absent(),
+    required String provider,
+    required String accountId,
+    this.displayName = const Value.absent(),
+    required bool isActive,
+    required int revision,
+  })  : provider = Value(provider),
+        accountId = Value(accountId),
+        isActive = Value(isActive),
+        revision = Value(revision);
+  static Insertable<RemoteAccountRow> custom({
+    Expression<int>? id,
+    Expression<String>? provider,
+    Expression<String>? accountId,
+    Expression<String>? displayName,
+    Expression<bool>? isActive,
+    Expression<int>? revision,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (provider != null) 'provider': provider,
+      if (accountId != null) 'account_id': accountId,
+      if (displayName != null) 'display_name': displayName,
+      if (isActive != null) 'is_active': isActive,
+      if (revision != null) 'revision': revision,
+    });
+  }
+
+  RemoteAccountsCompanion copyWith(
+      {Value<int>? id,
+      Value<String>? provider,
+      Value<String>? accountId,
+      Value<String?>? displayName,
+      Value<bool>? isActive,
+      Value<int>? revision}) {
+    return RemoteAccountsCompanion(
+      id: id ?? this.id,
+      provider: provider ?? this.provider,
+      accountId: accountId ?? this.accountId,
+      displayName: displayName ?? this.displayName,
+      isActive: isActive ?? this.isActive,
+      revision: revision ?? this.revision,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (provider.present) {
+      map['provider'] = Variable<String>(provider.value);
+    }
+    if (accountId.present) {
+      map['account_id'] = Variable<String>(accountId.value);
+    }
+    if (displayName.present) {
+      map['display_name'] = Variable<String>(displayName.value);
+    }
+    if (isActive.present) {
+      map['is_active'] = Variable<bool>(isActive.value);
+    }
+    if (revision.present) {
+      map['revision'] = Variable<int>(revision.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('RemoteAccountsCompanion(')
+          ..write('id: $id, ')
+          ..write('provider: $provider, ')
+          ..write('accountId: $accountId, ')
+          ..write('displayName: $displayName, ')
+          ..write('isActive: $isActive, ')
+          ..write('revision: $revision')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $RemoteCollectionsTable extends RemoteCollections
+    with TableInfo<$RemoteCollectionsTable, RemoteCollectionRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $RemoteCollectionsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+      'id', aliasedName, false,
+      hasAutoIncrement: true,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultConstraints:
+          GeneratedColumn.constraintIsAlways('PRIMARY KEY AUTOINCREMENT'));
+  static const VerificationMeta _accountIdMeta =
+      const VerificationMeta('accountId');
+  @override
+  late final GeneratedColumn<int> accountId = GeneratedColumn<int>(
+      'account_id', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: true,
+      defaultConstraints: GeneratedColumn.constraintIsAlways(
+          'REFERENCES remote_accounts (id) ON DELETE CASCADE'));
+  static const VerificationMeta _kindMeta = const VerificationMeta('kind');
+  @override
+  late final GeneratedColumn<String> kind = GeneratedColumn<String>(
+      'kind', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _externalIdMeta =
+      const VerificationMeta('externalId');
+  @override
+  late final GeneratedColumn<String> externalId = GeneratedColumn<String>(
+      'external_id', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _ownerIdMeta =
+      const VerificationMeta('ownerId');
+  @override
+  late final GeneratedColumn<String> ownerId = GeneratedColumn<String>(
+      'owner_id', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _titleMeta = const VerificationMeta('title');
+  @override
+  late final GeneratedColumn<String> title = GeneratedColumn<String>(
+      'title', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _isSelectedMeta =
+      const VerificationMeta('isSelected');
+  @override
+  late final GeneratedColumn<bool> isSelected = GeneratedColumn<bool>(
+      'is_selected', aliasedName, false,
+      type: DriftSqlType.bool,
+      requiredDuringInsert: true,
+      defaultConstraints: GeneratedColumn.constraintIsAlways(
+          'CHECK ("is_selected" IN (0, 1))'));
+  static const VerificationMeta _revisionMeta =
+      const VerificationMeta('revision');
+  @override
+  late final GeneratedColumn<int> revision = GeneratedColumn<int>(
+      'revision', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: true);
+  static const VerificationMeta _itemCountMeta =
+      const VerificationMeta('itemCount');
+  @override
+  late final GeneratedColumn<int> itemCount = GeneratedColumn<int>(
+      'item_count', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultValue: const Constant(0));
+  static const VerificationMeta _remoteRevisionMeta =
+      const VerificationMeta('remoteRevision');
+  @override
+  late final GeneratedColumn<String> remoteRevision = GeneratedColumn<String>(
+      'remote_revision', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _completedAtMicrosMeta =
+      const VerificationMeta('completedAtMicros');
+  @override
+  late final GeneratedColumn<int> completedAtMicros = GeneratedColumn<int>(
+      'completed_at_micros', aliasedName, true,
+      type: DriftSqlType.int, requiredDuringInsert: false);
+  @override
+  List<GeneratedColumn> get $columns => [
+        id,
+        accountId,
+        kind,
+        externalId,
+        ownerId,
+        title,
+        isSelected,
+        revision,
+        itemCount,
+        remoteRevision,
+        completedAtMicros
+      ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'remote_collections';
+  @override
+  VerificationContext validateIntegrity(
+      Insertable<RemoteCollectionRow> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('account_id')) {
+      context.handle(_accountIdMeta,
+          accountId.isAcceptableOrUnknown(data['account_id']!, _accountIdMeta));
+    } else if (isInserting) {
+      context.missing(_accountIdMeta);
+    }
+    if (data.containsKey('kind')) {
+      context.handle(
+          _kindMeta, kind.isAcceptableOrUnknown(data['kind']!, _kindMeta));
+    } else if (isInserting) {
+      context.missing(_kindMeta);
+    }
+    if (data.containsKey('external_id')) {
+      context.handle(
+          _externalIdMeta,
+          externalId.isAcceptableOrUnknown(
+              data['external_id']!, _externalIdMeta));
+    } else if (isInserting) {
+      context.missing(_externalIdMeta);
+    }
+    if (data.containsKey('owner_id')) {
+      context.handle(_ownerIdMeta,
+          ownerId.isAcceptableOrUnknown(data['owner_id']!, _ownerIdMeta));
+    } else if (isInserting) {
+      context.missing(_ownerIdMeta);
+    }
+    if (data.containsKey('title')) {
+      context.handle(
+          _titleMeta, title.isAcceptableOrUnknown(data['title']!, _titleMeta));
+    }
+    if (data.containsKey('is_selected')) {
+      context.handle(
+          _isSelectedMeta,
+          isSelected.isAcceptableOrUnknown(
+              data['is_selected']!, _isSelectedMeta));
+    } else if (isInserting) {
+      context.missing(_isSelectedMeta);
+    }
+    if (data.containsKey('revision')) {
+      context.handle(_revisionMeta,
+          revision.isAcceptableOrUnknown(data['revision']!, _revisionMeta));
+    } else if (isInserting) {
+      context.missing(_revisionMeta);
+    }
+    if (data.containsKey('item_count')) {
+      context.handle(_itemCountMeta,
+          itemCount.isAcceptableOrUnknown(data['item_count']!, _itemCountMeta));
+    }
+    if (data.containsKey('remote_revision')) {
+      context.handle(
+          _remoteRevisionMeta,
+          remoteRevision.isAcceptableOrUnknown(
+              data['remote_revision']!, _remoteRevisionMeta));
+    }
+    if (data.containsKey('completed_at_micros')) {
+      context.handle(
+          _completedAtMicrosMeta,
+          completedAtMicros.isAcceptableOrUnknown(
+              data['completed_at_micros']!, _completedAtMicrosMeta));
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  RemoteCollectionRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return RemoteCollectionRow(
+      id: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}id'])!,
+      accountId: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}account_id'])!,
+      kind: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}kind'])!,
+      externalId: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}external_id'])!,
+      ownerId: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}owner_id'])!,
+      title: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}title']),
+      isSelected: attachedDatabase.typeMapping
+          .read(DriftSqlType.bool, data['${effectivePrefix}is_selected'])!,
+      revision: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}revision'])!,
+      itemCount: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}item_count'])!,
+      remoteRevision: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}remote_revision']),
+      completedAtMicros: attachedDatabase.typeMapping.read(
+          DriftSqlType.int, data['${effectivePrefix}completed_at_micros']),
+    );
+  }
+
+  @override
+  $RemoteCollectionsTable createAlias(String alias) {
+    return $RemoteCollectionsTable(attachedDatabase, alias);
+  }
+}
+
+class RemoteCollectionRow extends DataClass
+    implements Insertable<RemoteCollectionRow> {
+  final int id;
+  final int accountId;
+  final String kind;
+  final String externalId;
+  final String ownerId;
+  final String? title;
+  final bool isSelected;
+  final int revision;
+  final int itemCount;
+  final String? remoteRevision;
+  final int? completedAtMicros;
+  const RemoteCollectionRow(
+      {required this.id,
+      required this.accountId,
+      required this.kind,
+      required this.externalId,
+      required this.ownerId,
+      this.title,
+      required this.isSelected,
+      required this.revision,
+      required this.itemCount,
+      this.remoteRevision,
+      this.completedAtMicros});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['account_id'] = Variable<int>(accountId);
+    map['kind'] = Variable<String>(kind);
+    map['external_id'] = Variable<String>(externalId);
+    map['owner_id'] = Variable<String>(ownerId);
+    if (!nullToAbsent || title != null) {
+      map['title'] = Variable<String>(title);
+    }
+    map['is_selected'] = Variable<bool>(isSelected);
+    map['revision'] = Variable<int>(revision);
+    map['item_count'] = Variable<int>(itemCount);
+    if (!nullToAbsent || remoteRevision != null) {
+      map['remote_revision'] = Variable<String>(remoteRevision);
+    }
+    if (!nullToAbsent || completedAtMicros != null) {
+      map['completed_at_micros'] = Variable<int>(completedAtMicros);
+    }
+    return map;
+  }
+
+  RemoteCollectionsCompanion toCompanion(bool nullToAbsent) {
+    return RemoteCollectionsCompanion(
+      id: Value(id),
+      accountId: Value(accountId),
+      kind: Value(kind),
+      externalId: Value(externalId),
+      ownerId: Value(ownerId),
+      title:
+          title == null && nullToAbsent ? const Value.absent() : Value(title),
+      isSelected: Value(isSelected),
+      revision: Value(revision),
+      itemCount: Value(itemCount),
+      remoteRevision: remoteRevision == null && nullToAbsent
+          ? const Value.absent()
+          : Value(remoteRevision),
+      completedAtMicros: completedAtMicros == null && nullToAbsent
+          ? const Value.absent()
+          : Value(completedAtMicros),
+    );
+  }
+
+  factory RemoteCollectionRow.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return RemoteCollectionRow(
+      id: serializer.fromJson<int>(json['id']),
+      accountId: serializer.fromJson<int>(json['accountId']),
+      kind: serializer.fromJson<String>(json['kind']),
+      externalId: serializer.fromJson<String>(json['externalId']),
+      ownerId: serializer.fromJson<String>(json['ownerId']),
+      title: serializer.fromJson<String?>(json['title']),
+      isSelected: serializer.fromJson<bool>(json['isSelected']),
+      revision: serializer.fromJson<int>(json['revision']),
+      itemCount: serializer.fromJson<int>(json['itemCount']),
+      remoteRevision: serializer.fromJson<String?>(json['remoteRevision']),
+      completedAtMicros: serializer.fromJson<int?>(json['completedAtMicros']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'accountId': serializer.toJson<int>(accountId),
+      'kind': serializer.toJson<String>(kind),
+      'externalId': serializer.toJson<String>(externalId),
+      'ownerId': serializer.toJson<String>(ownerId),
+      'title': serializer.toJson<String?>(title),
+      'isSelected': serializer.toJson<bool>(isSelected),
+      'revision': serializer.toJson<int>(revision),
+      'itemCount': serializer.toJson<int>(itemCount),
+      'remoteRevision': serializer.toJson<String?>(remoteRevision),
+      'completedAtMicros': serializer.toJson<int?>(completedAtMicros),
+    };
+  }
+
+  RemoteCollectionRow copyWith(
+          {int? id,
+          int? accountId,
+          String? kind,
+          String? externalId,
+          String? ownerId,
+          Value<String?> title = const Value.absent(),
+          bool? isSelected,
+          int? revision,
+          int? itemCount,
+          Value<String?> remoteRevision = const Value.absent(),
+          Value<int?> completedAtMicros = const Value.absent()}) =>
+      RemoteCollectionRow(
+        id: id ?? this.id,
+        accountId: accountId ?? this.accountId,
+        kind: kind ?? this.kind,
+        externalId: externalId ?? this.externalId,
+        ownerId: ownerId ?? this.ownerId,
+        title: title.present ? title.value : this.title,
+        isSelected: isSelected ?? this.isSelected,
+        revision: revision ?? this.revision,
+        itemCount: itemCount ?? this.itemCount,
+        remoteRevision:
+            remoteRevision.present ? remoteRevision.value : this.remoteRevision,
+        completedAtMicros: completedAtMicros.present
+            ? completedAtMicros.value
+            : this.completedAtMicros,
+      );
+  RemoteCollectionRow copyWithCompanion(RemoteCollectionsCompanion data) {
+    return RemoteCollectionRow(
+      id: data.id.present ? data.id.value : this.id,
+      accountId: data.accountId.present ? data.accountId.value : this.accountId,
+      kind: data.kind.present ? data.kind.value : this.kind,
+      externalId:
+          data.externalId.present ? data.externalId.value : this.externalId,
+      ownerId: data.ownerId.present ? data.ownerId.value : this.ownerId,
+      title: data.title.present ? data.title.value : this.title,
+      isSelected:
+          data.isSelected.present ? data.isSelected.value : this.isSelected,
+      revision: data.revision.present ? data.revision.value : this.revision,
+      itemCount: data.itemCount.present ? data.itemCount.value : this.itemCount,
+      remoteRevision: data.remoteRevision.present
+          ? data.remoteRevision.value
+          : this.remoteRevision,
+      completedAtMicros: data.completedAtMicros.present
+          ? data.completedAtMicros.value
+          : this.completedAtMicros,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('RemoteCollectionRow(')
+          ..write('id: $id, ')
+          ..write('accountId: $accountId, ')
+          ..write('kind: $kind, ')
+          ..write('externalId: $externalId, ')
+          ..write('ownerId: $ownerId, ')
+          ..write('title: $title, ')
+          ..write('isSelected: $isSelected, ')
+          ..write('revision: $revision, ')
+          ..write('itemCount: $itemCount, ')
+          ..write('remoteRevision: $remoteRevision, ')
+          ..write('completedAtMicros: $completedAtMicros')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+      id,
+      accountId,
+      kind,
+      externalId,
+      ownerId,
+      title,
+      isSelected,
+      revision,
+      itemCount,
+      remoteRevision,
+      completedAtMicros);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is RemoteCollectionRow &&
+          other.id == this.id &&
+          other.accountId == this.accountId &&
+          other.kind == this.kind &&
+          other.externalId == this.externalId &&
+          other.ownerId == this.ownerId &&
+          other.title == this.title &&
+          other.isSelected == this.isSelected &&
+          other.revision == this.revision &&
+          other.itemCount == this.itemCount &&
+          other.remoteRevision == this.remoteRevision &&
+          other.completedAtMicros == this.completedAtMicros);
+}
+
+class RemoteCollectionsCompanion extends UpdateCompanion<RemoteCollectionRow> {
+  final Value<int> id;
+  final Value<int> accountId;
+  final Value<String> kind;
+  final Value<String> externalId;
+  final Value<String> ownerId;
+  final Value<String?> title;
+  final Value<bool> isSelected;
+  final Value<int> revision;
+  final Value<int> itemCount;
+  final Value<String?> remoteRevision;
+  final Value<int?> completedAtMicros;
+  const RemoteCollectionsCompanion({
+    this.id = const Value.absent(),
+    this.accountId = const Value.absent(),
+    this.kind = const Value.absent(),
+    this.externalId = const Value.absent(),
+    this.ownerId = const Value.absent(),
+    this.title = const Value.absent(),
+    this.isSelected = const Value.absent(),
+    this.revision = const Value.absent(),
+    this.itemCount = const Value.absent(),
+    this.remoteRevision = const Value.absent(),
+    this.completedAtMicros = const Value.absent(),
+  });
+  RemoteCollectionsCompanion.insert({
+    this.id = const Value.absent(),
+    required int accountId,
+    required String kind,
+    required String externalId,
+    required String ownerId,
+    this.title = const Value.absent(),
+    required bool isSelected,
+    required int revision,
+    this.itemCount = const Value.absent(),
+    this.remoteRevision = const Value.absent(),
+    this.completedAtMicros = const Value.absent(),
+  })  : accountId = Value(accountId),
+        kind = Value(kind),
+        externalId = Value(externalId),
+        ownerId = Value(ownerId),
+        isSelected = Value(isSelected),
+        revision = Value(revision);
+  static Insertable<RemoteCollectionRow> custom({
+    Expression<int>? id,
+    Expression<int>? accountId,
+    Expression<String>? kind,
+    Expression<String>? externalId,
+    Expression<String>? ownerId,
+    Expression<String>? title,
+    Expression<bool>? isSelected,
+    Expression<int>? revision,
+    Expression<int>? itemCount,
+    Expression<String>? remoteRevision,
+    Expression<int>? completedAtMicros,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (accountId != null) 'account_id': accountId,
+      if (kind != null) 'kind': kind,
+      if (externalId != null) 'external_id': externalId,
+      if (ownerId != null) 'owner_id': ownerId,
+      if (title != null) 'title': title,
+      if (isSelected != null) 'is_selected': isSelected,
+      if (revision != null) 'revision': revision,
+      if (itemCount != null) 'item_count': itemCount,
+      if (remoteRevision != null) 'remote_revision': remoteRevision,
+      if (completedAtMicros != null) 'completed_at_micros': completedAtMicros,
+    });
+  }
+
+  RemoteCollectionsCompanion copyWith(
+      {Value<int>? id,
+      Value<int>? accountId,
+      Value<String>? kind,
+      Value<String>? externalId,
+      Value<String>? ownerId,
+      Value<String?>? title,
+      Value<bool>? isSelected,
+      Value<int>? revision,
+      Value<int>? itemCount,
+      Value<String?>? remoteRevision,
+      Value<int?>? completedAtMicros}) {
+    return RemoteCollectionsCompanion(
+      id: id ?? this.id,
+      accountId: accountId ?? this.accountId,
+      kind: kind ?? this.kind,
+      externalId: externalId ?? this.externalId,
+      ownerId: ownerId ?? this.ownerId,
+      title: title ?? this.title,
+      isSelected: isSelected ?? this.isSelected,
+      revision: revision ?? this.revision,
+      itemCount: itemCount ?? this.itemCount,
+      remoteRevision: remoteRevision ?? this.remoteRevision,
+      completedAtMicros: completedAtMicros ?? this.completedAtMicros,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (accountId.present) {
+      map['account_id'] = Variable<int>(accountId.value);
+    }
+    if (kind.present) {
+      map['kind'] = Variable<String>(kind.value);
+    }
+    if (externalId.present) {
+      map['external_id'] = Variable<String>(externalId.value);
+    }
+    if (ownerId.present) {
+      map['owner_id'] = Variable<String>(ownerId.value);
+    }
+    if (title.present) {
+      map['title'] = Variable<String>(title.value);
+    }
+    if (isSelected.present) {
+      map['is_selected'] = Variable<bool>(isSelected.value);
+    }
+    if (revision.present) {
+      map['revision'] = Variable<int>(revision.value);
+    }
+    if (itemCount.present) {
+      map['item_count'] = Variable<int>(itemCount.value);
+    }
+    if (remoteRevision.present) {
+      map['remote_revision'] = Variable<String>(remoteRevision.value);
+    }
+    if (completedAtMicros.present) {
+      map['completed_at_micros'] = Variable<int>(completedAtMicros.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('RemoteCollectionsCompanion(')
+          ..write('id: $id, ')
+          ..write('accountId: $accountId, ')
+          ..write('kind: $kind, ')
+          ..write('externalId: $externalId, ')
+          ..write('ownerId: $ownerId, ')
+          ..write('title: $title, ')
+          ..write('isSelected: $isSelected, ')
+          ..write('revision: $revision, ')
+          ..write('itemCount: $itemCount, ')
+          ..write('remoteRevision: $remoteRevision, ')
+          ..write('completedAtMicros: $completedAtMicros')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $RemoteCollectionItemsTable extends RemoteCollectionItems
+    with TableInfo<$RemoteCollectionItemsTable, RemoteCollectionItemRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $RemoteCollectionItemsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _collectionIdMeta =
+      const VerificationMeta('collectionId');
+  @override
+  late final GeneratedColumn<int> collectionId = GeneratedColumn<int>(
+      'collection_id', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: true,
+      defaultConstraints: GeneratedColumn.constraintIsAlways(
+          'REFERENCES remote_collections (id) ON DELETE CASCADE'));
+  static const VerificationMeta _positionMeta =
+      const VerificationMeta('position');
+  @override
+  late final GeneratedColumn<int> position = GeneratedColumn<int>(
+      'position', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: true);
+  static const VerificationMeta _externalIdMeta =
+      const VerificationMeta('externalId');
+  @override
+  late final GeneratedColumn<String> externalId = GeneratedColumn<String>(
+      'external_id', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _variantKeyMeta =
+      const VerificationMeta('variantKey');
+  @override
+  late final GeneratedColumn<String> variantKey = GeneratedColumn<String>(
+      'variant_key', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  @override
+  List<GeneratedColumn> get $columns =>
+      [collectionId, position, externalId, variantKey];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'remote_collection_items';
+  @override
+  VerificationContext validateIntegrity(
+      Insertable<RemoteCollectionItemRow> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('collection_id')) {
+      context.handle(
+          _collectionIdMeta,
+          collectionId.isAcceptableOrUnknown(
+              data['collection_id']!, _collectionIdMeta));
+    } else if (isInserting) {
+      context.missing(_collectionIdMeta);
+    }
+    if (data.containsKey('position')) {
+      context.handle(_positionMeta,
+          position.isAcceptableOrUnknown(data['position']!, _positionMeta));
+    } else if (isInserting) {
+      context.missing(_positionMeta);
+    }
+    if (data.containsKey('external_id')) {
+      context.handle(
+          _externalIdMeta,
+          externalId.isAcceptableOrUnknown(
+              data['external_id']!, _externalIdMeta));
+    } else if (isInserting) {
+      context.missing(_externalIdMeta);
+    }
+    if (data.containsKey('variant_key')) {
+      context.handle(
+          _variantKeyMeta,
+          variantKey.isAcceptableOrUnknown(
+              data['variant_key']!, _variantKeyMeta));
+    } else if (isInserting) {
+      context.missing(_variantKeyMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {collectionId, position};
+  @override
+  RemoteCollectionItemRow map(Map<String, dynamic> data,
+      {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return RemoteCollectionItemRow(
+      collectionId: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}collection_id'])!,
+      position: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}position'])!,
+      externalId: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}external_id'])!,
+      variantKey: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}variant_key'])!,
+    );
+  }
+
+  @override
+  $RemoteCollectionItemsTable createAlias(String alias) {
+    return $RemoteCollectionItemsTable(attachedDatabase, alias);
+  }
+}
+
+class RemoteCollectionItemRow extends DataClass
+    implements Insertable<RemoteCollectionItemRow> {
+  final int collectionId;
+  final int position;
+  final String externalId;
+  final String variantKey;
+  const RemoteCollectionItemRow(
+      {required this.collectionId,
+      required this.position,
+      required this.externalId,
+      required this.variantKey});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['collection_id'] = Variable<int>(collectionId);
+    map['position'] = Variable<int>(position);
+    map['external_id'] = Variable<String>(externalId);
+    map['variant_key'] = Variable<String>(variantKey);
+    return map;
+  }
+
+  RemoteCollectionItemsCompanion toCompanion(bool nullToAbsent) {
+    return RemoteCollectionItemsCompanion(
+      collectionId: Value(collectionId),
+      position: Value(position),
+      externalId: Value(externalId),
+      variantKey: Value(variantKey),
+    );
+  }
+
+  factory RemoteCollectionItemRow.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return RemoteCollectionItemRow(
+      collectionId: serializer.fromJson<int>(json['collectionId']),
+      position: serializer.fromJson<int>(json['position']),
+      externalId: serializer.fromJson<String>(json['externalId']),
+      variantKey: serializer.fromJson<String>(json['variantKey']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'collectionId': serializer.toJson<int>(collectionId),
+      'position': serializer.toJson<int>(position),
+      'externalId': serializer.toJson<String>(externalId),
+      'variantKey': serializer.toJson<String>(variantKey),
+    };
+  }
+
+  RemoteCollectionItemRow copyWith(
+          {int? collectionId,
+          int? position,
+          String? externalId,
+          String? variantKey}) =>
+      RemoteCollectionItemRow(
+        collectionId: collectionId ?? this.collectionId,
+        position: position ?? this.position,
+        externalId: externalId ?? this.externalId,
+        variantKey: variantKey ?? this.variantKey,
+      );
+  RemoteCollectionItemRow copyWithCompanion(
+      RemoteCollectionItemsCompanion data) {
+    return RemoteCollectionItemRow(
+      collectionId: data.collectionId.present
+          ? data.collectionId.value
+          : this.collectionId,
+      position: data.position.present ? data.position.value : this.position,
+      externalId:
+          data.externalId.present ? data.externalId.value : this.externalId,
+      variantKey:
+          data.variantKey.present ? data.variantKey.value : this.variantKey,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('RemoteCollectionItemRow(')
+          ..write('collectionId: $collectionId, ')
+          ..write('position: $position, ')
+          ..write('externalId: $externalId, ')
+          ..write('variantKey: $variantKey')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(collectionId, position, externalId, variantKey);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is RemoteCollectionItemRow &&
+          other.collectionId == this.collectionId &&
+          other.position == this.position &&
+          other.externalId == this.externalId &&
+          other.variantKey == this.variantKey);
+}
+
+class RemoteCollectionItemsCompanion
+    extends UpdateCompanion<RemoteCollectionItemRow> {
+  final Value<int> collectionId;
+  final Value<int> position;
+  final Value<String> externalId;
+  final Value<String> variantKey;
+  final Value<int> rowid;
+  const RemoteCollectionItemsCompanion({
+    this.collectionId = const Value.absent(),
+    this.position = const Value.absent(),
+    this.externalId = const Value.absent(),
+    this.variantKey = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  RemoteCollectionItemsCompanion.insert({
+    required int collectionId,
+    required int position,
+    required String externalId,
+    required String variantKey,
+    this.rowid = const Value.absent(),
+  })  : collectionId = Value(collectionId),
+        position = Value(position),
+        externalId = Value(externalId),
+        variantKey = Value(variantKey);
+  static Insertable<RemoteCollectionItemRow> custom({
+    Expression<int>? collectionId,
+    Expression<int>? position,
+    Expression<String>? externalId,
+    Expression<String>? variantKey,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (collectionId != null) 'collection_id': collectionId,
+      if (position != null) 'position': position,
+      if (externalId != null) 'external_id': externalId,
+      if (variantKey != null) 'variant_key': variantKey,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  RemoteCollectionItemsCompanion copyWith(
+      {Value<int>? collectionId,
+      Value<int>? position,
+      Value<String>? externalId,
+      Value<String>? variantKey,
+      Value<int>? rowid}) {
+    return RemoteCollectionItemsCompanion(
+      collectionId: collectionId ?? this.collectionId,
+      position: position ?? this.position,
+      externalId: externalId ?? this.externalId,
+      variantKey: variantKey ?? this.variantKey,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (collectionId.present) {
+      map['collection_id'] = Variable<int>(collectionId.value);
+    }
+    if (position.present) {
+      map['position'] = Variable<int>(position.value);
+    }
+    if (externalId.present) {
+      map['external_id'] = Variable<String>(externalId.value);
+    }
+    if (variantKey.present) {
+      map['variant_key'] = Variable<String>(variantKey.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('RemoteCollectionItemsCompanion(')
+          ..write('collectionId: $collectionId, ')
+          ..write('position: $position, ')
+          ..write('externalId: $externalId, ')
+          ..write('variantKey: $variantKey, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -4879,6 +6084,11 @@ abstract class _$AppDatabase extends GeneratedDatabase {
       $ExternalTrackRefsTable(this);
   late final $DownloadedAssetsTable downloadedAssets =
       $DownloadedAssetsTable(this);
+  late final $RemoteAccountsTable remoteAccounts = $RemoteAccountsTable(this);
+  late final $RemoteCollectionsTable remoteCollections =
+      $RemoteCollectionsTable(this);
+  late final $RemoteCollectionItemsTable remoteCollectionItems =
+      $RemoteCollectionItemsTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -4892,7 +6102,10 @@ abstract class _$AppDatabase extends GeneratedDatabase {
         trackUserStates,
         appSettings,
         externalTrackRefs,
-        downloadedAssets
+        downloadedAssets,
+        remoteAccounts,
+        remoteCollections,
+        remoteCollectionItems
       ];
   @override
   StreamQueryUpdateRules get streamUpdateRules => const StreamQueryUpdateRules(
@@ -4944,6 +6157,20 @@ abstract class _$AppDatabase extends GeneratedDatabase {
                 limitUpdateKind: UpdateKind.delete),
             result: [
               TableUpdate('downloaded_assets', kind: UpdateKind.delete),
+            ],
+          ),
+          WritePropagation(
+            on: TableUpdateQuery.onTableName('remote_accounts',
+                limitUpdateKind: UpdateKind.delete),
+            result: [
+              TableUpdate('remote_collections', kind: UpdateKind.delete),
+            ],
+          ),
+          WritePropagation(
+            on: TableUpdateQuery.onTableName('remote_collections',
+                limitUpdateKind: UpdateKind.delete),
+            result: [
+              TableUpdate('remote_collection_items', kind: UpdateKind.delete),
             ],
           ),
         ],
@@ -8460,6 +9687,995 @@ typedef $$DownloadedAssetsTableProcessedTableManager = ProcessedTableManager<
     (DownloadedAssetRow, $$DownloadedAssetsTableReferences),
     DownloadedAssetRow,
     PrefetchHooks Function({bool trackId})>;
+typedef $$RemoteAccountsTableCreateCompanionBuilder = RemoteAccountsCompanion
+    Function({
+  Value<int> id,
+  required String provider,
+  required String accountId,
+  Value<String?> displayName,
+  required bool isActive,
+  required int revision,
+});
+typedef $$RemoteAccountsTableUpdateCompanionBuilder = RemoteAccountsCompanion
+    Function({
+  Value<int> id,
+  Value<String> provider,
+  Value<String> accountId,
+  Value<String?> displayName,
+  Value<bool> isActive,
+  Value<int> revision,
+});
+
+final class $$RemoteAccountsTableReferences extends BaseReferences<
+    _$AppDatabase, $RemoteAccountsTable, RemoteAccountRow> {
+  $$RemoteAccountsTableReferences(
+      super.$_db, super.$_table, super.$_typedResult);
+
+  static MultiTypedResultKey<$RemoteCollectionsTable, List<RemoteCollectionRow>>
+      _remoteCollectionsRefsTable(_$AppDatabase db) =>
+          MultiTypedResultKey.fromTable(db.remoteCollections,
+              aliasName: $_aliasNameGenerator(
+                  db.remoteAccounts.id, db.remoteCollections.accountId));
+
+  $$RemoteCollectionsTableProcessedTableManager get remoteCollectionsRefs {
+    final manager =
+        $$RemoteCollectionsTableTableManager($_db, $_db.remoteCollections)
+            .filter((f) => f.accountId.id.sqlEquals($_itemColumn<int>('id')!));
+
+    final cache =
+        $_typedResult.readTableOrNull(_remoteCollectionsRefsTable($_db));
+    return ProcessedTableManager(
+        manager.$state.copyWith(prefetchedData: cache));
+  }
+}
+
+class $$RemoteAccountsTableFilterComposer
+    extends Composer<_$AppDatabase, $RemoteAccountsTable> {
+  $$RemoteAccountsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get provider => $composableBuilder(
+      column: $table.provider, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get accountId => $composableBuilder(
+      column: $table.accountId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get displayName => $composableBuilder(
+      column: $table.displayName, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<bool> get isActive => $composableBuilder(
+      column: $table.isActive, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get revision => $composableBuilder(
+      column: $table.revision, builder: (column) => ColumnFilters(column));
+
+  Expression<bool> remoteCollectionsRefs(
+      Expression<bool> Function($$RemoteCollectionsTableFilterComposer f) f) {
+    final $$RemoteCollectionsTableFilterComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.id,
+        referencedTable: $db.remoteCollections,
+        getReferencedColumn: (t) => t.accountId,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$RemoteCollectionsTableFilterComposer(
+              $db: $db,
+              $table: $db.remoteCollections,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return f(composer);
+  }
+}
+
+class $$RemoteAccountsTableOrderingComposer
+    extends Composer<_$AppDatabase, $RemoteAccountsTable> {
+  $$RemoteAccountsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get provider => $composableBuilder(
+      column: $table.provider, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get accountId => $composableBuilder(
+      column: $table.accountId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get displayName => $composableBuilder(
+      column: $table.displayName, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<bool> get isActive => $composableBuilder(
+      column: $table.isActive, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get revision => $composableBuilder(
+      column: $table.revision, builder: (column) => ColumnOrderings(column));
+}
+
+class $$RemoteAccountsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $RemoteAccountsTable> {
+  $$RemoteAccountsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get provider =>
+      $composableBuilder(column: $table.provider, builder: (column) => column);
+
+  GeneratedColumn<String> get accountId =>
+      $composableBuilder(column: $table.accountId, builder: (column) => column);
+
+  GeneratedColumn<String> get displayName => $composableBuilder(
+      column: $table.displayName, builder: (column) => column);
+
+  GeneratedColumn<bool> get isActive =>
+      $composableBuilder(column: $table.isActive, builder: (column) => column);
+
+  GeneratedColumn<int> get revision =>
+      $composableBuilder(column: $table.revision, builder: (column) => column);
+
+  Expression<T> remoteCollectionsRefs<T extends Object>(
+      Expression<T> Function($$RemoteCollectionsTableAnnotationComposer a) f) {
+    final $$RemoteCollectionsTableAnnotationComposer composer =
+        $composerBuilder(
+            composer: this,
+            getCurrentColumn: (t) => t.id,
+            referencedTable: $db.remoteCollections,
+            getReferencedColumn: (t) => t.accountId,
+            builder: (joinBuilder,
+                    {$addJoinBuilderToRootComposer,
+                    $removeJoinBuilderFromRootComposer}) =>
+                $$RemoteCollectionsTableAnnotationComposer(
+                  $db: $db,
+                  $table: $db.remoteCollections,
+                  $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                  joinBuilder: joinBuilder,
+                  $removeJoinBuilderFromRootComposer:
+                      $removeJoinBuilderFromRootComposer,
+                ));
+    return f(composer);
+  }
+}
+
+class $$RemoteAccountsTableTableManager extends RootTableManager<
+    _$AppDatabase,
+    $RemoteAccountsTable,
+    RemoteAccountRow,
+    $$RemoteAccountsTableFilterComposer,
+    $$RemoteAccountsTableOrderingComposer,
+    $$RemoteAccountsTableAnnotationComposer,
+    $$RemoteAccountsTableCreateCompanionBuilder,
+    $$RemoteAccountsTableUpdateCompanionBuilder,
+    (RemoteAccountRow, $$RemoteAccountsTableReferences),
+    RemoteAccountRow,
+    PrefetchHooks Function({bool remoteCollectionsRefs})> {
+  $$RemoteAccountsTableTableManager(
+      _$AppDatabase db, $RemoteAccountsTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$RemoteAccountsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$RemoteAccountsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$RemoteAccountsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<int> id = const Value.absent(),
+            Value<String> provider = const Value.absent(),
+            Value<String> accountId = const Value.absent(),
+            Value<String?> displayName = const Value.absent(),
+            Value<bool> isActive = const Value.absent(),
+            Value<int> revision = const Value.absent(),
+          }) =>
+              RemoteAccountsCompanion(
+            id: id,
+            provider: provider,
+            accountId: accountId,
+            displayName: displayName,
+            isActive: isActive,
+            revision: revision,
+          ),
+          createCompanionCallback: ({
+            Value<int> id = const Value.absent(),
+            required String provider,
+            required String accountId,
+            Value<String?> displayName = const Value.absent(),
+            required bool isActive,
+            required int revision,
+          }) =>
+              RemoteAccountsCompanion.insert(
+            id: id,
+            provider: provider,
+            accountId: accountId,
+            displayName: displayName,
+            isActive: isActive,
+            revision: revision,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (
+                    e.readTable(table),
+                    $$RemoteAccountsTableReferences(db, table, e)
+                  ))
+              .toList(),
+          prefetchHooksCallback: ({remoteCollectionsRefs = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [
+                if (remoteCollectionsRefs) db.remoteCollections
+              ],
+              addJoins: null,
+              getPrefetchedDataCallback: (items) async {
+                return [
+                  if (remoteCollectionsRefs)
+                    await $_getPrefetchedData<RemoteAccountRow,
+                            $RemoteAccountsTable, RemoteCollectionRow>(
+                        currentTable: table,
+                        referencedTable: $$RemoteAccountsTableReferences
+                            ._remoteCollectionsRefsTable(db),
+                        managerFromTypedResult: (p0) =>
+                            $$RemoteAccountsTableReferences(db, table, p0)
+                                .remoteCollectionsRefs,
+                        referencedItemsForCurrentItem:
+                            (item, referencedItems) => referencedItems
+                                .where((e) => e.accountId == item.id),
+                        typedResults: items)
+                ];
+              },
+            );
+          },
+        ));
+}
+
+typedef $$RemoteAccountsTableProcessedTableManager = ProcessedTableManager<
+    _$AppDatabase,
+    $RemoteAccountsTable,
+    RemoteAccountRow,
+    $$RemoteAccountsTableFilterComposer,
+    $$RemoteAccountsTableOrderingComposer,
+    $$RemoteAccountsTableAnnotationComposer,
+    $$RemoteAccountsTableCreateCompanionBuilder,
+    $$RemoteAccountsTableUpdateCompanionBuilder,
+    (RemoteAccountRow, $$RemoteAccountsTableReferences),
+    RemoteAccountRow,
+    PrefetchHooks Function({bool remoteCollectionsRefs})>;
+typedef $$RemoteCollectionsTableCreateCompanionBuilder
+    = RemoteCollectionsCompanion Function({
+  Value<int> id,
+  required int accountId,
+  required String kind,
+  required String externalId,
+  required String ownerId,
+  Value<String?> title,
+  required bool isSelected,
+  required int revision,
+  Value<int> itemCount,
+  Value<String?> remoteRevision,
+  Value<int?> completedAtMicros,
+});
+typedef $$RemoteCollectionsTableUpdateCompanionBuilder
+    = RemoteCollectionsCompanion Function({
+  Value<int> id,
+  Value<int> accountId,
+  Value<String> kind,
+  Value<String> externalId,
+  Value<String> ownerId,
+  Value<String?> title,
+  Value<bool> isSelected,
+  Value<int> revision,
+  Value<int> itemCount,
+  Value<String?> remoteRevision,
+  Value<int?> completedAtMicros,
+});
+
+final class $$RemoteCollectionsTableReferences extends BaseReferences<
+    _$AppDatabase, $RemoteCollectionsTable, RemoteCollectionRow> {
+  $$RemoteCollectionsTableReferences(
+      super.$_db, super.$_table, super.$_typedResult);
+
+  static $RemoteAccountsTable _accountIdTable(_$AppDatabase db) =>
+      db.remoteAccounts.createAlias($_aliasNameGenerator(
+          db.remoteCollections.accountId, db.remoteAccounts.id));
+
+  $$RemoteAccountsTableProcessedTableManager get accountId {
+    final $_column = $_itemColumn<int>('account_id')!;
+
+    final manager = $$RemoteAccountsTableTableManager($_db, $_db.remoteAccounts)
+        .filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_accountIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+        manager.$state.copyWith(prefetchedData: [item]));
+  }
+
+  static MultiTypedResultKey<$RemoteCollectionItemsTable,
+      List<RemoteCollectionItemRow>> _remoteCollectionItemsRefsTable(
+          _$AppDatabase db) =>
+      MultiTypedResultKey.fromTable(db.remoteCollectionItems,
+          aliasName: $_aliasNameGenerator(
+              db.remoteCollections.id, db.remoteCollectionItems.collectionId));
+
+  $$RemoteCollectionItemsTableProcessedTableManager
+      get remoteCollectionItemsRefs {
+    final manager = $$RemoteCollectionItemsTableTableManager(
+            $_db, $_db.remoteCollectionItems)
+        .filter((f) => f.collectionId.id.sqlEquals($_itemColumn<int>('id')!));
+
+    final cache =
+        $_typedResult.readTableOrNull(_remoteCollectionItemsRefsTable($_db));
+    return ProcessedTableManager(
+        manager.$state.copyWith(prefetchedData: cache));
+  }
+}
+
+class $$RemoteCollectionsTableFilterComposer
+    extends Composer<_$AppDatabase, $RemoteCollectionsTable> {
+  $$RemoteCollectionsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get kind => $composableBuilder(
+      column: $table.kind, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get externalId => $composableBuilder(
+      column: $table.externalId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get ownerId => $composableBuilder(
+      column: $table.ownerId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get title => $composableBuilder(
+      column: $table.title, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<bool> get isSelected => $composableBuilder(
+      column: $table.isSelected, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get revision => $composableBuilder(
+      column: $table.revision, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get itemCount => $composableBuilder(
+      column: $table.itemCount, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get remoteRevision => $composableBuilder(
+      column: $table.remoteRevision,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get completedAtMicros => $composableBuilder(
+      column: $table.completedAtMicros,
+      builder: (column) => ColumnFilters(column));
+
+  $$RemoteAccountsTableFilterComposer get accountId {
+    final $$RemoteAccountsTableFilterComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.accountId,
+        referencedTable: $db.remoteAccounts,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$RemoteAccountsTableFilterComposer(
+              $db: $db,
+              $table: $db.remoteAccounts,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+
+  Expression<bool> remoteCollectionItemsRefs(
+      Expression<bool> Function($$RemoteCollectionItemsTableFilterComposer f)
+          f) {
+    final $$RemoteCollectionItemsTableFilterComposer composer =
+        $composerBuilder(
+            composer: this,
+            getCurrentColumn: (t) => t.id,
+            referencedTable: $db.remoteCollectionItems,
+            getReferencedColumn: (t) => t.collectionId,
+            builder: (joinBuilder,
+                    {$addJoinBuilderToRootComposer,
+                    $removeJoinBuilderFromRootComposer}) =>
+                $$RemoteCollectionItemsTableFilterComposer(
+                  $db: $db,
+                  $table: $db.remoteCollectionItems,
+                  $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                  joinBuilder: joinBuilder,
+                  $removeJoinBuilderFromRootComposer:
+                      $removeJoinBuilderFromRootComposer,
+                ));
+    return f(composer);
+  }
+}
+
+class $$RemoteCollectionsTableOrderingComposer
+    extends Composer<_$AppDatabase, $RemoteCollectionsTable> {
+  $$RemoteCollectionsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get kind => $composableBuilder(
+      column: $table.kind, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get externalId => $composableBuilder(
+      column: $table.externalId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get ownerId => $composableBuilder(
+      column: $table.ownerId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get title => $composableBuilder(
+      column: $table.title, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<bool> get isSelected => $composableBuilder(
+      column: $table.isSelected, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get revision => $composableBuilder(
+      column: $table.revision, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get itemCount => $composableBuilder(
+      column: $table.itemCount, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get remoteRevision => $composableBuilder(
+      column: $table.remoteRevision,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get completedAtMicros => $composableBuilder(
+      column: $table.completedAtMicros,
+      builder: (column) => ColumnOrderings(column));
+
+  $$RemoteAccountsTableOrderingComposer get accountId {
+    final $$RemoteAccountsTableOrderingComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.accountId,
+        referencedTable: $db.remoteAccounts,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$RemoteAccountsTableOrderingComposer(
+              $db: $db,
+              $table: $db.remoteAccounts,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+}
+
+class $$RemoteCollectionsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $RemoteCollectionsTable> {
+  $$RemoteCollectionsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get kind =>
+      $composableBuilder(column: $table.kind, builder: (column) => column);
+
+  GeneratedColumn<String> get externalId => $composableBuilder(
+      column: $table.externalId, builder: (column) => column);
+
+  GeneratedColumn<String> get ownerId =>
+      $composableBuilder(column: $table.ownerId, builder: (column) => column);
+
+  GeneratedColumn<String> get title =>
+      $composableBuilder(column: $table.title, builder: (column) => column);
+
+  GeneratedColumn<bool> get isSelected => $composableBuilder(
+      column: $table.isSelected, builder: (column) => column);
+
+  GeneratedColumn<int> get revision =>
+      $composableBuilder(column: $table.revision, builder: (column) => column);
+
+  GeneratedColumn<int> get itemCount =>
+      $composableBuilder(column: $table.itemCount, builder: (column) => column);
+
+  GeneratedColumn<String> get remoteRevision => $composableBuilder(
+      column: $table.remoteRevision, builder: (column) => column);
+
+  GeneratedColumn<int> get completedAtMicros => $composableBuilder(
+      column: $table.completedAtMicros, builder: (column) => column);
+
+  $$RemoteAccountsTableAnnotationComposer get accountId {
+    final $$RemoteAccountsTableAnnotationComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.accountId,
+        referencedTable: $db.remoteAccounts,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$RemoteAccountsTableAnnotationComposer(
+              $db: $db,
+              $table: $db.remoteAccounts,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+
+  Expression<T> remoteCollectionItemsRefs<T extends Object>(
+      Expression<T> Function($$RemoteCollectionItemsTableAnnotationComposer a)
+          f) {
+    final $$RemoteCollectionItemsTableAnnotationComposer composer =
+        $composerBuilder(
+            composer: this,
+            getCurrentColumn: (t) => t.id,
+            referencedTable: $db.remoteCollectionItems,
+            getReferencedColumn: (t) => t.collectionId,
+            builder: (joinBuilder,
+                    {$addJoinBuilderToRootComposer,
+                    $removeJoinBuilderFromRootComposer}) =>
+                $$RemoteCollectionItemsTableAnnotationComposer(
+                  $db: $db,
+                  $table: $db.remoteCollectionItems,
+                  $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                  joinBuilder: joinBuilder,
+                  $removeJoinBuilderFromRootComposer:
+                      $removeJoinBuilderFromRootComposer,
+                ));
+    return f(composer);
+  }
+}
+
+class $$RemoteCollectionsTableTableManager extends RootTableManager<
+    _$AppDatabase,
+    $RemoteCollectionsTable,
+    RemoteCollectionRow,
+    $$RemoteCollectionsTableFilterComposer,
+    $$RemoteCollectionsTableOrderingComposer,
+    $$RemoteCollectionsTableAnnotationComposer,
+    $$RemoteCollectionsTableCreateCompanionBuilder,
+    $$RemoteCollectionsTableUpdateCompanionBuilder,
+    (RemoteCollectionRow, $$RemoteCollectionsTableReferences),
+    RemoteCollectionRow,
+    PrefetchHooks Function({bool accountId, bool remoteCollectionItemsRefs})> {
+  $$RemoteCollectionsTableTableManager(
+      _$AppDatabase db, $RemoteCollectionsTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$RemoteCollectionsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$RemoteCollectionsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$RemoteCollectionsTableAnnotationComposer(
+                  $db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<int> id = const Value.absent(),
+            Value<int> accountId = const Value.absent(),
+            Value<String> kind = const Value.absent(),
+            Value<String> externalId = const Value.absent(),
+            Value<String> ownerId = const Value.absent(),
+            Value<String?> title = const Value.absent(),
+            Value<bool> isSelected = const Value.absent(),
+            Value<int> revision = const Value.absent(),
+            Value<int> itemCount = const Value.absent(),
+            Value<String?> remoteRevision = const Value.absent(),
+            Value<int?> completedAtMicros = const Value.absent(),
+          }) =>
+              RemoteCollectionsCompanion(
+            id: id,
+            accountId: accountId,
+            kind: kind,
+            externalId: externalId,
+            ownerId: ownerId,
+            title: title,
+            isSelected: isSelected,
+            revision: revision,
+            itemCount: itemCount,
+            remoteRevision: remoteRevision,
+            completedAtMicros: completedAtMicros,
+          ),
+          createCompanionCallback: ({
+            Value<int> id = const Value.absent(),
+            required int accountId,
+            required String kind,
+            required String externalId,
+            required String ownerId,
+            Value<String?> title = const Value.absent(),
+            required bool isSelected,
+            required int revision,
+            Value<int> itemCount = const Value.absent(),
+            Value<String?> remoteRevision = const Value.absent(),
+            Value<int?> completedAtMicros = const Value.absent(),
+          }) =>
+              RemoteCollectionsCompanion.insert(
+            id: id,
+            accountId: accountId,
+            kind: kind,
+            externalId: externalId,
+            ownerId: ownerId,
+            title: title,
+            isSelected: isSelected,
+            revision: revision,
+            itemCount: itemCount,
+            remoteRevision: remoteRevision,
+            completedAtMicros: completedAtMicros,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (
+                    e.readTable(table),
+                    $$RemoteCollectionsTableReferences(db, table, e)
+                  ))
+              .toList(),
+          prefetchHooksCallback: (
+              {accountId = false, remoteCollectionItemsRefs = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [
+                if (remoteCollectionItemsRefs) db.remoteCollectionItems
+              ],
+              addJoins: <
+                  T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic>>(state) {
+                if (accountId) {
+                  state = state.withJoin(
+                    currentTable: table,
+                    currentColumn: table.accountId,
+                    referencedTable:
+                        $$RemoteCollectionsTableReferences._accountIdTable(db),
+                    referencedColumn: $$RemoteCollectionsTableReferences
+                        ._accountIdTable(db)
+                        .id,
+                  ) as T;
+                }
+
+                return state;
+              },
+              getPrefetchedDataCallback: (items) async {
+                return [
+                  if (remoteCollectionItemsRefs)
+                    await $_getPrefetchedData<RemoteCollectionRow,
+                            $RemoteCollectionsTable, RemoteCollectionItemRow>(
+                        currentTable: table,
+                        referencedTable: $$RemoteCollectionsTableReferences
+                            ._remoteCollectionItemsRefsTable(db),
+                        managerFromTypedResult: (p0) =>
+                            $$RemoteCollectionsTableReferences(db, table, p0)
+                                .remoteCollectionItemsRefs,
+                        referencedItemsForCurrentItem:
+                            (item, referencedItems) => referencedItems
+                                .where((e) => e.collectionId == item.id),
+                        typedResults: items)
+                ];
+              },
+            );
+          },
+        ));
+}
+
+typedef $$RemoteCollectionsTableProcessedTableManager = ProcessedTableManager<
+    _$AppDatabase,
+    $RemoteCollectionsTable,
+    RemoteCollectionRow,
+    $$RemoteCollectionsTableFilterComposer,
+    $$RemoteCollectionsTableOrderingComposer,
+    $$RemoteCollectionsTableAnnotationComposer,
+    $$RemoteCollectionsTableCreateCompanionBuilder,
+    $$RemoteCollectionsTableUpdateCompanionBuilder,
+    (RemoteCollectionRow, $$RemoteCollectionsTableReferences),
+    RemoteCollectionRow,
+    PrefetchHooks Function({bool accountId, bool remoteCollectionItemsRefs})>;
+typedef $$RemoteCollectionItemsTableCreateCompanionBuilder
+    = RemoteCollectionItemsCompanion Function({
+  required int collectionId,
+  required int position,
+  required String externalId,
+  required String variantKey,
+  Value<int> rowid,
+});
+typedef $$RemoteCollectionItemsTableUpdateCompanionBuilder
+    = RemoteCollectionItemsCompanion Function({
+  Value<int> collectionId,
+  Value<int> position,
+  Value<String> externalId,
+  Value<String> variantKey,
+  Value<int> rowid,
+});
+
+final class $$RemoteCollectionItemsTableReferences extends BaseReferences<
+    _$AppDatabase, $RemoteCollectionItemsTable, RemoteCollectionItemRow> {
+  $$RemoteCollectionItemsTableReferences(
+      super.$_db, super.$_table, super.$_typedResult);
+
+  static $RemoteCollectionsTable _collectionIdTable(_$AppDatabase db) =>
+      db.remoteCollections.createAlias($_aliasNameGenerator(
+          db.remoteCollectionItems.collectionId, db.remoteCollections.id));
+
+  $$RemoteCollectionsTableProcessedTableManager get collectionId {
+    final $_column = $_itemColumn<int>('collection_id')!;
+
+    final manager =
+        $$RemoteCollectionsTableTableManager($_db, $_db.remoteCollections)
+            .filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_collectionIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+        manager.$state.copyWith(prefetchedData: [item]));
+  }
+}
+
+class $$RemoteCollectionItemsTableFilterComposer
+    extends Composer<_$AppDatabase, $RemoteCollectionItemsTable> {
+  $$RemoteCollectionItemsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get position => $composableBuilder(
+      column: $table.position, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get externalId => $composableBuilder(
+      column: $table.externalId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get variantKey => $composableBuilder(
+      column: $table.variantKey, builder: (column) => ColumnFilters(column));
+
+  $$RemoteCollectionsTableFilterComposer get collectionId {
+    final $$RemoteCollectionsTableFilterComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.collectionId,
+        referencedTable: $db.remoteCollections,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$RemoteCollectionsTableFilterComposer(
+              $db: $db,
+              $table: $db.remoteCollections,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+}
+
+class $$RemoteCollectionItemsTableOrderingComposer
+    extends Composer<_$AppDatabase, $RemoteCollectionItemsTable> {
+  $$RemoteCollectionItemsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get position => $composableBuilder(
+      column: $table.position, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get externalId => $composableBuilder(
+      column: $table.externalId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get variantKey => $composableBuilder(
+      column: $table.variantKey, builder: (column) => ColumnOrderings(column));
+
+  $$RemoteCollectionsTableOrderingComposer get collectionId {
+    final $$RemoteCollectionsTableOrderingComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.collectionId,
+        referencedTable: $db.remoteCollections,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$RemoteCollectionsTableOrderingComposer(
+              $db: $db,
+              $table: $db.remoteCollections,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+}
+
+class $$RemoteCollectionItemsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $RemoteCollectionItemsTable> {
+  $$RemoteCollectionItemsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get position =>
+      $composableBuilder(column: $table.position, builder: (column) => column);
+
+  GeneratedColumn<String> get externalId => $composableBuilder(
+      column: $table.externalId, builder: (column) => column);
+
+  GeneratedColumn<String> get variantKey => $composableBuilder(
+      column: $table.variantKey, builder: (column) => column);
+
+  $$RemoteCollectionsTableAnnotationComposer get collectionId {
+    final $$RemoteCollectionsTableAnnotationComposer composer =
+        $composerBuilder(
+            composer: this,
+            getCurrentColumn: (t) => t.collectionId,
+            referencedTable: $db.remoteCollections,
+            getReferencedColumn: (t) => t.id,
+            builder: (joinBuilder,
+                    {$addJoinBuilderToRootComposer,
+                    $removeJoinBuilderFromRootComposer}) =>
+                $$RemoteCollectionsTableAnnotationComposer(
+                  $db: $db,
+                  $table: $db.remoteCollections,
+                  $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                  joinBuilder: joinBuilder,
+                  $removeJoinBuilderFromRootComposer:
+                      $removeJoinBuilderFromRootComposer,
+                ));
+    return composer;
+  }
+}
+
+class $$RemoteCollectionItemsTableTableManager extends RootTableManager<
+    _$AppDatabase,
+    $RemoteCollectionItemsTable,
+    RemoteCollectionItemRow,
+    $$RemoteCollectionItemsTableFilterComposer,
+    $$RemoteCollectionItemsTableOrderingComposer,
+    $$RemoteCollectionItemsTableAnnotationComposer,
+    $$RemoteCollectionItemsTableCreateCompanionBuilder,
+    $$RemoteCollectionItemsTableUpdateCompanionBuilder,
+    (RemoteCollectionItemRow, $$RemoteCollectionItemsTableReferences),
+    RemoteCollectionItemRow,
+    PrefetchHooks Function({bool collectionId})> {
+  $$RemoteCollectionItemsTableTableManager(
+      _$AppDatabase db, $RemoteCollectionItemsTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$RemoteCollectionItemsTableFilterComposer(
+                  $db: db, $table: table),
+          createOrderingComposer: () =>
+              $$RemoteCollectionItemsTableOrderingComposer(
+                  $db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$RemoteCollectionItemsTableAnnotationComposer(
+                  $db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<int> collectionId = const Value.absent(),
+            Value<int> position = const Value.absent(),
+            Value<String> externalId = const Value.absent(),
+            Value<String> variantKey = const Value.absent(),
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              RemoteCollectionItemsCompanion(
+            collectionId: collectionId,
+            position: position,
+            externalId: externalId,
+            variantKey: variantKey,
+            rowid: rowid,
+          ),
+          createCompanionCallback: ({
+            required int collectionId,
+            required int position,
+            required String externalId,
+            required String variantKey,
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              RemoteCollectionItemsCompanion.insert(
+            collectionId: collectionId,
+            position: position,
+            externalId: externalId,
+            variantKey: variantKey,
+            rowid: rowid,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (
+                    e.readTable(table),
+                    $$RemoteCollectionItemsTableReferences(db, table, e)
+                  ))
+              .toList(),
+          prefetchHooksCallback: ({collectionId = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [],
+              addJoins: <
+                  T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic>>(state) {
+                if (collectionId) {
+                  state = state.withJoin(
+                    currentTable: table,
+                    currentColumn: table.collectionId,
+                    referencedTable: $$RemoteCollectionItemsTableReferences
+                        ._collectionIdTable(db),
+                    referencedColumn: $$RemoteCollectionItemsTableReferences
+                        ._collectionIdTable(db)
+                        .id,
+                  ) as T;
+                }
+
+                return state;
+              },
+              getPrefetchedDataCallback: (items) async {
+                return [];
+              },
+            );
+          },
+        ));
+}
+
+typedef $$RemoteCollectionItemsTableProcessedTableManager
+    = ProcessedTableManager<
+        _$AppDatabase,
+        $RemoteCollectionItemsTable,
+        RemoteCollectionItemRow,
+        $$RemoteCollectionItemsTableFilterComposer,
+        $$RemoteCollectionItemsTableOrderingComposer,
+        $$RemoteCollectionItemsTableAnnotationComposer,
+        $$RemoteCollectionItemsTableCreateCompanionBuilder,
+        $$RemoteCollectionItemsTableUpdateCompanionBuilder,
+        (RemoteCollectionItemRow, $$RemoteCollectionItemsTableReferences),
+        RemoteCollectionItemRow,
+        PrefetchHooks Function({bool collectionId})>;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -8482,4 +10698,10 @@ class $AppDatabaseManager {
       $$ExternalTrackRefsTableTableManager(_db, _db.externalTrackRefs);
   $$DownloadedAssetsTableTableManager get downloadedAssets =>
       $$DownloadedAssetsTableTableManager(_db, _db.downloadedAssets);
+  $$RemoteAccountsTableTableManager get remoteAccounts =>
+      $$RemoteAccountsTableTableManager(_db, _db.remoteAccounts);
+  $$RemoteCollectionsTableTableManager get remoteCollections =>
+      $$RemoteCollectionsTableTableManager(_db, _db.remoteCollections);
+  $$RemoteCollectionItemsTableTableManager get remoteCollectionItems =>
+      $$RemoteCollectionItemsTableTableManager(_db, _db.remoteCollectionItems);
 }

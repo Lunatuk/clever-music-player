@@ -2,6 +2,7 @@ export 'app_setting.dart';
 export 'audio_source_reference.dart';
 export 'external_track_ref.dart';
 export 'downloaded_asset.dart';
+export 'remote_library.dart';
 export 'library_folder.dart';
 export 'metadata_source.dart';
 export 'playlist.dart';

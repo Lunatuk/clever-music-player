@@ -6,6 +6,7 @@ import '../drift/app_database.dart';
 import '../drift/drift_mappers.dart';
 import 'drift_external_track_repository.dart';
 import 'drift_downloaded_asset_repository.dart';
+import 'drift_remote_library_repository.dart';
 
 final class DriftRepositories implements AppRepositories {
   DriftRepositories(AppDatabase database)
@@ -14,6 +15,7 @@ final class DriftRepositories implements AppRepositories {
         tracks = DriftTrackRepository(database),
         externalTracks = DriftExternalTrackRepository(database),
         downloadedAssets = DriftDownloadedAssetRepository(database),
+        remoteLibrary = DriftRemoteLibraryRepository(database),
         playlists = DriftPlaylistRepository(database),
         playbackEvents = DriftPlaybackEventRepository(database),
         trackUserState = DriftTrackUserStateRepository(database),
@@ -32,6 +34,9 @@ final class DriftRepositories implements AppRepositories {
 
   @override
   final DownloadedAssetRepository downloadedAssets;
+
+  @override
+  final RemoteLibraryRepository remoteLibrary;
 
   @override
   final PlaylistRepository playlists;

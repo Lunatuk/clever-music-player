@@ -168,6 +168,53 @@ class DownloadedAssets extends Table {
       ];
 }
 
+@DataClassName('RemoteAccountRow')
+class RemoteAccounts extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  TextColumn get provider => text()();
+  TextColumn get accountId => text()();
+  TextColumn get displayName => text().nullable()();
+  BoolColumn get isActive => boolean()();
+  IntColumn get revision => integer()();
+  @override
+  List<String> get customConstraints =>
+      ['UNIQUE (provider, account_id)', 'CHECK (revision > 0)'];
+}
+
+@DataClassName('RemoteCollectionRow')
+class RemoteCollections extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  IntColumn get accountId =>
+      integer().references(RemoteAccounts, #id, onDelete: KeyAction.cascade)();
+  TextColumn get kind => text()();
+  TextColumn get externalId => text()();
+  TextColumn get ownerId => text()();
+  TextColumn get title => text().nullable()();
+  BoolColumn get isSelected => boolean()();
+  IntColumn get revision => integer()();
+  IntColumn get itemCount => integer().withDefault(const Constant(0))();
+  TextColumn get remoteRevision => text().nullable()();
+  IntColumn get completedAtMicros => integer().nullable()();
+  @override
+  List<String> get customConstraints => [
+        'UNIQUE (account_id, kind, external_id, owner_id)',
+        'CHECK (revision > 0 AND item_count >= 0)'
+      ];
+}
+
+@DataClassName('RemoteCollectionItemRow')
+class RemoteCollectionItems extends Table {
+  IntColumn get collectionId => integer()
+      .references(RemoteCollections, #id, onDelete: KeyAction.cascade)();
+  IntColumn get position => integer()();
+  TextColumn get externalId => text()();
+  TextColumn get variantKey => text()();
+  @override
+  Set<Column> get primaryKey => {collectionId, position};
+  @override
+  List<String> get customConstraints => ['CHECK (position >= 0)'];
+}
+
 @DriftDatabase(
   tables: [
     LibraryFolders,
@@ -179,6 +226,9 @@ class DownloadedAssets extends Table {
     AppSettings,
     ExternalTrackRefs,
     DownloadedAssets,
+    RemoteAccounts,
+    RemoteCollections,
+    RemoteCollectionItems,
   ],
 )
 class AppDatabase extends _$AppDatabase {
@@ -192,7 +242,7 @@ class AppDatabase extends _$AppDatabase {
       AppDatabase(_openConnection(diagnostics), diagnostics: diagnostics);
 
   @override
-  int get schemaVersion => 11;
+  int get schemaVersion => 12;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -261,6 +311,11 @@ class AppDatabase extends _$AppDatabase {
                   if (from < 11) {
                     await migrator.createTable(downloadedAssets);
                   }
+                  if (from < 12) {
+                    await migrator.createTable(remoteAccounts);
+                    await migrator.createTable(remoteCollections);
+                    await migrator.createTable(remoteCollectionItems);
+                  }
                   await _createIndexes();
                   // Commit the version marker with the DDL so an interruption cannot
                   // leave new columns with an old version and break the next upgrade.
@@ -298,6 +353,14 @@ class AppDatabase extends _$AppDatabase {
   }
 
   Future<void> _createIndexes() async {
+    await customStatement(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_remote_accounts_active '
+      'ON remote_accounts(provider) WHERE is_active = 1;',
+    );
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_remote_collections_selected '
+      'ON remote_collections(account_id, is_selected, id);',
+    );
     await customStatement(
       'CREATE INDEX IF NOT EXISTS idx_downloaded_assets_identity '
       'ON downloaded_assets(provider, external_id, variant_key, actual_quality, state, track_id);',

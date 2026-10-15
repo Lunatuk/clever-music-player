@@ -40,7 +40,12 @@ source, known file properties and availability, and still requires a current OS/
 check. No existing music is marked as a verified download during migration.
 See [downloaded asset rules](docs/architecture/downloaded-assets.md).
 
-Database schema v11 preserves existing track IDs and history. Metadata signatures
+Package 26 adds account configuration without credentials, collection selection
+and atomic ordered remote snapshots. Partial or stale responses cannot replace
+the last successful content. Provider likes remain separate from local feedback;
+network login and downloads follow later. See [snapshot rules](docs/architecture/remote-library-snapshots.md).
+
+Database schema v12 preserves existing track IDs and history. Metadata signatures
 are non-unique, feedback changes preserve listening counters, and playback events
 and their counters commit together. Retrying an event's operation ID does not
 count it twice. Keep a consistent SQLite backup before upgrading; use a
@@ -91,9 +96,9 @@ are available in the prototype; URI hashing and bulk library import remain
 separate work. Background audio uses the existing shared runtime.
 See [the source reference contract](docs/architecture/audio-source-references.md).
 
-## Android preview (package 25)
+## Android preview (package 26)
 
-`dist/clever-music-player-core-25-android-arm64.apk` updates **Clever Music Preview**
+`dist/clever-music-player-core-26-android-arm64.apk` updates **Clever Music Preview**
 in its own Android sandbox. The compact screen selects up to 64 audio documents
 at a time through the system picker, stores read-only persistent grants and uses
 the shared database/player/queue. Re-selecting the same URI keeps the existing
@@ -119,8 +124,9 @@ queue and Wave history. Notification/lock-screen/headset commands control this
 runtime. Audio interruptions and headphone removal pause both crossfade decks;
 resume explicitly with Play. Stop ends playback and removes the notification.
 This is a debug-signed release-mode prototype, not the final design or store release.
-Package 25 also provides `dist/clever-music-player-core-25-windows-x64.zip`.
-Both platforms use schema 11 with separate external identities and downloaded asset evidence.
+Package 26 also provides `dist/clever-music-player-core-26-windows-x64.zip`.
+Both platforms use schema 12 with external identities, downloaded asset evidence
+and remote account/collection snapshots.
 See [targeted checks](docs/MANUAL_CHECKS.md)
 and [background playback contract](docs/architecture/android-background-playback.md).
 

@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:clever_music_player/src/data/drift/app_database.dart';
 import 'package:clever_music_player/src/data/repositories/drift_repositories.dart';
 import 'package:clever_music_player/src/domain/models/track.dart';
+import 'package:clever_music_player/src/domain/models/remote_library.dart';
+import 'package:clever_music_player/src/domain/models/downloaded_asset.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
@@ -17,6 +19,9 @@ const _tables = [
   'app_settings',
   'external_track_refs',
   'downloaded_assets',
+  'remote_accounts',
+  'remote_collections',
+  'remote_collection_items',
 ];
 
 typedef _Snapshot = Map<String, List<Map<String, Object?>>>;
@@ -24,7 +29,7 @@ typedef _Snapshot = Map<String, List<Map<String, Object?>>>;
 void main() {
   final schemaV7 = File('test/fixtures/schema_v7.sql').readAsStringSync();
 
-  for (var version = 1; version <= 10; version++) {
+  for (var version = 1; version <= 11; version++) {
     test('schema v$version upgrades without changing existing rows or IDs',
         () async {
       late _Snapshot before;
@@ -82,6 +87,31 @@ void main() {
         isEmpty);
   });
 
+  test('v11 verified assets survive without inventing accounts or collections',
+      () async {
+    late _Snapshot before;
+    final database = AppDatabase(NativeDatabase.memory(setup: (raw) {
+      _createHistoricalSchema(raw.execute, schemaV7, 11);
+      _seedHistoricalData(raw.execute, 11);
+      before = _snapshot((sql) =>
+          [for (final row in raw.select(sql)) Map<String, Object?>.of(row)]);
+    }));
+    addTearDown(database.close);
+    await _verifyUpgrade(database, () => before);
+    final repositories = DriftRepositories(database);
+    final asset = (await repositories.downloadedAssets.findForTrack(41))!;
+    expect(asset.revision, 7);
+    expect(asset.state, DownloadedAssetState.accessDenied);
+    expect(
+        asset.verification.checkedAt.microsecondsSinceEpoch, 1792020000123456);
+    expect(asset.publication.publicationId, 'migration-asset');
+    expect(await repositories.remoteLibrary.listAccounts(), isEmpty);
+    expect(
+        await repositories.remoteLibrary.listCollections(RemoteAccountIdentity(
+            provider: 'yandex_music', accountId: '00041')),
+        isEmpty);
+  });
+
   test(
       'v9 Android ownership, URI, genre, settings and user data survive upgrade',
       () async {
@@ -117,7 +147,12 @@ void main() {
     expect(await repository.externalTracks.listForTrack(42), isEmpty);
   });
 
-  for (final failurePoint in ['external-index', 'asset-index', 'version']) {
+  for (final failurePoint in [
+    'external-index',
+    'asset-index',
+    'remote-index',
+    'version'
+  ]) {
     test('fresh schema creation rolls back after $failurePoint failure',
         () async {
       final dir =
@@ -149,11 +184,11 @@ void main() {
       expect(
           (await retry.customSelect('PRAGMA user_version').getSingle())
               .read<int>('user_version'),
-          11);
+          12);
     });
   }
 
-  test('schema v11 remains valid after closing and reopening a migrated file',
+  test('schema v12 remains valid after closing and reopening a migrated file',
       () async {
     final directory =
         await Directory.systemTemp.createTemp('clever_schema_reopen_');
@@ -178,7 +213,7 @@ void main() {
     expect(
         (await reopened.customSelect('PRAGMA user_version').getSingle())
             .read<int>('user_version'),
-        11);
+        12);
     final repositories = DriftRepositories(reopened);
     final original = (await repositories.tracks.findById(41))!;
     await repositories.tracks.upsertTrack(
@@ -196,12 +231,13 @@ void main() {
         hasLength(1));
   });
 
-  for (final version in [1, 7, 8, 9, 10]) {
+  for (final version in [1, 7, 8, 9, 10, 11]) {
     for (final failurePoint in [
       'index',
       'operation-index',
       'external-index',
       'asset-index',
+      'remote-index',
       'version'
     ]) {
       test(
@@ -235,6 +271,7 @@ void main() {
         late bool hasOperationIdAfterFailure;
         late bool hasExternalRefsAfterFailure;
         late bool hasAssetsAfterFailure;
+        late bool hasRemoteTablesAfterFailure;
         final retry = AppDatabase(NativeDatabase(
           file,
           setup: (raw) {
@@ -259,6 +296,10 @@ void main() {
                 .select(
                     "SELECT name FROM sqlite_master WHERE name = 'downloaded_assets'")
                 .isNotEmpty;
+            hasRemoteTablesAfterFailure = raw
+                .select(
+                    "SELECT name FROM sqlite_master WHERE name IN ('remote_accounts', 'remote_collections', 'remote_collection_items')")
+                .isNotEmpty;
           },
         ));
         addTearDown(retry.close);
@@ -270,11 +311,12 @@ void main() {
         expect(hasStableIdAfterFailure, version >= 2);
         expect(hasOperationIdAfterFailure, version >= 9);
         expect(hasExternalRefsAfterFailure, version >= 10);
-        expect(hasAssetsAfterFailure, isFalse);
+        expect(hasAssetsAfterFailure, version >= 11);
+        expect(hasRemoteTablesAfterFailure, isFalse);
         expect(
             (await retry.customSelect('PRAGMA user_version').getSingle())
                 .read<int>('user_version'),
-            11);
+            12);
       });
     }
   }
@@ -326,6 +368,12 @@ class _FailingMigrationDatabase extends AppDatabase {
       throw StateError('Simulated interruption after adding operation_id');
     }
     await super.customStatement(statement, args);
+    if (failurePoint == 'remote-index' &&
+        statement.startsWith(
+            'CREATE INDEX IF NOT EXISTS idx_remote_collections_selected ')) {
+      throw StateError(
+          'Simulated interruption after creating remote collection schema');
+    }
     if (failurePoint == 'asset-index' &&
         statement.startsWith(
             'CREATE INDEX IF NOT EXISTS idx_downloaded_assets_identity ')) {
@@ -363,7 +411,7 @@ Future<void> _verifyUpgrade(
   expect(
       (await database.customSelect('PRAGMA user_version').getSingle())
           .read<int>('user_version'),
-      11);
+      12);
   for (final entry in getBefore().entries) {
     final table = entry.key;
     final oldRows = entry.value;
@@ -498,6 +546,12 @@ void _seedHistoricalData(void Function(String) execute, int version) {
   if (version >= 10) {
     execute(
         "INSERT INTO external_track_refs (track_id, provider, external_id, variant_key, origin, linked_at) VALUES (41, 'yandex_music', '00041', 'album:live', 'manual', 2)");
+  }
+  if (version >= 11) {
+    final hash = 'a' * 64;
+    execute("UPDATE tracks SET content_hash = '$hash', file_size_bytes = 123");
+    execute(
+        "INSERT INTO downloaded_assets (track_id, provider, external_id, variant_key, source, publication_id, requested_quality, actual_quality, container, codec, file_size_bytes, duration_ms, content_hash, verified_at_micros, state, revision) VALUES (41, 'yandex_music', '00041', 'album:live', '/music/original.mp3', 'migration-asset', 'high', 'high', 'mp3', 'mp3', 123, 60000, '$hash', 1792020000123456, 'accessDenied', 7)");
   }
   if (version >= 9) {
     execute("UPDATE playback_events SET operation_id = 'legacy-event-9'");
