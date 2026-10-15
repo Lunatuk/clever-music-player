@@ -8,6 +8,7 @@ import 'drift_external_track_repository.dart';
 import 'drift_downloaded_asset_repository.dart';
 import 'drift_remote_library_repository.dart';
 import 'drift_download_job_repository.dart';
+import 'drift_library_sync_repository.dart';
 
 final class DriftRepositories implements AppRepositories {
   DriftRepositories(AppDatabase database)
@@ -18,6 +19,7 @@ final class DriftRepositories implements AppRepositories {
         downloadedAssets = DriftDownloadedAssetRepository(database),
         remoteLibrary = DriftRemoteLibraryRepository(database),
         downloadJobs = DriftDownloadJobRepository(database),
+        librarySync = DriftLibrarySyncRepository(database),
         playlists = DriftPlaylistRepository(database),
         playbackEvents = DriftPlaybackEventRepository(database),
         trackUserState = DriftTrackUserStateRepository(database),
@@ -42,6 +44,9 @@ final class DriftRepositories implements AppRepositories {
 
   @override
   final DownloadJobRepository downloadJobs;
+
+  @override
+  final LibrarySyncRepository librarySync;
 
   @override
   final PlaylistRepository playlists;

@@ -9,6 +9,11 @@ abstract interface class DownloadJobRepository {
       RemoteLibraryAccount account, Iterable<DownloadJobKey> keys,
       {required DateTime now, int maxAttempts = 3});
   Future<DownloadJob?> findByKey(DownloadJobKey key);
+
+  /// Complete destination/provider set (all qualities/sessions), bounded at
+  /// 100 000 rows. Exceeding the bound fails explicitly instead of truncating.
+  Future<List<DownloadJob>> listForDestination(int libraryFolderId,
+      {required String provider});
   Future<List<DownloadJob>> listJobs(
       {DownloadJobState? state, int limit = 100});
   Future<List<DownloadAttempt>> listAttempts(int jobId, {int limit = 50});

@@ -50,6 +50,12 @@ reconciliation checkpoints. Session/folder changes revoke stale work atomically;
 completion requires current downloaded-asset evidence. The physical downloader
 and coordinator are still subsequent work. See [job rules](docs/architecture/durable-download-jobs.md).
 
+Package 28 adds deterministic update planning across selected collections, exact
+resource candidates and existing jobs. Atomic application rechecks the full input,
+keeps retry budgets and cancels obsolete pending work within the destination.
+Candidate files still need physical checks; no network/UI integration yet.
+See [planning rules](docs/architecture/library-sync-planner.md).
+
 Database schema v13 preserves existing track IDs and history. Metadata signatures
 are non-unique, feedback changes preserve listening counters, and playback events
 and their counters commit together. Retrying an event's operation ID does not
@@ -101,9 +107,9 @@ are available in the prototype; URI hashing and bulk library import remain
 separate work. Background audio uses the existing shared runtime.
 See [the source reference contract](docs/architecture/audio-source-references.md).
 
-## Android preview (package 27)
+## Android preview (package 28)
 
-`dist/clever-music-player-core-27-android-arm64.apk` updates **Clever Music Preview**
+`dist/clever-music-player-core-28-android-arm64.apk` updates **Clever Music Preview**
 in its own Android sandbox. The compact screen selects up to 64 audio documents
 at a time through the system picker, stores read-only persistent grants and uses
 the shared database/player/queue. Re-selecting the same URI keeps the existing
@@ -129,7 +135,7 @@ queue and Wave history. Notification/lock-screen/headset commands control this
 runtime. Audio interruptions and headphone removal pause both crossfade decks;
 resume explicitly with Play. Stop ends playback and removes the notification.
 This is a debug-signed release-mode prototype, not the final design or store release.
-Package 27 also provides `dist/clever-music-player-core-27-windows-x64.zip`.
+Package 28 also provides `dist/clever-music-player-core-28-windows-x64.zip`.
 Both platforms use schema 13 with external identities, downloaded asset evidence,
 remote account/collection snapshots and durable download jobs.
 See [targeted checks](docs/MANUAL_CHECKS.md)

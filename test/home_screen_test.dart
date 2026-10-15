@@ -1452,6 +1452,10 @@ final class _FakeAppRepositories implements AppRepositories {
       throw UnsupportedError('Unused in UI tests');
 
   @override
+  LibrarySyncRepository get librarySync =>
+      throw UnsupportedError('Unused in UI tests');
+
+  @override
   DownloadedAssetRepository get downloadedAssets => throw UnsupportedError(
       'Downloaded assets are not used by this UI fixture.');
 

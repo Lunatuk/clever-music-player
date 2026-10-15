@@ -3,6 +3,7 @@ export 'external_track_repository.dart';
 export 'downloaded_asset_repository.dart';
 export 'remote_library_repository.dart';
 export 'download_job_repository.dart';
+export 'library_sync_repository.dart';
 export 'library_repository.dart';
 export 'playback_event_repository.dart';
 export 'playlist_repository.dart';

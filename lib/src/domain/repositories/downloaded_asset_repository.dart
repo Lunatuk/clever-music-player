@@ -18,6 +18,11 @@ abstract interface class DownloadedAssetRepository {
   Future<List<DownloadedAsset>> findCandidates(ExternalTrackIdentity identity,
       {required String quality, required int? libraryFolderId});
 
+  /// Complete bounded destination lookup for planning, with the same candidate
+  /// rules as findCandidates; physical access/content must still be checked.
+  Future<List<DownloadedAsset>> findCandidatesForFolder(
+      {required String quality, required int libraryFolderId});
+
   /// Compare-and-set state updates. Stale snapshots return false, without writes.
   Future<bool> invalidate(DownloadedAsset expected, DownloadedAssetState state);
   Future<bool> confirm(

@@ -84,16 +84,26 @@ final class DriftDownloadedAssetRepository
       {required String quality, required int? libraryFolderId}) {
     validateAssetQuality(quality);
     if (libraryFolderId != null) _validateTrackId(libraryFolderId);
+    return _candidates(identity, quality, libraryFolderId);
+  }
+
+  @override
+  Future<List<DownloadedAsset>> findCandidatesForFolder(
+      {required String quality, required int libraryFolderId}) {
+    validateAssetQuality(quality);
+    _validateTrackId(libraryFolderId);
+    return _candidates(null, quality, libraryFolderId);
+  }
+
+  Future<List<DownloadedAsset>> _candidates(ExternalTrackIdentity? identity,
+      String quality, int? libraryFolderId) async {
     final assets = database.downloadedAssets, tracks = database.tracks;
     final folders = database.libraryFolders;
     final query = database.select(assets).join([
       innerJoin(tracks, tracks.id.equalsExp(assets.trackId)),
       leftOuterJoin(folders, folders.id.equalsExp(tracks.libraryFolderId)),
     ])
-      ..where(assets.provider.equals(identity.provider) &
-          assets.externalId.equals(identity.externalId) &
-          assets.variantKey.equals(identity.variantKey) &
-          assets.actualQuality.equals(quality) &
+      ..where(assets.actualQuality.equals(quality) &
           assets.state.equals(DownloadedAssetState.verified.name) &
           tracks.isMissing.equals(false) &
           assets.source.equalsExp(tracks.filePath) &
@@ -106,8 +116,19 @@ final class DriftDownloadedAssetRepository
               ? tracks.libraryFolderId.isNull()
               : tracks.libraryFolderId.equals(libraryFolderId)))
       ..orderBy([OrderingTerm(expression: assets.trackId)]);
-    return query.get().then((rows) =>
-        List.unmodifiable(rows.map((row) => _fromRow(row.readTable(assets)))));
+    if (identity != null) {
+      query.where(assets.provider.equals(identity.provider) &
+          assets.externalId.equals(identity.externalId) &
+          assets.variantKey.equals(identity.variantKey));
+    } else {
+      query.limit(100001);
+    }
+    final rows = await query.get();
+    if (identity == null && rows.length > 100000) {
+      throw StateError('Слишком много ресурсов для одного снимка.');
+    }
+    return List.unmodifiable(
+        rows.map((row) => _fromRow(row.readTable(assets))));
   }
 
   @override

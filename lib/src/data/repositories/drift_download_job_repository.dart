@@ -94,6 +94,26 @@ final class DriftDownloadJobRepository implements DownloadJobRepository {
   }
 
   @override
+  Future<List<DownloadJob>> listForDestination(int libraryFolderId,
+      {required String provider}) async {
+    if (libraryFolderId <= 0 ||
+        RegExp(r'^[a-z][a-z0-9._-]{0,63}$').stringMatch(provider) != provider) {
+      throw ArgumentError('Некорректное назначение или провайдер.');
+    }
+    final rows = await (database.select(database.downloadJobs)
+          ..where((t) =>
+              t.libraryFolderId.equals(libraryFolderId) &
+              t.provider.equals(provider))
+          ..orderBy([(t) => OrderingTerm(expression: t.id)])
+          ..limit(100001))
+        .get();
+    if (rows.length > 100000) {
+      throw StateError('Слишком много заданий для одного снимка.');
+    }
+    return List.unmodifiable(rows.map(_job));
+  }
+
+  @override
   Future<List<DownloadAttempt>> listAttempts(int jobId,
       {int limit = 50}) async {
     _limit(limit);
