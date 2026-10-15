@@ -9,6 +9,7 @@ import '../library/library_controller.dart';
 import '../library/library_management_service.dart';
 import '../library/library_scanner_service.dart';
 import '../library/metadata_reader_service.dart';
+import '../library_sync/source_fingerprint_probe.dart';
 import '../player/player_service.dart';
 import '../queue/playback_queue_service.dart';
 import '../recommendation/recommendation_service.dart';
@@ -21,11 +22,13 @@ final class LocalLibraryAdapters {
       {required this.metadataReader,
       required this.artworkCache,
       required this.directoryPicker,
-      required this.customArtwork});
+      required this.customArtwork,
+      this.sourceFingerprintProbeFactory});
   final MetadataReaderService metadataReader;
   final ArtworkCacheService artworkCache;
   final DirectoryPickerService directoryPicker;
   final CustomArtworkService customArtwork;
+  final SourceFingerprintProbe Function()? sourceFingerprintProbeFactory;
 }
 
 final class AppPlayerRuntime {
@@ -102,6 +105,7 @@ Future<AppDependencies> bootstrapApplication(
         playbackQueue: queue,
         smtcService: media,
         libraryController: library,
+        sourceFingerprintProbeFactory: local.sourceFingerprintProbeFactory,
         diagnostics: diagnostics);
   } on Object catch (error, stack) {
     // Native disposal can release a command started by media initialization.

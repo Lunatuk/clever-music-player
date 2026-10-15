@@ -8,6 +8,12 @@ import 'sha256_digest.dart';
 
 part 'sha256_hash_session.dart';
 
+/// Distinguishes an unstable read from an access failure without parsing text.
+final class FileContentChangedException extends FileSystemException {
+  FileContentChangedException(String path)
+      : super('Файл изменился во время проверки копий.', path);
+}
+
 /// Worker wall times include IO waits and scheduling, not physical disk/CPU time.
 /// Only completed, verified hashes contribute these details to scan metrics.
 final class FileHashTimings {
@@ -275,8 +281,7 @@ Future<FileContentFingerprint> _hashFile(
         if (length == 0) break;
         bytesRead += length;
         if (bytesRead > before.size) {
-          throw FileSystemException(
-              'Файл вырос во время проверки копий.', path);
+          throw FileContentChangedException(path);
         }
         if (progressTimer.elapsedMilliseconds >= 100) {
           onProgress?.call(FileHashProgress(bytesRead, before.size));
@@ -314,7 +319,7 @@ Future<FileContentFingerprint> _hashFile(
   final matches = await fingerprint.matchesFile(file);
   io.stop();
   if (bytesRead != before.size || !matches) {
-    throw FileSystemException('Файл изменился во время проверки копий.', path);
+    throw FileContentChangedException(path);
   }
   onProgress?.call(FileHashProgress(bytesRead, before.size));
   checkCancellation();

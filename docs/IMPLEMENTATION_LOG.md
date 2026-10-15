@@ -1695,3 +1695,110 @@ MANUAL_CHECKS.txt текущего пакета. Android поверх 27 без 
 Ожидается короткая ручная проверка старой библиотеки, знакомого трека и перезапуска;
 полный перескан и повтор всех аудиотестов не нужны. База остаётся схемой 13.
 [Контракт](architecture/library-sync-planner.md).
+
+
+**15 октября 2026 — пакет 29, физическая сверка зарегистрированных файлов**
+
+Пользователь подтвердил пакет 28 сообщением «все работает». Продолжена
+подготовка синхронизации: SourceFingerprintProbe, FileSourceFingerprintProbe,
+RoutedSourceFingerprintProbe, AndroidSourceFingerprintProbe и
+DownloadedAssetChecker. Схема остаётся 13; AppDatabase и generated Dart
+совпадают SHA-256 с пакетом 28. Новых таблиц, миграции/автоматических загрузок нет.
+
+Проверяется полный SHA-256 и размер готового зарегистрированного ресурса.
+Совпавшие байты сохраняют прежние container/codec/actualQuality/duration и
+подтверждают новое UTC-время через полный CAS-снимок. Сервис не определяет
+формат/качество заново и не декодирует новое аудио: отдельный валидатор новых
+загрузок после записи тегов/обложки остаётся следующим шагом.
+
+Изменённые байты/размер и нестабильное чтение дают invalid; отсутствие — missing,
+отказ доступа — accessDenied. Занятый файл, сбой провайдера/протокола и
+неподдерживаемый источник сохраняют прежнюю запись с результатом unreadable,
+без подтверждения переиспользования. Late CAS возвращает stale, не портит новую
+публикацию/ревизию. Ошибки SQLite распространяются, не маскируются ошибками IO.
+Только confirmed позволяет будущему координатору переиспользовать ресурс;
+наличия прежней verified-записи после unreadable недостаточно.
+
+Файловый адаптер переиспользует существующий ленивый Sha256HashSession с
+постоянным буфером/isolate, Windows CNG и Dart fallback. Проверка изменений
+размера/дат остаётся. FileContentChangedException наследует FileSystemException:
+сканер сохраняет свой контракт, новый адаптер различает нестабильный read и
+ошибку доступа. При неоднозначном stat read-only open восстанавливает код ОС;
+сообщения ошибок не разбираются, успех открытия не означает missing.
+
+Android AudioFingerprintPlugin зарегистрирован в общем engine отдельно от
+AudioDocumentsPlugin: один активный read, отдельный worker, буфер 64 КиБ,
+MessageDigest SHA-256, без временной копии музыки. AssetFileDescriptor stream
+поддерживает поддиапазоны провайдера. Постоянные SAF grants проверяются для
+документа/tree, при FileNotFound повторно проверяется отзыв доступа. Известные
+размер/last_modified сверяются до/после; неизвестные метаданные допустимы при
+полном совпадении прочитанных байтов. Более длинный поток прекращается,
+16 пустых чтений дают IOException вместо бесконечного цикла.
+
+Канал использует положительный requestId и expectedSize, фиксированные статусы,
+точный ID ответа и canonical digest. Dart отвергает чужие ID/статусы/типы/хэши.
+Отмена передаётся CancellationSignal/закрытию FD вне UI-потока, повторные отмены
+объединены, очередь отмены ограничена одним местом. Общий сервис допускает один
+check, закрывает приём при close, отменяет чтение, ждёт его и принятый CAS до
+закрытия SQLite. Принятая запись сообщает реальный исход даже при одновременной
+отмене. Кооперативный timeout по умолчанию пять минут (до 30 минут) не бросает
+native Future; провайдер, игнорирующий отмену, может задержать завершение.
+Жёсткого IO-timeout и файловой блокировки эта проверка не обещает.
+
+AppDependencies.assetChecker создаётся ленивой платформенной фабрикой.
+Bootstrap/воспроизведение не открывают worker и не запускают проверку. Cleanup
+добавлен до SQLite; отказ probe.close не мешает последующим ресурсам.
+AppResource.assetVerification добавлен в конец, прежние числовые коды сохранены.
+
+| Проверка | Результат |
+| --- | --- |
+| Целевой Flutter-набор | 68 passed |
+| Полный Flutter-набор | 1073 passed, 52 новых |
+| Flutter analyze | No issues found |
+| dart format lib/test | 188 файлов, 0 изменений |
+| Drift generation check | Успешно; первый 76,4 с, повтор 8.7 с, generated Dart не изменился |
+| Native Windows audio contract | MSVC compiled, protocol fixture matched |
+| Android arm64 release | Успешно, 104.9 с вместе с запуском процесса |
+| Native JVM | 15 passed: 6 traversal + 9 streaming fingerprint |
+| Native lint | 0 errors, 6 прежних warnings |
+| APK | CRC/v2 signature/ZIP и ELF LOAD/RELRO 16 КиБ; signer совпадает с 28, versionCode 2029, target SDK 36; service/notification/permissions/folder/fingerprint methods присутствуют |
+| Windows x64 release | Успешно, 95.1 с вместе с запуском процесса |
+| Windows ZIP | 17 файлов, CRC/байты payload/PE x64; состав и production SQLite manifest совпадают с 28, тестового sidecar нет |
+
+Новые Flutter-сценарии: 24 checker/SQLite/файлы, 9 файловый probe/протокол,
+16 Android MethodChannel и 3 bootstrap/lifecycle. Проверены совпадение/замена
+при том же размере/удаление/возврат файла, stale revision/регрессия часов,
+структурированные ошибки/неоднозначный stat, повторное использование hash
+session и многобуферное чтение, malformed native responses, pre-cancel,
+late successful read после отмены, timeout, busy, close, дренирование принятого
+CAS и сохранение SQLite открытой до завершения чтения, отказ закрытия probe.
+JVM проверяет известный SHA-256, частичные блоки, короткий/длинный/пустой поток,
+отмену до/внутри чтения, stalled provider и положительный expectedSize.
+Начальный analyze нашёл один стиль if без блока в тесте; исправлен.
+
+Сборочная копия %LOCALAPPDATA%/CleverMusicPlayerBuilds/core29-20261015.
+338 исходных файлов сверены SHA-256 после обеих сборок; продуктовые
+исходники после окончательных тестов/сборок не менялись. Flutter test запускался
+в рабочем дереве, не в release-копии. Пользовательская БД и музыка не читались
+и не изменялись. Прежние Windows warnings resolve_symlinks.ps1 (скрытый AppData)
+и jni C4090 сохранены; патчей зависимостей нет. Android SDK XML warning прежний.
+Логи .dart_tool/core29-targeted-tests.log, core29-full-tests-final.log,
+core29-analyze-final.log, core29-format-final.log, core29-native-windows-protocol.log,
+core29-source-manifest.json, core29-build-result.json, core29-verify-result.json,
+core29-package.json, core29-apk-*.log; native/release логи в сборочной копии.
+Android CI переключён на 29 и включает fingerprint JVM tests; удалённый статус
+CI не проверялся. macOS/физический Android SAF не запускались. Ручная проверка
+этого пакета пользователем ещё не получена; достаточно знакомого трека и
+перезапуска, без пересканирования. Нативный SAF read потребует отдельного
+прогона на телефоне при подключении интерфейса вызова.
+
+Артефакты:
+
+- dist/clever-music-player-core-29-android-arm64.apk: 20814336 байт, SHA-256 7b8a4908734b1d3841a525224f720ed7626d1940596216435071e5c1b1233c3d.
+- dist/clever-music-player-core-29-windows-x64.zip: 14378573 байт, SHA-256 df5b8a5e33d30b07280f7234064ab41d3607348f93b5d28fc9f401c4000258f8.
+- dist/clever-music-player-core-29-checks.txt, manual-checks.txt и отдельные .sha256.
+
+Далее: валидация нового аудио/тегов/обложек, безопасная публикация с блокировкой
+назначения и журналом, сверка прерванной работы, координатор/сетевой адаптер,
+авторизация/выбор коллекций и ручная кнопка. Позже расписание. Подбор «Волны»
+по решению пользователя отложен. [Контракт проверки](architecture/downloaded-asset-byte-checks.md).

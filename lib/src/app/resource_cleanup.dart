@@ -7,7 +7,8 @@ enum AppResource {
   library,
   database,
   diagnostics,
-  audioDeck
+  audioDeck,
+  assetVerification
 }
 
 final class AppCleanupAction {

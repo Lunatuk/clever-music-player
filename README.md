@@ -56,6 +56,14 @@ keeps retry budgets and cancels obsolete pending work within the destination.
 Candidate files still need physical checks; no network/UI integration yet.
 See [planning rules](docs/architecture/library-sync-planner.md).
 
+Package 29 adds physical reuse checks for registered resources: full-file SHA-256
+and size on desktop and streaming SAF reads on Android. Missing, denied, changed
+and transient failures remain distinct; revision checks reject stale results.
+Cancellation drains reads and accepted writes before SQLite closes. Matching
+bytes preserve previous audio-format evidence; this is not a decoder for new
+downloads. The checker is lazy and internal; login/download UI follows later.
+See [physical check rules](docs/architecture/downloaded-asset-byte-checks.md).
+
 Database schema v13 preserves existing track IDs and history. Metadata signatures
 are non-unique, feedback changes preserve listening counters, and playback events
 and their counters commit together. Retrying an event's operation ID does not

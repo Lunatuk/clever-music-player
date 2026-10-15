@@ -15,6 +15,9 @@ import 'package:clever_music_player/src/library/custom_artwork_service.dart';
 import 'package:clever_music_player/src/library/directory_picker_service.dart';
 import 'package:clever_music_player/src/library/library_controller.dart';
 import 'package:clever_music_player/src/library/metadata_reader_service.dart';
+import 'package:clever_music_player/src/library/library_scan_control.dart';
+import 'package:clever_music_player/src/library_sync/downloaded_asset_checker.dart';
+import 'package:clever_music_player/src/library_sync/source_fingerprint_probe.dart';
 import 'package:clever_music_player/src/player/player_service.dart';
 import 'package:clever_music_player/src/player/player_state.dart';
 import 'package:clever_music_player/src/player/transition_player_service.dart';
@@ -24,6 +27,7 @@ import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/test_audio_engine.dart';
+import 'support/asset_check_fixture.dart';
 
 void main() {
   late _Adapters adapters;
@@ -95,6 +99,53 @@ void main() {
     } finally {
       if (!load.isCompleted) load.complete();
     }
+  });
+
+  test('asset verification is lazy and shutdown never creates a worker',
+      () async {
+    var created = 0;
+    adapters.probeFactory = () {
+      created++;
+      return _AssetProbe();
+    };
+    final dependencies = await bootstrapApplication(adapters: adapters);
+    expect(created, 0);
+    await dependencies.dispose();
+    expect(created, 0);
+    expect(() => dependencies.assetChecker, throwsStateError);
+  });
+
+  test('shutdown drains cancelled asset read before closing SQLite', () async {
+    final probe = _AssetProbe();
+    adapters.probeFactory = () => probe;
+    final dependencies = await bootstrapApplication(adapters: adapters);
+    final asset = await registerTestAsset(DriftRepositories(adapters.database));
+    final checker = dependencies.assetChecker;
+    expect(identical(checker, dependencies.assetChecker), isTrue);
+    final reading = checker.check(asset);
+    final closing = dependencies.dispose();
+    expect(probe.control!.isCancellationRequested, isTrue);
+    await Future<void>.delayed(Duration.zero);
+    expect(adapters.database.closeCalls, 0);
+    expect(
+        await adapters.database.customSelect('SELECT 1').get(), hasLength(1));
+    probe.gate.complete(SourceFingerprintResult.fingerprinted(3, abcHash));
+    expect(await reading, AssetCheckOutcome.cancelled);
+    await closing;
+    expect(probe.closed, isTrue);
+    expect(adapters.database.closeCalls, 1);
+  });
+
+  test('asset worker cleanup failure still closes SQLite and reports resource',
+      () async {
+    final probe = _AssetProbe()..failClose = true;
+    adapters.probeFactory = () => probe;
+    final dependencies = await bootstrapApplication(
+        adapters: adapters, diagnostics: diagnostics);
+    dependencies.assetChecker;
+    await expectLater(dependencies.dispose(), throwsStateError);
+    expect(adapters.database.closeCalls, 1);
+    expect(diagnostics.failedStages, [AppResource.assetVerification.index + 1]);
   });
 
   for (final stage in [
@@ -269,6 +320,7 @@ final class _Adapters implements AppPlatformAdapters {
   Future<void> Function(PlaybackQueueService)? beforeMediaInitialize;
   PlayerService? mediaPlayer;
   PlaybackQueueService? mediaQueue;
+  SourceFingerprintProbe Function()? probeFactory;
   void step(String stage) {
     order.add(stage);
     if (failAt == stage) throw startupError;
@@ -277,12 +329,13 @@ final class _Adapters implements AppPlatformAdapters {
   @override
   LocalLibraryAdapters createLocalLibrary() {
     step('library');
-    return const LocalLibraryAdapters(
-        metadataReader: FallbackMetadataReaderService(),
-        artworkCache: NoopArtworkCacheService(),
-        directoryPicker: _Picker(),
-        customArtwork: FilePickerCustomArtworkService(
-            artworkCache: NoopArtworkCacheService()));
+    return LocalLibraryAdapters(
+        metadataReader: const FallbackMetadataReaderService(),
+        artworkCache: const NoopArtworkCacheService(),
+        directoryPicker: const _Picker(),
+        customArtwork: const FilePickerCustomArtworkService(
+            artworkCache: NoopArtworkCacheService()),
+        sourceFingerprintProbeFactory: probeFactory);
   }
 
   @override
@@ -313,6 +366,25 @@ final class _Adapters implements AppPlatformAdapters {
       await beforeMediaInitialize?.call(queue);
     };
     return media;
+  }
+}
+
+final class _AssetProbe implements SourceFingerprintProbe {
+  final gate = Completer<SourceFingerprintResult>();
+  LibraryScanControl? control;
+  bool closed = false;
+  bool failClose = false;
+  @override
+  Future<SourceFingerprintResult> fingerprint(AudioSourceReference source,
+      {required int expectedSize, required LibraryScanControl control}) {
+    this.control = control;
+    return gate.future;
+  }
+
+  @override
+  Future<void> close() async {
+    closed = true;
+    if (failClose) throw StateError('worker cleanup failed');
   }
 }
 

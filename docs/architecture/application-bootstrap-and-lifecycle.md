@@ -80,3 +80,14 @@ DefaultAppPlatformAdapters возвращает AndroidMediaControlsService. О�
 нативных audio_service/sqflite transitive-плагинов автоматически обновлена Flutter,
 но сборка macOS в Windows-сессии не выполнялась.
 [Контракт фонового режима](android-background-playback.md).
+
+
+## Продолжение: проверки ресурсов (пакет 29)
+
+AppDependencies.assetChecker создаётся ленивой платформенной фабрикой.
+При dispose активное чтение отменяется и дренируется вместе с принятым CAS
+до закрытия SQLite; обычный запуск и воспроизведение не создают hash-worker.
+Отказ закрытия probe не мешает попытке закрыть остальные ресурсы. Прежние
+числовые коды AppResource сохранены, новый добавлен в конец. Кооперативная
+отмена SAF не обещает прервать зависший вызов стороннего провайдера.
+[Подробности](downloaded-asset-byte-checks.md).

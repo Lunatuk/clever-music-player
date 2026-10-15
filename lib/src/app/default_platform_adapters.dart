@@ -1,5 +1,6 @@
 import 'dart:io';
 import '../android/android_media_controls.dart';
+import '../android/android_source_fingerprint_probe.dart';
 
 import '../data/drift/app_database.dart';
 import '../diagnostics/diagnostics_service.dart';
@@ -8,6 +9,7 @@ import '../library/artwork_cache_service.dart';
 import '../library/custom_artwork_service.dart';
 import '../library/directory_picker_service.dart';
 import '../library/metadata_reader_service.dart';
+import '../library_sync/source_fingerprint_probe.dart';
 import '../player/just_audio_player_service.dart';
 import '../player/player_service.dart';
 import '../player/transition_player_service.dart';
@@ -50,7 +52,12 @@ final class DefaultAppPlatformAdapters implements AppPlatformAdapters {
         metadataReader: const AudioMetadataReaderService(),
         artworkCache: cache,
         directoryPicker: const FilePickerDirectoryPickerService(),
-        customArtwork: FilePickerCustomArtworkService(artworkCache: cache));
+        customArtwork: FilePickerCustomArtworkService(artworkCache: cache),
+        sourceFingerprintProbeFactory: () => platform == AppHostPlatform.android
+            ? RoutedSourceFingerprintProbe(
+                files: FileSourceFingerprintProbe(),
+                documents: AndroidSourceFingerprintProbe())
+            : FileSourceFingerprintProbe());
   }
 
   @override
