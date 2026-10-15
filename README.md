@@ -80,6 +80,12 @@ reconciliation verifies the final bytes after interrupted publication. A small
 bundled C asset captures OS errors before returning through Dart FFI. Import,
 network access and UI integration still follow. See [publication rules](docs/architecture/desktop-file-publication.md).
 
+Package 32 fixes far scrollbar jumps in large libraries: desktop and Android
+measure one representative row and build only the destination viewport. Row
+geometry follows text scaling; the measuring row reads no artwork. Regression
+checks use 6000 synthetic tracks, mouse thumb dragging, enlarged text, filtering
+and playback after a jump. See [scrolling limits and evidence](docs/architecture/large-library-scrolling.md).
+
 Database schema v13 preserves existing track IDs and history. Metadata signatures
 are non-unique, feedback changes preserve listening counters, and playback events
 and their counters commit together. Retrying an event's operation ID does not

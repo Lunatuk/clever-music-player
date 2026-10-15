@@ -273,6 +273,12 @@ final class _AndroidLibraryScreenState extends State<AndroidLibraryScreen> {
                         }
                         return ListView.builder(
                             itemCount: tracks.length,
+                            // Same ListTile geometry and text scaling as real
+                            // rows, without reading a prototype cover file.
+                            prototypeItem: const ListTile(
+                                leading: SizedBox.square(dimension: 52),
+                                title: Text(' ', maxLines: 1),
+                                subtitle: Text(' ', maxLines: 1)),
                             itemBuilder: (context, index) {
                               final track = tracks[index];
                               return ListTile(

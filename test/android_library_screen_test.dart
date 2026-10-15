@@ -68,6 +68,58 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
+  for (final textScale in [1.0, 2.0]) {
+    testWidgets('6000 phone tracks jump lazily at text scale $textScale',
+        (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final fixture = _Fixture();
+      addTearDown(fixture.close);
+      final tracks = List.generate(
+          6000,
+          (index) => fixture.track.copyWith(
+              id: index + 1,
+              title: 'Phone track ${index.toString().padLeft(4, '0')}'));
+      await tester
+          .pumpWidget(fixture.app(textScale: textScale, library: tracks));
+      await tester.pumpAndSettle();
+      final position =
+          tester.state<ScrollableState>(find.byType(Scrollable).first).position;
+      final extent = position.maxScrollExtent;
+      var newRows = 0;
+      final previous = debugOnRebuildDirtyWidget;
+      debugOnRebuildDirtyWidget = (element, builtOnce) {
+        previous?.call(element, builtOnce);
+        if (!builtOnce && element.widget is ListTile) newRows++;
+      };
+      addTearDown(() => debugOnRebuildDirtyWidget = previous);
+      for (final fraction in [0.5, 0.9, 0.1, 1.0, 0.0]) {
+        newRows = 0;
+        position.jumpTo(extent * fraction);
+        await tester.pumpAndSettle();
+        expect(newRows, lessThan(60));
+        expect(find.byType(ListTile).evaluate().length, lessThan(60));
+        expect(position.maxScrollExtent, closeTo(extent, 1));
+        expect(position.pixels, closeTo(extent * fraction, 1));
+        expect(tester.takeException(), isNull);
+        debugPrint('6000 phone tracks, scale $textScale, jump $fraction: '
+            '$newRows new rows');
+      }
+      position.jumpTo(extent * 0.5);
+      await tester.pumpAndSettle();
+      final row = find.byType(ListTile).hitTestable().first;
+      final title = (tester.widget<ListTile>(row).title! as Text).data;
+      await tester.tap(row);
+      await tester.pumpAndSettle();
+      expect(fixture.player.currentTrack?.displayTitle, title);
+      expect(fixture.lastContext, same(tracks));
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    });
+  }
+
   testWidgets(
       'folder button enters busy state and survives picker cancellation',
       (tester) async {
@@ -146,6 +198,7 @@ final class _Fixture {
   late final AndroidImportController importer;
   late final JustAudioPlayerService player;
   int selections = 0, nextCalls = 0, stopCalls = 0;
+  List<Track>? lastContext;
   final track = Track.fromSource(
       source: ContentUriAudioSource('content://music.test/song'),
       title: 'Тестовый трек',
@@ -153,7 +206,7 @@ final class _Fixture {
       duration: const Duration(minutes: 1),
       addedAt: DateTime(2026),
       updatedAt: DateTime(2026));
-  Widget app({double textScale = 1}) => MaterialApp(
+  Widget app({double textScale = 1, List<Track>? library}) => MaterialApp(
         theme: ThemeData(useMaterial3: true, brightness: Brightness.dark),
         builder: (context, child) => MediaQuery(
             data: MediaQuery.of(context)
@@ -161,10 +214,11 @@ final class _Fixture {
             child: child!),
         home: AndroidLibraryScreen(
             importer: importer,
-            tracks: Stream.value([track]),
+            tracks: Stream.value(library ?? [track]),
             player: player,
             playTrack: (track, tracks) async {
               selections++;
+              lastContext = tracks;
               await player.playTrack(track);
             },
             previous: () async {},

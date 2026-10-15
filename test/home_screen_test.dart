@@ -602,6 +602,190 @@ void main() {
     expect(find.byType(TrackArtwork).evaluate().length, lessThan(600));
   });
 
+  testWidgets('far library jumps build only nearby rows', (tester) async {
+    await _setLargeSurface(tester);
+    final fixture = await _HomeScreenFixture.create(
+      seedTracks: _largeLibraryTracks(6000),
+    );
+    _addFixtureTearDown(tester, fixture);
+    await fixture.pump(tester);
+    await tester.tap(find.byKey(const ValueKey('nav-music')));
+    await tester.pumpAndSettle();
+
+    final scrollable = tester.state<ScrollableState>(
+      find
+          .descendant(
+            of: find.byType(CustomScrollView),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    final position = scrollable.position;
+    final extent = position.maxScrollExtent;
+    var builtCovers = 0;
+    final previous = debugOnRebuildDirtyWidget;
+    debugOnRebuildDirtyWidget = (element, builtOnce) {
+      previous?.call(element, builtOnce);
+      if (!builtOnce && element.widget is TrackArtwork) builtCovers++;
+    };
+    addTearDown(() => debugOnRebuildDirtyWidget = previous);
+
+    for (final fraction in [0.5, 0.9, 0.2, 1.0, 0.0]) {
+      builtCovers = 0;
+      final clock = Stopwatch()..start();
+      position.jumpTo(extent * fraction);
+      await tester.pumpAndSettle();
+      clock.stop();
+      debugPrint('6000-track jump $fraction: $builtCovers new rows, '
+          '${clock.elapsedMilliseconds} ms (widget test)');
+      expect(builtCovers, lessThan(80));
+      expect(find.byType(TrackArtwork).evaluate().length, lessThan(80));
+      expect(position.maxScrollExtent, closeTo(extent, 1));
+      expect(position.pixels, closeTo(extent * fraction, 1));
+      expect(tester.takeException(), isNull);
+    }
+
+    position.jumpTo(extent * 0.5);
+    await tester.pumpAndSettle();
+    final cover = find.byType(TrackArtwork).hitTestable().first;
+    final selectedTrack = tester.widget<TrackArtwork>(cover).track!;
+    await tester.tap(cover);
+    await tester.pumpAndSettle();
+    expect(fixture.player.currentTrack?.id, selectedTrack.id);
+    expect(fixture.queue.state.playbackContext.tracks, hasLength(6000));
+  });
+
+  testWidgets('dragging desktop scrollbar skips distant library rows',
+      (tester) async {
+    await _setLargeSurface(tester);
+    final fixture = await _HomeScreenFixture.create(
+      seedTracks: _largeLibraryTracks(6000),
+    );
+    _addFixtureTearDown(tester, fixture);
+    await fixture.pump(tester);
+    await tester.tap(find.byKey(const ValueKey('nav-music')));
+    await tester.pumpAndSettle();
+    final scrollable = tester.state<ScrollableState>(find
+        .descendant(
+            of: find.byType(CustomScrollView),
+            matching: find.byType(Scrollable))
+        .first);
+    final rect = tester.getRect(find.byType(CustomScrollView));
+    // Automatic desktop scrollbars fade out when idle. Give the thumb a real
+    // scroll notification before attempting to grab its painted hit target.
+    scrollable.position.jumpTo(1);
+    await tester.pump(const Duration(milliseconds: 200));
+    scrollable.position.jumpTo(0);
+    await tester.pump(const Duration(milliseconds: 16));
+    final pointer = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    addTearDown(pointer.removePointer);
+    final start = Offset(rect.right - 8, rect.top + 16);
+    await pointer.addPointer(location: rect.center);
+    await pointer.moveTo(start);
+    await tester.pump(const Duration(milliseconds: 16));
+    var builtCovers = 0;
+    final previous = debugOnRebuildDirtyWidget;
+    debugOnRebuildDirtyWidget = (element, builtOnce) {
+      previous?.call(element, builtOnce);
+      if (!builtOnce && element.widget is TrackArtwork) builtCovers++;
+    };
+    addTearDown(() => debugOnRebuildDirtyWidget = previous);
+    await pointer.down(start);
+    await tester.pump(const Duration(milliseconds: 100));
+    await pointer.moveTo(Offset(start.dx, rect.center.dy));
+    await tester.pumpAndSettle();
+    expect(scrollable.position.pixels,
+        greaterThan(scrollable.position.maxScrollExtent * 0.3));
+    expect(builtCovers, lessThan(80));
+    debugPrint('6000-track mouse thumb drag: $builtCovers new rows');
+    await pointer.up();
+    expect(tester.takeException(), isNull);
+  }, variant: const TargetPlatformVariant({TargetPlatform.windows}));
+
+  testWidgets('library row height adapts to larger text after a far jump',
+      (tester) async {
+    await _setNarrowSurface(tester);
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    final fixture = await _HomeScreenFixture.create(
+      seedTracks: _largeLibraryTracks(6000),
+    );
+    _addFixtureTearDown(tester, fixture);
+    await fixture.pump(tester);
+    await tester.tap(find.byKey(const ValueKey('nav-music')));
+    await tester.pumpAndSettle();
+    final position = tester
+        .state<ScrollableState>(find
+            .descendant(
+                of: find.byType(CustomScrollView),
+                matching: find.byType(Scrollable))
+            .first)
+        .position;
+    final smallExtent = position.maxScrollExtent;
+    position.jumpTo(smallExtent * 0.5);
+    await tester.pumpAndSettle();
+    tester.platformDispatcher.textScaleFactorTestValue = 2;
+    await tester.pumpAndSettle();
+    expect(position.maxScrollExtent, greaterThan(smallExtent));
+    position.jumpTo(position.maxScrollExtent * 0.8);
+    await tester.pumpAndSettle();
+    final cover = find.byType(TrackArtwork).hitTestable().first;
+    final row = find.ancestor(of: cover, matching: find.byType(Material)).first;
+    final rowRect = tester.getRect(row);
+    final labels = find.descendant(
+        of: row,
+        matching: find.byWidgetPredicate((widget) =>
+            widget is Text && widget.overflow == TextOverflow.ellipsis));
+    expect(labels, findsNWidgets(2));
+    for (final label in labels.evaluate()) {
+      final labelRect = tester.getRect(find.byWidget(label.widget));
+      expect(labelRect.top, greaterThanOrEqualTo(rowRect.top));
+      expect(labelRect.bottom, lessThanOrEqualTo(rowRect.bottom));
+    }
+    expect(find.byType(TrackArtwork).evaluate().length, lessThan(80));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('filtering a distant library position clamps and clears safely',
+      (tester) async {
+    await _setLargeSurface(tester);
+    final fixture = await _HomeScreenFixture.create(
+      seedTracks: _largeLibraryTracks(6000),
+    );
+    _addFixtureTearDown(tester, fixture);
+    await fixture.pump(tester);
+    await tester.tap(find.byKey(const ValueKey('nav-music')));
+    await tester.pumpAndSettle();
+    final search = tester.widget<TextField>(find.byType(TextField).first);
+    final position = tester
+        .state<ScrollableState>(find
+            .descendant(
+                of: find.byType(CustomScrollView),
+                matching: find.byType(Scrollable))
+            .first)
+        .position;
+    final extent = position.maxScrollExtent;
+    position.jumpTo(extent * 0.9);
+    await tester.pumpAndSettle();
+    search.controller!.text = 'Track 599';
+    search.onChanged!('Track 599');
+    await tester.pumpAndSettle();
+    expect(position.maxScrollExtent, lessThan(extent * 0.01));
+    expect(position.outOfRange, isFalse);
+    expect(find.text('Track 5999'), findsOneWidget);
+    search.controller!.text = 'no matching tracks';
+    search.onChanged!('no matching tracks');
+    await tester.pumpAndSettle();
+    expect(
+        find.text('Нет треков, подходящих под эти фильтры.'), findsOneWidget);
+    expect(position.outOfRange, isFalse);
+    search.controller!.clear();
+    search.onChanged!('');
+    await tester.pumpAndSettle();
+    expect(position.maxScrollExtent, closeTo(extent, 1));
+    expect(find.text('Track 000'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('player progress ticks do not recreate library streams',
       (tester) async {
     await _setLargeSurface(tester);

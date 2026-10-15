@@ -3383,34 +3383,44 @@ final class _TrackListSliver extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (tracks.isEmpty) return const SliverToBoxAdapter();
+
+    Widget buildRow(Track track, {bool isPrototype = false}) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: _TrackListTile(
+          track: track,
+          isPrototype: isPrototype,
+          userState: track.id == null ? null : userStates[track.id],
+          isCurrent: isSameTrack(track, currentTrack),
+          onTap: track.isMissing ? null : () => onPlayTrack(track),
+          onLike: () => onLikeTrack(track),
+          onDislike: () => onDislikeTrack(track),
+          onAddToQueue: track.isMissing ? null : () => onAddToQueue(track),
+          onAddToPlaylist:
+              track.id == null ? null : () => onAddToPlaylist(track),
+          onEdit: () => onEditTrack(track),
+          onSetCustomCover:
+              track.id == null ? null : () => onSetCustomCover(track),
+          onRemoveCustomCover: track.id == null || !track.hasCustomArtwork
+              ? null
+              : () => onRemoveCustomCover(track),
+        ),
+      );
+    }
+
     return SliverPadding(
       padding: const EdgeInsets.fromLTRB(28, 8, 28, 0),
-      sliver: SliverList(
+      // Measure one real row layout (including text scaling and controls), then
+      // compute distant offsets without building all the skipped track rows.
+      sliver: SliverPrototypeExtentList(
+        prototypeItem: ExcludeFocus(
+          child: ExcludeSemantics(
+            child: buildRow(tracks.first, isPrototype: true),
+          ),
+        ),
         delegate: SliverChildBuilderDelegate(
-          (context, index) {
-            final track = tracks[index];
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: _TrackListTile(
-                track: track,
-                userState: track.id == null ? null : userStates[track.id],
-                isCurrent: isSameTrack(track, currentTrack),
-                onTap: track.isMissing ? null : () => onPlayTrack(track),
-                onLike: () => onLikeTrack(track),
-                onDislike: () => onDislikeTrack(track),
-                onAddToQueue:
-                    track.isMissing ? null : () => onAddToQueue(track),
-                onAddToPlaylist:
-                    track.id == null ? null : () => onAddToPlaylist(track),
-                onEdit: () => onEditTrack(track),
-                onSetCustomCover:
-                    track.id == null ? null : () => onSetCustomCover(track),
-                onRemoveCustomCover: track.id == null || !track.hasCustomArtwork
-                    ? null
-                    : () => onRemoveCustomCover(track),
-              ),
-            );
-          },
+          (context, index) => buildRow(tracks[index]),
           childCount: tracks.length,
         ),
       ),
@@ -4174,6 +4184,7 @@ enum _TrackRowAction { setCover, removeCustomCover }
 final class _TrackListTile extends StatelessWidget {
   const _TrackListTile({
     required this.track,
+    this.isPrototype = false,
     required this.userState,
     required this.isCurrent,
     required this.onTap,
@@ -4187,6 +4198,9 @@ final class _TrackListTile extends StatelessWidget {
   });
 
   final Track track;
+  // The sliver's offscreen measuring row must not load a cover or expose a
+  // second copy of the first track's text. Its geometry stays identical.
+  final bool isPrototype;
   final TrackUserState? userState;
   final bool isCurrent;
   final VoidCallback? onTap;
@@ -4314,11 +4328,14 @@ final class _TrackListTile extends StatelessWidget {
               Stack(
                 alignment: Alignment.center,
                 children: [
-                  TrackArtwork(
-                    track: track,
-                    size: 44,
-                    borderRadius: 14,
-                  ),
+                  if (isPrototype)
+                    const SizedBox.square(dimension: 44)
+                  else
+                    TrackArtwork(
+                      track: track,
+                      size: 44,
+                      borderRadius: 14,
+                    ),
                   if (isMissing || isCurrent)
                     ClipRRect(
                       borderRadius: BorderRadius.circular(14),
@@ -4345,7 +4362,7 @@ final class _TrackListTile extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      track.displayTitle,
+                      isPrototype ? ' ' : track.displayTitle,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: textTheme.titleSmall?.copyWith(
@@ -4355,7 +4372,7 @@ final class _TrackListTile extends StatelessWidget {
                     ),
                     const SizedBox(height: 3),
                     Text(
-                      subtitle,
+                      isPrototype ? ' ' : subtitle,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: textTheme.bodySmall?.copyWith(

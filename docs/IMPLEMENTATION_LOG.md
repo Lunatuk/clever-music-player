@@ -2073,3 +2073,93 @@ core31-package.json, core31-apk-*.log; release/native логи в сборочн
 Далее комплект desktop-помощника/запись тегов и обложек, координатор и атомарный
 Track/ref/asset import, retention журнала, сеть/вход/коллекции/кнопка. Android
 SAF-публикация отдельная; рекомендации отложены. [Контракт](architecture/desktop-file-publication.md).
+
+
+**16 октября 2026 — пакет 32, далёкая прокрутка большой библиотеки**
+
+Пакет 31 подтверждён пользователем («все супер, все работает»). Пользователь
+сообщил о зависании при переносе ползунка сразу в середину списка всех треков
+и попросил включить оптимизацию в ближайшие обновления. Дефект выделен в
+пакет 32 перед следующим шагом помощника; порядок интеграции загрузчика сохранён.
+
+Причина: ленивый SliverList без заранее известной высоты не обеспечивает
+дешёвый далёкий прыжок. Он строит/измеряет пропущенные строки с контролами и
+обложками. Desktop _TrackListSliver переведён на SliverPrototypeExtentList;
+один _TrackListTile измеряет геометрию с актуальными стилями/масштабом/кнопками.
+У образца нет файловой обложки и повторного текста трека; ExcludeSemantics и
+ExcludeFocus убирают скрытую строку из доступности/клавиатурной навигации.
+Пустая выборка обработана отдельно. Android ListView получил prototypeItem
+с тем же ListTile и SizedBox вместо обложки. Источник данных/сортировка/
+точные копии/плейлисты/воспроизведение/«Волна» не менялись. Схема остаётся 13,
+оба исходника БД byte-identical пакету 31; зависимости не обновлялись.
+
+6 новых регрессий:
+
+- Desktop: 6000 записей, 50% → 90% → 20% → конец → начало. Построено
+  соответственно 18/17/17/12/10 новых строк, stable extent/pixels; выбранная
+  после прыжка строка запускает правильный Track с контекстом всех 6000.
+- Windows variant: настоящий mouse pointer захватывает видимый thumb и
+  перемещает его в середину; 19 новых строк, существенное изменение offset.
+- Узкое desktop-окно: переход с масштаба текста 1 на 2 после далёкого прыжка,
+  новый прыжок и границы обеих текстовых подписей внутри строки.
+- Изменение фильтра на 90%: несколько результатов, затем пусто, затем очистка;
+  корректное ограничение позиции, возврат полной геометрии.
+- Android-layout, масштабы 1 и 2: 6000 записей, оба направления/конец/начало,
+  10–19 новых ListTile на прыжок, стабильная геометрия и правильный выбранный
+  трек с полным контекстом. Это две параметризованные проверки.
+
+Счётчик debugOnRebuildDirtyWidget учитывает создание строк даже если они
+удаляются в том же кадре; одного счёта оставшихся элементов недостаточно.
+Прежний тест ленивости первого экрана сам по себе проблему не ловил.
+Старый вариант на новом тесте застрял; после 93 с остановлен только проверенный
+PID нашего flutter_tester. Измерения debug/widget-тестов не являются release
+FPS, задержкой на устройстве пользователя или результатом реальной фонотеки.
+
+В первоначальном тестовом harness уточнён вертикальный Scrollable (TextField
+также имеет внутренний scrollable). Mouse-тесту требовались видимый thumb после
+scroll notification, отдельный hover и TargetPlatformVariant.windows;
+проверка Text исключает букву fallback-обложки. Ошибки setup устранены,
+финальный полный прогон прошёл. Приложение не требует отдельного Windows API
+или платформенного рендерера для исправления этой геометрии.
+
+Проверки: полный Flutter 1200 passed, 6 новых; UI-targeted
+52 passed; analyze no issues; format 206 файлов / 0 changes. Native Windows
+audio protocol passed. Android JVM 15 passed; lint 0 errors,
+6 прежних warnings. Новые проверки обработки FFmpeg
+не запускались: аудио/pipeline этого пакета не менялись, результаты пакета 31
+остаются в соответствующем журнале.
+
+Обе release-сборки выполнены в ASCII-копии
+%LOCALAPPDATA%/CleverMusicPlayerBuilds/core32-20261016. Codegen сверён;
+359 SHA-256 исходников сборки совпадают с рабочим деревом.
+Flutter tests в release-копии не запускались. Windows ZIP: 18
+файлов, состав и production SQLite/C asset manifest совпадают с 31;
+test-only native_assets.json отсутствует. PE x64, байты и ZIP CRC проверены.
+APK: versionCode 2032, SDK 36, прежний signer, v2/CRC/zipalign и все ELF
+LOAD/RELRO 16 KiB пройдены, notification/service/SAF/fingerprint сохранены.
+Windows resolve_symlinks.ps1 hidden-AppData/jni C4090 и Android SDK XML
+warnings прежние. macOS и физический Android здесь не проверялись.
+
+Времена сборки/проверок (с): {"pub-get": 5.6, "codegen-check": 55.8, "android-release-final": 121.5, "android-unit": 6.8, "android-lint": 31.8, "gradle-stop": 1.2, "windows-release": 113.9}.
+
+Артефакты:
+
+- dist/clever-music-player-core-32-android-arm64.apk: 20830818 байт, SHA-256 9a51331663cc15a35779409fce837e466fd4b1e837d33e6be0cd9056455c52a2.
+- dist/clever-music-player-core-32-windows-x64.zip: 14432776 байт, SHA-256 7953669617324e0aa8ee8f305d6484f31e861fc4c4da5f30846f89499a78b812.
+- dist/clever-music-player-core-32-checks.txt, manual-checks.txt и .sha256.
+
+Рабочие музыка/профиль/SQLite пользователя не читались и не менялись.
+Ручные проверки новой сборки ещё ожидаются: несколько далёких переходов,
+запуск выбранной строки во время прокрутки, поиск/сортировка и перезапуск;
+пересканирование не нужно. Телефон обновляется поверх текущей preview APK.
+Скорость фильтрации всей выборки, чтение/декодирование обложек, совместная
+работа с импортом/загрузкой и release FPS остаются отдельными бюджетами.
+Далее возвращаемся к комплекту помощника/тегам/обложкам и координатору импорта;
+рекомендации отложены. [Причина/проверки/границы](architecture/large-library-scrolling.md).
+
+Логи .dart_tool/core32-scroll-before.log, core32-scroll-before-layout.log,
+core32-scroll-after.log, core32-ui-tests.log, core32-ui-tests-final.log,
+core32-input-scale-tests.log, core32-mouse-test.log, core32-full-tests-final.log,
+core32-format-final.log, core32-analyze-final.log, core32-native-windows-protocol.log,
+core32-source-manifest.json, core32-build-result.json, core32-verify-result.json,
+core32-package.json, core32-apk-*.log; release/native logs в сборочной копии.
