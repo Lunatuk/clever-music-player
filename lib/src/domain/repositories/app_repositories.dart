@@ -6,6 +6,7 @@ import 'download_job_repository.dart';
 import 'library_sync_repository.dart';
 import 'download_import_repository.dart';
 import 'publication_retention_repository.dart';
+import 'yandex_session_repository.dart';
 import 'playback_event_repository.dart';
 import 'playlist_repository.dart';
 import 'settings_repository.dart';
@@ -29,6 +30,7 @@ abstract interface class AppRepositories {
 
   DownloadImportRepository get downloadImports;
   PublicationRetentionRepository get publicationRetention;
+  YandexSessionRepository get yandexSessions;
 
   PlaybackEventRepository get playbackEvents;
 

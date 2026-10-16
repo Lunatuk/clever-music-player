@@ -11,6 +11,7 @@ import '../domain/repositories/track_repository.dart';
 import '../library/artwork_cache_service.dart';
 import '../player/player_service.dart';
 import '../player/player_state.dart';
+import '../ui/yandex_settings.dart';
 import 'android_import_controller.dart';
 import 'audio_documents.dart';
 import 'android_media_controls.dart';
@@ -87,6 +88,12 @@ final class _AndroidPreviewAppState extends State<AndroidPreviewApp> {
                 .playLibraryTrack(track: track, visibleTracks: visible),
             previous: widget.dependencies.playbackQueue.previous,
             next: widget.dependencies.playbackQueue.next,
+            sourceSettings: (context) => Scaffold(
+                appBar: AppBar(title: const Text('Яндекс Музыка')),
+                body: SingleChildScrollView(
+                    padding: const EdgeInsets.all(16),
+                    child: YandexSettings(
+                        controller: widget.dependencies.yandexConnection))),
             stop:
                 (widget.dependencies.smtcService as AndroidMediaControlsService)
                     .stop),
@@ -102,12 +109,14 @@ final class AndroidLibraryScreen extends StatefulWidget {
       required this.playTrack,
       required this.previous,
       required this.next,
+      this.sourceSettings,
       this.stop});
   final AndroidImportController importer;
   final Stream<List<Track>> tracks;
   final PlayerService player;
   final Future<void> Function(Track, List<Track>) playTrack;
   final Future<void> Function() previous, next;
+  final WidgetBuilder? sourceSettings;
   final Future<void> Function()? stop;
   @override
   State<AndroidLibraryScreen> createState() => _AndroidLibraryScreenState();
@@ -129,6 +138,12 @@ final class _AndroidLibraryScreenState extends State<AndroidLibraryScreen> {
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(title: const Text('Моя музыка'), actions: [
+          if (widget.sourceSettings != null)
+            IconButton(
+                tooltip: 'Яндекс Музыка',
+                icon: const Icon(Icons.cloud_sync_outlined),
+                onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(builder: widget.sourceSettings!))),
           IconButton(
               tooltip: 'О версии',
               icon: const Icon(Icons.info_outline_rounded),

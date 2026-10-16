@@ -9,6 +9,7 @@ import '../../domain/models/models.dart';
 import '../../domain/repositories/repositories.dart';
 import '../../library/library_controller.dart';
 import '../../library/library_track_list.dart';
+import '../../library_sync/yandex_connection_controller.dart';
 import '../../player/playback_transitions.dart';
 import '../../player/player_service.dart';
 import '../../player/player_state.dart';
@@ -16,6 +17,7 @@ import '../../queue/playback_queue_service.dart';
 import '../../queue/playlist_queue_actions.dart';
 import '../../queue/queue_state.dart';
 import '../diagnostics_settings.dart';
+import '../yandex_settings.dart';
 import '../playback_transition_settings.dart';
 import '../player/bottom_player_bar.dart';
 import '../queue/queue_panel.dart';
@@ -385,6 +387,7 @@ final class _HomeScreenState extends State<HomeScreen> {
             unawaited(_confirmAndResetLearningState(dependencies));
           },
           diagnostics: dependencies.diagnostics,
+          yandexConnection: () => dependencies.yandexConnection,
         );
     }
   }
@@ -1352,6 +1355,7 @@ final class _SettingsPage extends StatelessWidget {
     required this.onRemoveFolder,
     required this.onResetLearningState,
     required this.diagnostics,
+    required this.yandexConnection,
   });
 
   final List<LibraryFolder> folders;
@@ -1369,6 +1373,7 @@ final class _SettingsPage extends StatelessWidget {
   final ValueChanged<LibraryFolder> onRemoveFolder;
   final VoidCallback onResetLearningState;
   final DiagnosticsService diagnostics;
+  final YandexConnectionController Function() yandexConnection;
 
   @override
   Widget build(BuildContext context) {
@@ -1450,6 +1455,10 @@ final class _SettingsPage extends StatelessWidget {
                 ),
                 const SizedBox(height: 16),
                 const _DevInfoPanel(),
+                const SizedBox(height: 16),
+                _SettingsSection(
+                    title: 'Яндекс Музыка',
+                    child: YandexSettings(controller: yandexConnection())),
               ],
             ),
           ),

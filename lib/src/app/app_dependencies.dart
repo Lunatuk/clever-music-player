@@ -8,6 +8,8 @@ import '../library/library_controller.dart';
 import '../library/library_management_service.dart';
 import '../library_sync/downloaded_asset_checker.dart';
 import '../library_sync/source_fingerprint_probe.dart';
+import '../library_sync/yandex_connection_controller.dart';
+import '../library_sync/yandex_credential_store.dart';
 import '../player/player_service.dart';
 import '../queue/playback_queue_service.dart';
 import '../recommendation/recommendation_service.dart';
@@ -29,8 +31,10 @@ final class AppDependencies {
     this.diagnostics = const NoopDiagnosticsService(),
     LibraryController? libraryController,
     SourceFingerprintProbe Function()? sourceFingerprintProbeFactory,
+    YandexConnectionController Function()? yandexConnectionFactory,
   })  : _sourceFingerprintProbeFactory =
             sourceFingerprintProbeFactory ?? FileSourceFingerprintProbe.new,
+        _yandexConnectionFactory = yandexConnectionFactory,
         libraryController = libraryController ??
             LibraryController(
               directoryPicker: directoryPicker,
@@ -57,6 +61,16 @@ final class AppDependencies {
   final SmtcService smtcService;
   final SourceFingerprintProbe Function() _sourceFingerprintProbeFactory;
   DownloadedAssetChecker? _assetChecker;
+  final YandexConnectionController Function()? _yandexConnectionFactory;
+  YandexConnectionController? _yandexConnection;
+  YandexConnectionController get yandexConnection {
+    if (_closing != null) throw StateError('Приложение закрывается.');
+    return _yandexConnection ??= _yandexConnectionFactory?.call() ??
+        YandexConnectionController(
+            repository: repositories.remoteLibrary,
+            sessions: repositories.yandexSessions,
+            credentials: const SecureYandexCredentialStore());
+  }
 
   /// Lazy: ordinary playback does not open a hashing worker or read files.
   DownloadedAssetChecker get assetChecker {
@@ -71,6 +85,8 @@ final class AppDependencies {
   Future<void> dispose() => _closing ??= _dispose();
 
   Future<void> _dispose() async {
+    final yandexClosing = _yandexConnection?.close();
+    yandexClosing?.ignore();
     final assetClosing = _assetChecker?.close();
     assetClosing?.ignore();
     // Admission closes synchronously before the first native cleanup await.
@@ -91,6 +107,8 @@ final class AppDependencies {
       AppCleanupAction(AppResource.library, () => libraryClosing),
       if (assetClosing != null)
         AppCleanupAction(AppResource.assetVerification, () => assetClosing),
+      if (yandexClosing != null)
+        AppCleanupAction(AppResource.remoteLibrary, () => yandexClosing),
       AppCleanupAction(AppResource.database, database.close),
       AppCleanupAction(AppResource.diagnostics, diagnostics.flush),
     ], diagnostics);

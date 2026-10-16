@@ -4,6 +4,8 @@ import 'dart:ui' show PointerDeviceKind;
 import 'package:clever_music_player/src/app/clever_music_player_app.dart';
 import 'package:clever_music_player/src/app/dependency_scope.dart';
 import 'package:clever_music_player/src/data/drift/app_database.dart';
+import 'package:clever_music_player/src/data/repositories/drift_repositories.dart';
+import 'package:clever_music_player/src/library_sync/yandex_connection_controller.dart';
 import 'package:clever_music_player/src/domain/models/models.dart';
 import 'package:clever_music_player/src/domain/repositories/repositories.dart';
 import 'package:clever_music_player/src/library/artwork_cache_service.dart';
@@ -26,6 +28,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/learning_repository_helpers.dart';
+import 'support/yandex_connection_fixture.dart';
 
 void main() {
   testWidgets(
@@ -1579,6 +1582,10 @@ final class _HomeScreenFixture {
       playerService: player,
       playbackQueue: queue,
       smtcService: const NoopSmtcService(),
+      yandexConnectionFactory: () => YandexConnectionController(
+          repository: DriftRepositories(database).remoteLibrary,
+          sessions: DriftRepositories(database).yandexSessions,
+          credentials: MemoryYandexCredentials()),
     );
     return _HomeScreenFixture._(
       dependencies: dependencies,
@@ -1644,6 +1651,9 @@ final class _FakeAppRepositories implements AppRepositories {
       throw UnsupportedError('Unused in UI tests');
   @override
   PublicationRetentionRepository get publicationRetention =>
+      throw UnsupportedError('Unused in UI tests');
+  @override
+  YandexSessionRepository get yandexSessions =>
       throw UnsupportedError('Unused in UI tests');
 
   @override

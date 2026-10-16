@@ -390,6 +390,13 @@ fixture; Windows CI runs this before Flutter tests. Actual cold-start sound and
 system media keys remain part of package 7's targeted manual checks.
 
 
+Package 38 adds a lazy Yandex connection screen on Windows and Android: existing
+OAuth token, OS-protected storage, likes/playlist selection and explicit collection
+checks. SQLite session revisions bind the credential; stale logout cannot erase a
+newer login. Windows secure storage is vendored to bound failures and atomically
+replace ciphertext without deleting damaged data. Downloading follows next.
+See [connection rules](docs/architecture/yandex-account-settings.md).
+
 ## Library operation ownership
 
 One app-scoped `LibraryController` handles folder selection, scans, enable/disable

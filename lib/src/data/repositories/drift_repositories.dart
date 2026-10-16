@@ -11,6 +11,7 @@ import 'drift_download_job_repository.dart';
 import 'drift_library_sync_repository.dart';
 import 'drift_download_import_repository.dart';
 import 'drift_publication_retention_repository.dart';
+import 'drift_yandex_session_repository.dart';
 
 final class DriftRepositories implements AppRepositories {
   DriftRepositories(AppDatabase database)
@@ -24,6 +25,7 @@ final class DriftRepositories implements AppRepositories {
         librarySync = DriftLibrarySyncRepository(database),
         downloadImports = DriftDownloadImportRepository(database),
         publicationRetention = DriftPublicationRetentionRepository(database),
+        yandexSessions = DriftYandexSessionRepository(database),
         playlists = DriftPlaylistRepository(database),
         playbackEvents = DriftPlaybackEventRepository(database),
         trackUserState = DriftTrackUserStateRepository(database),
@@ -56,6 +58,8 @@ final class DriftRepositories implements AppRepositories {
   final DownloadImportRepository downloadImports;
   @override
   final PublicationRetentionRepository publicationRetention;
+  @override
+  final YandexSessionRepository yandexSessions;
 
   @override
   final PlaylistRepository playlists;

@@ -2678,3 +2678,114 @@ core37-helper-distribution.log, core37-source-manifest.json,
 core37-build-result.json, core37-verify-result.json, core37-package.json и
 core37-apk-*.log; platform build logs в ASCII-копии. Research-only reference
 manifest/source находятся в ignored .dart_tool/yandex37-reference.
+
+
+**17 октября 2026 — пакет 38: защищённый вход и выбор коллекций Яндекса**
+
+Пользователь подтвердил пакет 37 («все работает»). Добавлены экран подключения
+в Windows настройках и кнопка Яндекса в верхней панели Android-библиотеки.
+Вход принимает существующий OAuth-токен или документированный callback URL,
+проверяет UID/каталог перед сохранением; инструкция открывается явно в браузере.
+Пароль, автоматический вход через device-code и обновление токена не реализованы.
+Поле скрывает ввод, выключает автокоррекцию/подсказки, очищается при отправке.
+Тесты не читали реальный аккаунт, токен или конфигурацию YaDown.
+
+Контроллер ленивый: bootstrap/воспроизведение/сканирование не читают секрет и
+не отправляют HTTP. При открытии настроек восстанавливаются только SQLite/OS
+данные; запросы идут по кнопкам. При первом входе выбрано «Мне нравится»,
+плейлисты opt-in; последующий вход и рестарт сохраняют явный выбор. Чтение
+выбранных коллекций использует адаптер пакета 37 и прежние tickets/CAS.
+Ошибочные/частичные ответы не заменяют старый состав; каждый успешный список
+сохраняется самостоятельно. Download jobs и скачивание экран не запускает.
+ListView.builder ограничивает построение строк каталога, максимум viewport 400 px.
+
+Секрет хранится одним именованным ключом flutter_secure_storage 10.3.4:
+Windows DPAPI, Android отдельный storageNamespace/Keystore (resetOnError=false),
+macOS несинхронизируемый legacy login Keychain. SQLite/diagnostics/UI не получают
+секрет, сырые ошибки/headers/URL. Новые зависимости закреплены в lockfile,
+версии прежних сохранены; url_launcher 6.3.2. Direct dev interfaces нужны для
+изоляции native fixtures. Версия storage 11 требует несовместимого win32 major,
+поэтому обновление старого file_picker/audio стека не включено.
+
+Нативные тесты выявили в Windows backend 4.1.0 бесконечное повторение любой
+ошибки записи и удаление всего ciphertext при ошибке чтения/декодирования.
+Официальный MIT исходник закреплён архивным SHA-256 и включён локально.
+Патч не меняет DPAPI: запрещает crypto UI, сохраняет повреждённый файл,
+передаёт ошибки вместо неограниченного повтора, пишет только зашифрованный
+эксклюзивный temp + flush/MoveFileEx atomic replace; отказ сохраняет старый
+файл. Только свой temp удаляется. Реальный native read-lock отказ замены
+проверяет побайтовую сохранность прежнего ciphertext, отсутствие temp и
+чтение старого токена после снятия блокировки. Broad reset/readAll/deleteAll
+и plaintext fallback не используются. Полный повреждённый файл автоматически
+не стирается даже через сброс одного подключения.
+
+DriftYandexSessionRepository резервирует writer, сверяет всю активную Yandex
+сессию и выполняет короткий OS callback в той же транзакции с активацией/выходом.
+HTTP/длинное чтение музыки вне неё. Ошибка callback откатывает смену аккаунта
+и отзыв заданий. Привязка сохранённого envelope к id/UID/revision отказывает
+при несовпадении после прерванного DB commit; общей атомарности ОС+SQLite нет.
+Два независимых SQLite соединения проверены: старый выход/подключение не
+стирает/перезаписывает более новую сессию. Неверный кандидат, включая 401,
+сохраняет старый вход; 401 действующего клиента завершает его сессию.
+Выход сохраняет локальную музыку и удалённые зеркала. Отмена до принятия
+commit ничего не пишет, принятая запись дожидается результата, reader закрывается
+до SQLite. [Контракт](architecture/yandex-account-settings.md).
+
+59 новых проверок: 10 SQLite/session, 21 credentials (6 настоящих Windows DPAPI),
+21 controller и 7 widgets. Полный набор **1566 tests passed, 74 s**. Analyzer
+без замечаний, formatter **261 files, 0 changed**. Native Windows payload
+совпадает с fixture; 4 реальных bundled-helper MP3/M4A/FLAC/import-recovery
+проверки выполнены в полном наборе; 9 native helper smoke checks прошли.
+Два соединения Drift намеренно открываются в race fixtures, debug предупреждение
+не означает повторное владение настоящей БД. CI включает форматирование
+нового vendored Windows backend; remote CI не объявляется прошедшим.
+
+Android main manifest получает INTERNET, backup остаётся выключенным, новых
+биометрических разрешений нет. Схема остаётся 13. Mac Keychain и настоящий
+Android Keystore на устройстве локально не проверены; физический вход/перезапуск
+и отзыв токена остаются в точечном [чек-листе](MANUAL_CHECKS.md).
+Следующий пакет: download transport и общий raw/prepared workspace budget,
+далее общая ручная кнопка обновления. Native Android SAF publication и macOS
+helper отдельными шагами; расписание после ручного обновления. Рекомендации
+по решению пользователя отложены.
+
+
+Release-сборки выполнены в ASCII-копии `%LOCALAPPDATA%/CleverMusicPlayerBuilds/core38-20261017`.
+431 исходный файл сверён SHA-256 с workspace и копией. Pub get --enforce-lockfile,
+codegen (сгенерированная БД побайтно прежняя), Android release/JVM/lint и Windows
+release прошли. Первая Windows сборка обнаружила ATL-зависимость неиспользуемого
+pre-4.x C++ credential/AES migration backend. Он заменён каналом с явным
+NotImplemented; registrar сохранён, используемый Dart DPAPI не изменён.
+CPP/UPSTREAM синхронизированы с build копией, все остальные исходники остались
+прежними; Android не использует этот native Windows код. Повторная Windows
+сборка прошла за 18,2 с. ATL и доступ к legacy credentials не требуются.
+
+Android: 15 JVM tests passed; lint 0 errors, 6 прежних warnings. APK versionCode
+2038, targetSdk 36, тот же signer, что 37, CRC/v2/zipalign/ELF LOAD+RELRO 16 KiB
+прошли. Из разрешений относительно 37 добавлен только INTERNET. allowBackup=false,
+нет новых biometric/audio-read/storage-management/notification permissions.
+Windows: все 41 ZIP entries сверены побайтно, PE x64 и production native assets
+manifest сохранены, test-only native_assets.json отсутствует. Добавлены два
+plugin DLL: flutter_secure_storage_windows и url_launcher_windows. NOTICES.Z
+содержит лицензии новых библиотек. 21 helper файл побайтно совпадает с 37,
+все источники/лицензии сохранены; 9 дополнительных smoke checks в extracted
+Unicode/spaced path с PATH только Windows/System32 прошли. Sidecar SHA-256
+обоих пакетов 37/38 сверены, прежние артефакты не перезаписаны.
+
+Артефакты:
+
+- dist/clever-music-player-core-38-android-arm64.apk — 22102391 bytes, SHA-256 `7d9429edbf108547c9b7ab365962fb0d06d03154363b6fef2d917922766d19a3`.
+
+- dist/clever-music-player-core-38-windows-x64.zip — 31509183 bytes, SHA-256 `6fe93c47b833b6930987ab74b0c1b80e8a812fdf4b9fa6fafdb32d4d7032cf1c`.
+
+- core-38-checks.txt, manual-checks.txt и .sha256 sidecars.
+
+Логи .dart_tool/core38-full-tests-final.log, core38-analyze-final.log,
+core38-format-final.log, core38-widgets.log, core38-controller-final.log,
+core38-native-windows-protocol.log, core38-native-bundled-final.log,
+core38-native-extracted-final.log, core38-apk-*.log, core38-source-manifest.json,
+core38-build-result.json, core38-verify-result.json, core38-package.json;
+platform build logs в ASCII-копии. Прежние AppData/JNI/SDK XML warnings
+не мешают финальным сборкам; remote CI/реальный API/физический Mac не
+объявляются проверенными. Следующая ручная проверка — вход/состав/перезапуск/выход,
+без пересканирования и без передачи токена в чат.
