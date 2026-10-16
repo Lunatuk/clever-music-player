@@ -94,6 +94,15 @@ artist roles are now separate in the shared tag reader. Helper bundling, native
 Android preparation and the network coordinator/UI remain subsequent work.
 See [metadata preparation rules](docs/architecture/downloaded-audio-metadata.md).
 
+Package 34 bundles a compact offline FFmpeg/ffprobe helper for Windows x64,
+built from pinned sources with its DLLs, licenses and complete corresponding
+source archives. Settings → Diagnostics can explicitly check integrity,
+versions and required codecs; startup/playback do not run the helper. No
+user-installed FFmpeg or Python is needed. Windows CI builds and qualifies the
+actual bundle with synthetic audio. macOS helper packaging and native Android
+preparation remain separate work; no new Android APK in this package.
+See [bundle and qualification rules](docs/architecture/bundled-media-helper.md).
+
 Database schema v13 preserves existing track IDs and history. Metadata signatures
 are non-unique, feedback changes preserve listening counters, and playback events
 and their counters commit together. Retrying an event's operation ID does not

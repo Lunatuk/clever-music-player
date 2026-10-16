@@ -106,3 +106,16 @@ install(DIRECTORY "${PROJECT_BUILD_DIR}/${FLUTTER_ASSET_DIR_NAME}"
 install(FILES "${AOT_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
   CONFIGURATIONS Profile;Release
   COMPONENT Runtime)
+
+# The official package/CI supplies an independently built, qualified helper.
+# Local playback development may omit it; runtime diagnostics report missing.
+# No downloads or external processes at application startup.
+if(DEFINED ENV{CMP_MEDIA_HELPER_BUNDLE})
+  file(TO_CMAKE_PATH "$ENV{CMP_MEDIA_HELPER_BUNDLE}" CMP_MEDIA_HELPER_BUNDLE)
+  if(NOT EXISTS "${CMP_MEDIA_HELPER_BUNDLE}/manifest.json")
+    message(FATAL_ERROR "Media helper bundle manifest is missing")
+  endif()
+  install(DIRECTORY "${CMP_MEDIA_HELPER_BUNDLE}/"
+    DESTINATION "${CMAKE_INSTALL_PREFIX}/tools/media-helper"
+    COMPONENT Runtime)
+endif()

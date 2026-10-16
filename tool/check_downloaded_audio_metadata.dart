@@ -16,9 +16,9 @@ import 'package:path/path.dart' as p;
 /// Explicit, offline developer check. All audio/artwork is generated in our own
 /// systemTemp directory; the user's library, database and account are not read.
 Future<void> main(List<String> arguments) async {
-  if (arguments.length != 2) {
+  if (arguments.length != 2 && arguments.length != 3) {
     stderr.writeln('Usage: dart tool/check_downloaded_audio_metadata.dart '
-        '<absolute-ffprobe> <absolute-ffmpeg>');
+        '<absolute-ffprobe> <absolute-ffmpeg> [absolute-fixture-generator]');
     exitCode = 64;
     return;
   }
@@ -37,7 +37,7 @@ Future<void> main(List<String> arguments) async {
 
   Future<void> generate(List<String> args) async {
     final output = await runner.run(
-        arguments[1],
+        arguments.length == 3 ? arguments[2] : arguments[1],
         ['-hide_banner', '-nostdin', '-v', 'error', ...args],
         LibraryScanControl());
     if (output.exitCode != 0 || output.hadStderr) {

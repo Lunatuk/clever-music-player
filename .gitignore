@@ -5,6 +5,8 @@
 .packages
 build/
 dist/
+__pycache__/
+*.py[cod]
 
 # IDEs
 .idea/

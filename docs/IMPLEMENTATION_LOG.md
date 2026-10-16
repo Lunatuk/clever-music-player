@@ -2272,3 +2272,108 @@ core33-analyze-final.log, core33-vendor-type-analysis.log,
 core33-native-windows-protocol.log, core33-source-manifest.json,
 core33-build-result.json, core33-verify-result.json, core33-package.json,
 core33-apk-*.log; build/native logs в ASCII-копии.
+
+---
+
+**16 октября 2026 — пакет 34, компактный медиапомощник Windows**
+
+Пользователь подтвердил пакет 33: «все работает, давай дальше». Подготовка
+тегов/обложек теперь получает реальную поставку FFmpeg/ffprobe для Windows x64.
+Сеть/аккаунт/кнопка Яндекса ещё не включены. Схема 13 и pubspec/lock unchanged.
+Android playback/SAF в этом пакете не менялись, нового APK нет.
+
+В `tools/media-helper` поставляются восемь EXE/DLL, **4 401 664 байта runtime**.
+Собраны из FFmpeg 7.1.5 и zlib 1.3.2, без изменения их source; SHA-256 pinned.
+PGP-подпись FFmpeg проверена в отдельном keyring против официального fingerprint
+FCF986EA15E6E293A5644F10B4322F04D67658D8. Официальный zlib fossils URL вернул
+404: заменён реальным versioned root URL, финальная загрузка всех пяти
+source/signature/key archives с этих URL и SHA-256 перепроверена отдельно.
+GNU Make 4.4.1 — локальный build tool из pinned source, не runtime binary.
+Полные соответствующие source archives, подпись/ключ, рецепт/build-info,
+LGPL/zlib notices входят в тот же ZIP; всего 21 файл помощника.
+
+В локальной VS 2022 отсутствует vcvarsall/headers. Полная VS 2019 Build Tools
+успешно собрала комплект; vswhere выбирает полную установку. MSVC/C11 + Git
+Bash, статический CRT и динамические FFmpeg DLL. GNU Make включает documented
+HAVE_CYGWIN_SHELL; awk-based dependency scanner переходит в true для одноразовой
+сборки (компиляция всех единиц сохраняется). Подробности в build recipe.
+Первый эксперимент указал runtime-demuxer имена вместо configure-имён
+image_png_pipe/image_jpeg_pipe и отключил threading, обязательный для ffmpeg;
+исправлено до clean rebuild. PNG нуждается в zlib. Все реальные checks идут
+на окончательном комплекте, эти промежуточные сборки не публиковались.
+
+Runtime qualification лениво запускается явно: размер/хэши восьми файлов до и
+после probes, manifest version/schema/profile/target, обе версии, реальные
+таблицы codec/container/filter и только file/pipe protocols. Фиксированные имена
+не позволяют manifest выбрать executable за пределами каталога. Bounded output,
+одна операция/процесс, общий 30-second timeout, cancellation/drained close.
+Нет PATH поиска или зависимости от developer C:\ffmpeg/Python/D:\YaDown.
+Изменяемый manifest выявляет порчу/неполный комплект, не служит криптографической
+подписью приложения и не защищает от владельца папки, подменяющего установку.
+NOTICE допускает замену собственными DLL с обновлением manifest.
+
+Windows Settings → Диагностика: «Проверить медиапомощник», отмена, типизированные
+ошибки без paths/stderr, «FFmpeg · LGPL 2.1+ · лицензия и исходники». Уход из
+настроек отменяет работу. При обычном запуске/воспроизведении helper не работает,
+состояние БД/музыки/аккаунта не читается проверкой.
+
+| Проверка | Результат |
+| --- | --- |
+| Flutter tests | **1301 passed**, concurrency 4, 92 с; 43 новых |
+| Helper tests | 36: повреждение/missing/hash/версии/capabilities/network/lifecycle |
+| UI tests | 7: lazy/repeat/cancel/dispose/errors/license action |
+| Format | 218 файлов, 0 изменений |
+| Analyze | No issues found |
+| Clean helper rebuild | GNU Make 7,6 с; zlib 1,6 с; configure 149,2 с; FFmpeg 41,3 с |
+| Native metadata preparation | 31 expanded synthetic checks passed на installed bundle |
+| Fixed fixtures | 9 checks passed на installed и extracted bundle |
+| PATH independence | PATH только Windows/System32, без global FFmpeg/Python |
+| Unicode installation path | ZIP распакован в кириллицу/пробелы, все 9 checks passed |
+| Distribution | source pins/notices/recipe, PE x64, все DLL imports учтены |
+| Windows audio protocol | Native Windows player payload matches protocol fixture |
+| Windows release | 106,3 с, успешно; pub get 2,8 с; codegen 42,9 с |
+
+Fixed fixtures — собственные 2-second 440 Hz tones и одноцветные PNG/JPEG,
+CC0, около 154 KiB, не Flutter assets. Не требуют стороннего generator в CI.
+31-check developer tool получил необязательный третий путь к generator:
+минимальный production helper не включает libmp3lame/AAC/FLAC/Vorbis encoders.
+Сравниваются compressed packets/full PCM, cover bytes, tags, decode и SHA.
+Вся музыка/картинки этих checks временные или явно тестовые.
+
+CI теперь строит Windows helper из pins, проверяет source/license/PE imports,
+прогоняет native smoke до/после CMake install. CMake копирует каталог при
+CMP_MEDIA_HELPER_BUNDLE; обычный developer playback build может его не задавать.
+Remote CI пока не объявляется пройденным: локальный эквивалент выполнен.
+macOS helper build/install-name/signing/qualification остаётся отдельным шагом;
+прежняя macOS playback сборка не получает Windows-only controls.
+Physical Mac/Android helper checks, JVM/lint/Android builds здесь не выполнялись.
+
+ASCII Flutter release copy core34-20261016, 380 финальных входных файлов
+проверены SHA-256 с workspace. Скомпилированные lib sources после freeze
+не менялись; после сборки синхронизированы только format CLI checker и новый
+неисполняемый в продукте Python distribution verifier. Генерируемая схема
+byte-identical 33. Production SQLite/C-asset manifest сохранён, test-only
+native_assets.json отсутствует; native Casset exports на месте. Пять обычных
+DLL пересобраны в новой release-копии, их byte identity не предполагалась.
+Прежние resolve_symlinks hidden AppData Get-Item и JNI C4090 warnings остаются,
+сборка успешна. PE x64, ZIP CRC и каждый payload byte проверены.
+
+Артефакт dist/clever-music-player-core-34-windows-x64.zip — **31 333 174 байта**,
+SHA-256 `96b9b127285a0604c989134b1ce63f3af0a780903a29d872bd8c3efbeda7fccb`.
+39 файлов, включая manual checklist и 21 файл helper. Рядом .sha256,
+core-34-checks.txt и manual-checks.txt. ZIP 33/APK не перезаписывались.
+
+Ручные проверки 34 ожидаются: полная распаковка в новую папку, кнопка
+«Проверить медиапомощник»/license directory, знакомый трек/далёкая прокрутка/
+restart. Пересканирование не нужно, телефон можно оставить на прежней версии.
+Далее coordinator/атомарный Track/ref/asset import и retention, затем provider
+adapter/credentials/likes+selected playlists/кнопка; расписание после этого.
+[Контракт](architecture/bundled-media-helper.md).
+
+Логи: .dart_tool/core34-helper-build-final.log, core34-source-signature.log,
+core34-helper-tests.log, core34-settings-tests.log, core34-full-tests.log,
+core34-analyze-final.log, core34-format-final.log, core34-native-metadata-final.log,
+core34-native-bundled-final.log, core34-native-extracted-final.log,
+core34-helper-distribution.log, core34-native-windows-protocol.log,
+core34-source-manifest.json, core34-build-result.json, core34-package.json;
+source-fetch-check содержит повторно скачанные pinned source archives.

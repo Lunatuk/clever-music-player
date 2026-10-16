@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 
 import '../diagnostics/diagnostics_service.dart';
+import 'media_helper_settings.dart';
 
 class DiagnosticsSettings extends StatefulWidget {
   const DiagnosticsSettings({
@@ -103,6 +104,10 @@ class _DiagnosticsSettingsState extends State<DiagnosticsSettings> {
         if (_error != null) ...[
           const SizedBox(height: 12),
           Text(_error!, style: TextStyle(color: theme.colorScheme.error)),
+        ],
+        if (Platform.isWindows) ...[
+          const SizedBox(height: 16),
+          MediaHelperSettings(openDirectory: widget.openDirectory),
         ],
       ],
     );

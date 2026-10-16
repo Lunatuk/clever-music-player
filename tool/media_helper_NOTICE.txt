@@ -1,0 +1,35 @@
+Clever Music Player offline media helper (Windows x64, profile cmp-audio-1)
+
+This software uses code of FFmpeg (https://ffmpeg.org/), copyright the FFmpeg
+developers, licensed under LGPL version 2.1 or later. Complete unmodified
+corresponding source, configuration and rebuild script are in sources/ in this
+same distribution. See COPYING.LGPLv2.1 and FFmpeg-LICENSE.md. FFmpeg libraries
+are dynamically linked; they may be rebuilt/replaced for modification/debugging.
+Integrity qualification requires an updated manifest for modified binaries;
+the manifest is an editable local file, not a signature or DRM restriction.
+No restriction on reverse engineering for debugging modifications is imposed.
+
+FFmpeg 7.1.5 source: https://ffmpeg.org/releases/ffmpeg-7.1.5.tar.xz
+Source release signature verified against official fingerprint
+FCF986EA15E6E293A5644F10B4322F04D67658D8. Source and binary SHA-256 are recorded.
+No GPL, version3 or nonfree configure options, no external audio/video codecs.
+Only local file/pipe protocols are enabled. No network/player output devices.
+
+zlib 1.3.2, copyright Jean-loup Gailly and Mark Adler, uses the zlib license.
+It is statically included in avcodec for PNG decoding. See zlib-LICENSE.txt
+and the complete source archive in sources/.
+
+GNU Make 4.4.1 is only a developer build tool. Its unmodified source archive
+(GPLv3 or later, license inside) is provided to reproduce the build; its
+executable is NOT included in this runtime distribution. MSVC and Git Bash
+are developer prerequisites, not included and not required on the user's PC.
+Windows system libraries and the static MSVC runtime supply OS/C services.
+
+Rebuild on Windows x64 with Python 3.11+, Git Bash and a complete Visual C++
+2019 16.8+ installation (C11 support). Unpack/copy sources/ to an ASCII path.
+Example, in that directory (choose unused work/output paths):
+  python build_media_helper.py --work-dir C:/cmp-build --output C:/cmp-helper --source-cache .
+Optional --vcvars selects VC/Auxiliary/Build/vcvarsall.bat explicitly.
+No external pip packages or music/account access are used. Built files are
+checked by tool/check_bundled_media_helper.dart in the application repository.
+Production processing only copies compressed audio; PCM is decoded for proof.
