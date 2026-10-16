@@ -3,7 +3,7 @@ import 'dart:convert';
 import '../domain/models/download_job.dart';
 import '../domain/models/downloaded_asset.dart';
 import '../domain/models/external_track_ref.dart';
-import '../library/sha256_digest.dart';
+import '../domain/models/download_publication.dart';
 
 enum PublicationFailure {
   ownershipLost,
@@ -24,12 +24,7 @@ final class PublicationException implements Exception {
 }
 
 String publicationResourceKey(DownloadJobKey key) =>
-    sha256Hex(utf8.encode(jsonEncode([
-      'cmp-publication-v1',
-      key.identity.provider,
-      key.identity.externalId,
-      key.identity.variantKey
-    ])));
+    downloadPublicationResourceKey(key);
 
 bool isPublicationId(String value) =>
     RegExp(r'^[0-9a-f]{64}$').stringMatch(value) == value;

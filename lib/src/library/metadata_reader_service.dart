@@ -104,6 +104,43 @@ final class FallbackMetadataReaderService implements MetadataReaderService {
   }
 }
 
+/// Published files use opaque resource names. Do not infer a title/artist from
+/// that filename when the embedded-tag reader fails; leave recovery pending.
+final class EmbeddedAudioMetadataReaderService
+    implements MetadataReaderService {
+  const EmbeddedAudioMetadataReaderService({EmbeddedMetadataReader? reader})
+      : _reader = reader;
+  final EmbeddedMetadataReader? _reader;
+  @override
+  Future<AudioMetadata> read(File file) async {
+    final base = await _baseFileMetadata(file);
+    final path = base.filePath;
+    final tags = _reader != null
+        ? await _reader(path)
+        : await Isolate.run(() => _readEmbeddedAudioTags(path));
+    if (tags == null || tags.title == null || tags.title!.trim().isEmpty) {
+      throw const FormatException('Нет читаемых тегов опубликованного трека.');
+    }
+    return AudioMetadata(
+        filePath: path,
+        fileSizeBytes: base.fileSizeBytes,
+        modifiedAt: base.modifiedAt,
+        title: tags.title!,
+        codec: base.codec,
+        metadataSource: MetadataSource.embeddedTags,
+        metadataConfidence: 1,
+        artist: tags.artist,
+        album: tags.album,
+        albumArtist: tags.albumArtist,
+        genre: tags.genre,
+        duration: tags.duration,
+        trackNumber: tags.trackNumber,
+        discNumber: tags.discNumber,
+        year: tags.year,
+        artwork: tags.artwork);
+  }
+}
+
 final class _BaseFileMetadata {
   const _BaseFileMetadata({
     required this.filePath,

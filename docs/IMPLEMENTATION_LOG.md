@@ -2377,3 +2377,122 @@ core34-native-bundled-final.log, core34-native-extracted-final.log,
 core34-helper-distribution.log, core34-native-windows-protocol.log,
 core34-source-manifest.json, core34-build-result.json, core34-package.json;
 source-fetch-check содержит повторно скачанные pinned source archives.
+
+---
+
+**16 октября 2026 — пакет 35, координатор и атомарный импорт публикации**
+
+Пакет 34 подтверждён пользователем («все работает») и скриншотом: FFmpeg 7.1.5
+успешно квалифицирован. Новый пакет связывает уже закрытый скачанный desktop
+файл, preparer/validator, публикацию без замены, чтение embedded metadata/cover
+cache и атомарный Track/ref/asset/job import. Сеть/вход/кнопка Яндекса и startup
+runner ещё не подключены. Схема 13 и hosted lockfile не меняются.
+
+DownloadLeaseOwner продлевает lease (60 с / heartbeat 20 с), сериализуя короткие
+DB-команды и writer fences; долгие hash/decode/metadata/stream IO остаются снаружи.
+Ожидает не больше одного heartbeat. Publisher получает узкий PublicationJobAccess:
+только владелец той же попытки может заменить старую heartbeat-ревизию на последнюю
+под своей очередью. Прямой DownloadJobRepository сохраняет полный точный CAS.
+Потеря lease/session/folder или ошибка heartbeat останавливает файловую работу.
+Busy на входе возвращает ту же попытку для повтора без claim; после возможного
+переноса busy требует сверки. Поздняя отмена после принятой публикации дренирует
+импорт; потеря владения не игнорируется.
+
+DownloadedTrackImport проверяет согласование ключа/ID/source/качества/hash/size/
+duration. DriftDownloadImportRepository резервирует writer до чтений и одной
+транзакцией сохраняет Track, providerResponse ref, verified asset и completed
+attempt/job. Использует scan batch contract для сохранения ID/addedAt/ручных
+очищенных полей/custom cover; пользовательская история не трогается. Другой
+владелец источника/публикация не заменяются, names/signatures не сливают файлы.
+Последнее отклонение complete бросает внутренний rollback через все savepoints:
+null после уже сделанных записей не допускается. Потерянный acknowledgement
+возвращает существующий результат без переписывания ручных данных/ревизий.
+
+Строгий EmbeddedAudioMetadataReaderService читает теги опубликованного файла
+в isolate, не выводит title/artist из opaque `cmp-...` имени. При ошибке reader
+импорт остаётся pending. Кэш обложек общий, hash-addressed; он вне SQLite и может
+сохранить неиспользованный файл после rollback до будущего GC. После чтения/
+кэширования полный SHA/size сверяется ещё раз под read seal. Путь Track строится
+от сохранённой папки как при сканировании; canonical root остаётся у publisher.
+
+Interrupt завершает попытку, сохраняет checkpoint/remaining budget и освобождает
+lease в needsReconciliation; при исчерпании — failed до явного retry. Если запись
+interrupt тоже не удалась, completed не заявляется, executing snapshot остаётся
+для recoverExpired. Recovery принимает новую reconciling попытку, сверяет один
+реальный опубликованный кандидат и импортирует без повторного скачивания. Нет
+файла — requiresDownload с running/download snapshot; несколько кандидатов или
+плохие байты/путь/журнал не угадываются и не удаляются. Старые incomplete entries
+сохраняются до отдельной retention policy.
+
+Close отменяет приём/работу, дренирует забытый Future, prepared file, publisher,
+hash worker и heartbeat до backend и SQLite. При финальном просмотре уточнён
+случай ошибки teardown после успешной транзакции: результат остаётся completed
+с cleanupFailed, координатор не пытается interrupt завершённой попытки. После
+этой правки повторены полный набор и обе release-сборки с финальным source.
+
+| Проверка | Результат |
+| --- | --- |
+| Полный Flutter набор | **1366 passed**, 65 новых, concurrency 4, финальные 48 с |
+| Atomic import | 23: каждый write/rollback, expiry, два SQLite connections, replay/manual data |
+| Lease/interrupt | 10: heartbeat/gate, stale session/folder/expiry, drain, finite budget |
+| Coordinator | 22: публикация/recovery/cancel/busy/close/ambiguous/missing/changed files |
+| Strict tag reader | 6: отсутствие fallback, чтение ролей, ошибки/пустые теги |
+| Real pipeline | 4: MP3/M4A/FLAC + persistent SQLite reopen recovery |
+| Analyze / format | No issues; 231 файлов, 0 изменений |
+| Native Windows audio protocol | Payload matches protocol fixture |
+| Android JVM / lint | 15 passed; 0 errors / 6 прежних warnings |
+| Release APK / Windows | Обе финальные сборки успешны |
+| Helper package | 21 файл byte-identical 34, sources/notices/imports проверены |
+| Native helper smoke | 9 checks passed на установленном и extracted ZIP bundle |
+
+Real pipeline использует встроенный qualified FFmpeg, native OS publication
+locks и обычные reader/cache/SQLite на CC0 fixtures. В persistent recovery
+закрыты координатор и файловая SQLite, БД открыта заново; helper backend новой
+попытки намеренно неработоспособен и не вызывается. Все данные/папки временные,
+профиль/музыка/аккаунт пользователя не читаются. Предварительные проверки ловили
+ошибки только в новых fixtures (nullable fields через copyWith и сравнение UTC/
+local DateTime); исправлены до финального прогона. Преднамеренные два отдельных
+SQLite executors дают обычный debug warning Drift о нескольких экземплярах.
+
+CI строит helper до полного набора, передаёт CMP_TEST_MEDIA_HELPER и выполняет
+четыре native coordinator checks на Windows, затем архивирует test native asset
+metadata перед release. На macOS эти четыре явно skip; общий набор/build
+сохраняются. Remote CI здесь не объявляется завершённым, физический Mac/native
+Android downloader не испытывались. Existing Windows helper поддерживается,
+macOS helper packaging и Android SAF preparation/publication остаются впереди.
+
+ASCII build core35-20261016: pub get 6,6 с, codegen 56,4 с; начальные Android
+115,6 с / Windows 120,4 с. После cleanup-report correction финальный Android
+23,1 с / Windows 12,9 с. JVM 6,1 с, lint 32,1 с. **393** финальных source inputs
+сверены SHA-256 с workspace/build, schema/generated DB byte-identical 34.
+Release tree не использовался для Flutter tests; test-only native_assets.json
+не попал в продукт, production SQLite/C-asset manifest/exports сохранены.
+APK: versionCode 2035, target 36, signer matches 33, v2/CRC/zipalign и все ELF
+LOAD/RELRO 16 KiB passed. Windows PE x64 и все 39 ZIP entries проверены побайтно.
+Extracted helper работает из кириллицы/пробелов с PATH только Windows/System32.
+Прежние hidden AppData resolve_symlinks, JNI C4090 и SDK XML warnings не мешают
+сборке. Полные corresponding FFmpeg/zlib sources и лицензии остаются в ZIP.
+
+Артефакты созданы отдельно, прежние не перезаписывались:
+
+- dist/clever-music-player-core-35-android-arm64.apk — 20 830 822 байта,
+  SHA-256 `4f322b2206e1a9c1b82c4a2f7825c11ac9a122866023720b00d1f4f7df5c6674`.
+- dist/clever-music-player-core-35-windows-x64.zip — 31 333 974 байта,
+  SHA-256 `856f904c87cbe537f8ed94eb3cc24b0eb5c8c487364b37aa5263a81bccf5a156`.
+- core-35-checks.txt, manual-checks.txt и .sha256 sidecars.
+
+Ручные проверки 35 ожидаются: короткое воспроизведение/next/previous/далёкая
+прокрутка/restart Windows; helper check необязателен. Android можно оставить
+на прежней версии, optional APK проверяется знакомым треком/background/system
+play-pause. Пересканирование не требуется. Далее retention/квоты/очистка journal/
+staging, затем provider adapter/credentials/likes+selected playlists/кнопка,
+после рабочего ручного обновления — расписание. Рекомендации отложены.
+[Контракт](architecture/download-publication-coordinator.md).
+
+Логи .dart_tool/core35-new-tests.log, core35-coordinator-final-tests.log,
+core35-native-coordinator-initial.log, core35-full-tests-final.log,
+core35-analyze-final.log, core35-format-final.log, core35-native-windows-protocol.log,
+core35-native-bundled-final.log, core35-native-extracted-final.log,
+core35-helper-distribution.log, core35-source-manifest.json, core35-build-result.json,
+core35-verify-result.json, core35-package.json и core35-apk-*.log; build logs
+в ASCII-копии. Начальные/финальные сборки разделены в build-result.

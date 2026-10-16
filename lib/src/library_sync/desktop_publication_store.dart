@@ -7,7 +7,7 @@ import 'package:path/path.dart' as p;
 
 import '../domain/models/download_job.dart';
 import '../domain/models/downloaded_asset.dart';
-import '../domain/repositories/download_job_repository.dart';
+import '../domain/repositories/publication_job_access.dart';
 import '../library/file_content_hasher.dart';
 import '../library/library_scan_control.dart';
 import 'native_publication_files.dart';
@@ -16,13 +16,13 @@ import 'publication_intent.dart';
 /// No automatic startup work. One workspace, OS resource lock, drained close.
 final class DesktopPublicationStore {
   DesktopPublicationStore(
-      {required DownloadJobRepository jobs,
+      {required PublicationJobAccess jobs,
       PublicationFiles files = const NativePublicationFiles(),
       DateTime Function()? clock})
       : _jobs = jobs,
         _files = files,
         _clock = clock ?? DateTime.now;
-  final DownloadJobRepository _jobs;
+  final PublicationJobAccess _jobs;
   final PublicationFiles _files;
   final DateTime Function() _clock;
   bool _closed = false;
@@ -120,7 +120,7 @@ final class PublicationWorkspace {
       this._clock, this.control, this._lock);
   final String root;
   final DownloadJob job;
-  final DownloadJobRepository _jobs;
+  final PublicationJobAccess _jobs;
   final PublicationFiles _files;
   final DateTime Function() _clock;
   final LibraryScanControl control;
@@ -407,6 +407,25 @@ final class PublicationWorkspace {
         }
         ids.sort();
         return List.unmodifiable(ids);
+      });
+
+  Future<PublicationIntent> readIntent(String id) => _one(() async {
+        control.throwIfCancelled();
+        if (!isPublicationId(id)) {
+          throw const PublicationException(PublicationFailure.invalidJournal);
+        }
+        await _paths();
+        final folder = p.join(root, '.cmp-publications-v1', 'operations',
+            '${publicationResourceKey(job.key)}-$id');
+        await _directory(folder);
+        final intent = PublicationIntent.decode(
+            await _readSmall(File(p.join(folder, 'intent.json'))));
+        if (intent.jobId != job.id ||
+            intent.key != job.key ||
+            intent.publicationId != id) {
+          throw const PublicationException(PublicationFailure.invalidJournal);
+        }
+        return intent;
       });
 
   Future<void> _paths() async {

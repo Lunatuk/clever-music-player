@@ -1,8 +1,9 @@
 import '../models/download_job.dart';
 import '../models/downloaded_asset.dart';
 import '../models/remote_library.dart';
+import 'publication_job_access.dart';
 
-abstract interface class DownloadJobRepository {
+abstract interface class DownloadJobRepository implements PublicationJobAccess {
   /// At most 64 keys, atomic; repeats attach to existing work without resetting
   /// attempts, session binding, terminal state or a completed resource.
   Future<List<DownloadJob>> enqueue(
@@ -16,6 +17,7 @@ abstract interface class DownloadJobRepository {
       {required String provider});
   Future<List<DownloadJob>> listJobs(
       {DownloadJobState? state, int limit = 100});
+  @override
   Future<List<DownloadAttempt>> listAttempts(int jobId, {int limit = 50});
   Future<DownloadJob?> claimNext(RemoteLibraryAccount account,
       {required DateTime now, Duration leaseFor = const Duration(seconds: 30)});
@@ -34,6 +36,12 @@ abstract interface class DownloadJobRepository {
       {required DateTime now, DateTime? retryAt});
   Future<DownloadJob?> cancel(DownloadJob expected, {required DateTime now});
 
+  /// Release a current attempt whose physical result needs inspection. Does
+  /// not reset its budget or delete files; exhausted work requires manual retry.
+  Future<DownloadJob?> interrupt(DownloadJob expected,
+      {required DateTime now,
+      DownloadFailure reason = DownloadFailure.interrupted});
+
   /// Explicit manual retry resets the finite budget; completed work requires
   /// explicit repair intent and still goes through physical reconciliation.
   Future<DownloadJob?> retry(DownloadJob expected, RemoteLibraryAccount account,
@@ -46,6 +54,7 @@ abstract interface class DownloadJobRepository {
   /// Rechecks the full lease/session/folder after obtaining the reservation.
   /// Never hash, download, decode or call another connection inside [action].
   /// The filesystem effect cannot be rolled back with SQLite: journal first.
+  @override
   Future<T?> withOwnedDestination<T extends Object>(DownloadJob expected,
       {required DateTime Function() clock,
       required Future<T> Function(String destinationPath) action});

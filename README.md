@@ -103,6 +103,15 @@ actual bundle with synthetic audio. macOS helper packaging and native Android
 preparation remain separate work; no new Android APK in this package.
 See [bundle and qualification rules](docs/architecture/bundled-media-helper.md).
 
+Package 35 connects prepared desktop audio, publication and atomic library import.
+Track, provider identity, downloaded asset and job completion commit together;
+lost acknowledgement replays retain manual metadata and listening history.
+A serialized lease heartbeat stays current during file work. Recovery checks
+published bytes and can finish an interrupted import after reopening SQLite,
+without downloading again. Real MP3/M4A/FLAC coordinator checks run with the
+qualified Windows helper. Transport, retention and Yandex login/update UI still
+follow. See [coordinator and import rules](docs/architecture/download-publication-coordinator.md).
+
 Database schema v13 preserves existing track IDs and history. Metadata signatures
 are non-unique, feedback changes preserve listening counters, and playback events
 and their counters commit together. Retrying an event's operation ID does not

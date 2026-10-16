@@ -334,6 +334,28 @@ final class DriftDownloadJobRepository implements DownloadJobRepository {
       });
 
   @override
+  Future<DownloadJob?> interrupt(DownloadJob expected,
+          {required DateTime now,
+          DownloadFailure reason = DownloadFailure.interrupted}) =>
+      database.transaction(() async {
+        if (!await _owned(expected, now)) return null;
+        await _finishAttempt(
+            expected, now, DownloadAttemptOutcome.interrupted, reason);
+        return _write(
+            expected,
+            now,
+            DownloadJobsCompanion(
+                state: Value((expected.remainingAttempts > 0
+                        ? DownloadJobState.needsReconciliation
+                        : DownloadJobState.failed)
+                    .name),
+                attemptToken: const Value(null),
+                leaseUntilMicros: const Value(null),
+                retryAtMicros: const Value(null),
+                failure: Value(reason.name)));
+      });
+
+  @override
   Future<DownloadJob?> retry(DownloadJob expected, RemoteLibraryAccount account,
           {required DateTime now, bool repairCompleted = false}) =>
       database.transaction(() async {
