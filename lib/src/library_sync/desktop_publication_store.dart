@@ -12,18 +12,22 @@ import '../library/file_content_hasher.dart';
 import '../library/library_scan_control.dart';
 import 'native_publication_files.dart';
 import 'publication_intent.dart';
+import 'publication_journal.dart';
 
 /// No automatic startup work. One workspace, OS resource lock, drained close.
 final class DesktopPublicationStore {
   DesktopPublicationStore(
       {required PublicationJobAccess jobs,
       PublicationFiles files = const NativePublicationFiles(),
+      PublicationRetentionPolicy? retentionPolicy,
       DateTime Function()? clock})
       : _jobs = jobs,
         _files = files,
+        _retentionPolicy = retentionPolicy ?? PublicationRetentionPolicy(),
         _clock = clock ?? DateTime.now;
   final PublicationJobAccess _jobs;
   final PublicationFiles _files;
+  final PublicationRetentionPolicy _retentionPolicy;
   final DateTime Function() _clock;
   bool _closed = false;
   LibraryScanControl? _control;
@@ -81,8 +85,8 @@ final class DesktopPublicationStore {
         }
         await _file(lockFile.path);
         final lock = await _files.lock(lockFile.path);
-        return workspace = PublicationWorkspace._(
-            root, job, _jobs, _files, _clock, operation, lock);
+        return workspace = PublicationWorkspace._(root, job, _jobs, _files,
+            _clock, operation, lock, _retentionPolicy);
       });
       final acquired = workspace;
       if (acquired == null) {
@@ -117,7 +121,7 @@ final class DesktopPublicationStore {
 
 final class PublicationWorkspace {
   PublicationWorkspace._(this.root, this.job, this._jobs, this._files,
-      this._clock, this.control, this._lock);
+      this._clock, this.control, this._lock, this._retentionPolicy);
   final String root;
   final DownloadJob job;
   final PublicationJobAccess _jobs;
@@ -125,6 +129,7 @@ final class PublicationWorkspace {
   final DateTime Function() _clock;
   final LibraryScanControl control;
   final PublicationFileLock _lock;
+  final PublicationRetentionPolicy _retentionPolicy;
   final String publicationId = _randomId();
   final FileContentHashSession _hash =
       const Sha256FileContentHasher().openSession();
@@ -170,9 +175,17 @@ final class PublicationWorkspace {
           throw const PublicationException(PublicationFailure.invalidStaging);
         }
         await _paths();
-        if (!await _files.createDirectory(_operation)) {
-          throw const PublicationException(PublicationFailure.collision);
-        }
+        await reservePublication(
+            root,
+            PublicationReservation(
+                jobId: job.id,
+                key: job.key,
+                publicationId: publicationId,
+                sizeBytes: expectedSize,
+                createdAt: _clock()),
+            _retentionPolicy,
+            _files,
+            control);
         _started = true;
         final file = File(stagingPath);
         await file.create(exclusive: true);
@@ -314,9 +327,11 @@ final class PublicationWorkspace {
         final directory = p.join(root, '.cmp-publications-v1', 'operations',
             '${publicationResourceKey(job.key)}-$id');
         await _directory(directory);
-        final intentFile = File(p.join(directory, 'intent.json'));
-        await _file(intentFile.path);
-        final intent = PublicationIntent.decode(await _readSmall(intentFile));
+        final intent =
+            (await PublicationJournalEntry.read(Directory(directory))).intent;
+        if (intent == null) {
+          throw const PublicationException(PublicationFailure.invalidJournal);
+        }
         if (intent.jobId != current.id ||
             intent.key != current.key ||
             intent.publicationId != id) {
@@ -392,9 +407,8 @@ final class PublicationWorkspace {
           if (entry is Directory &&
               name.startsWith(prefix) &&
               isPublicationId(name.substring(prefix.length))) {
-            final file = File(p.join(entry.path, 'intent.json'));
-            if (await file.exists()) {
-              final intent = PublicationIntent.decode(await _readSmall(file));
+            final intent = (await PublicationJournalEntry.read(entry)).intent;
+            if (intent != null) {
               if (intent.jobId == job.id && intent.key == job.key) {
                 ids.add(intent.publicationId);
               }
@@ -418,8 +432,11 @@ final class PublicationWorkspace {
         final folder = p.join(root, '.cmp-publications-v1', 'operations',
             '${publicationResourceKey(job.key)}-$id');
         await _directory(folder);
-        final intent = PublicationIntent.decode(
-            await _readSmall(File(p.join(folder, 'intent.json'))));
+        final intent =
+            (await PublicationJournalEntry.read(Directory(folder))).intent;
+        if (intent == null) {
+          throw const PublicationException(PublicationFailure.invalidJournal);
+        }
         if (intent.jobId != job.id ||
             intent.key != job.key ||
             intent.publicationId != id) {
@@ -435,6 +452,7 @@ final class PublicationWorkspace {
     for (final path in [
       root,
       p.join(root, '.cmp-publications-v1'),
+      p.join(root, '.cmp-publications-v1', 'locks'),
       p.join(root, '.cmp-publications-v1', 'operations')
     ]) {
       await _directory(path);

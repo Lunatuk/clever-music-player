@@ -6,12 +6,15 @@ import 'package:path/path.dart' as p;
 import '../domain/models/models.dart';
 import '../domain/repositories/download_import_repository.dart';
 import '../domain/repositories/download_job_repository.dart';
+import '../domain/repositories/publication_retention_repository.dart';
 import '../library/artwork_cache_service.dart';
 import '../library/file_content_hasher.dart';
 import '../library/library_scan_control.dart';
 import '../library/metadata_reader_service.dart';
 import '../library/stable_track_id.dart';
 import 'desktop_publication_store.dart';
+import 'desktop_publication_maintenance.dart';
+import 'publication_journal.dart';
 import 'download_lease_owner.dart';
 import 'downloaded_audio_metadata.dart';
 import 'downloaded_audio_metadata_preparer.dart';
@@ -44,22 +47,26 @@ final class DownloadCoordinationResult {
 }
 
 /// Coordinates an already downloaded, exclusively owned local file. Transport,
-/// account access, queue selection, retries and journal retention are separate.
+/// account access, queue selection and retries are separate.
 /// Never runs at startup; caller closes this owner before closing SQLite.
 final class DesktopDownloadCoordinator {
   DesktopDownloadCoordinator(
       {required DownloadJobRepository jobs,
       required DownloadImportRepository imports,
+      required PublicationRetentionRepository retention,
       required DownloadedAudioMetadataPreparer preparer,
       MetadataReaderService metadataReader =
           const EmbeddedAudioMetadataReaderService(),
       required ArtworkCacheService artworkCache,
       PublicationFiles files = const NativePublicationFiles(),
+      PublicationRetentionPolicy? retentionPolicy,
       DateTime Function()? clock,
       this.leaseFor = const Duration(seconds: 60),
       this.heartbeatEvery = const Duration(seconds: 20)})
       : _jobs = jobs,
         _imports = imports,
+        _retention = retention,
+        _retentionPolicy = retentionPolicy ?? PublicationRetentionPolicy(),
         _preparer = preparer,
         _metadataReader = metadataReader,
         _artworkCache = artworkCache,
@@ -67,6 +74,8 @@ final class DesktopDownloadCoordinator {
         _clock = clock ?? DateTime.now;
   final DownloadJobRepository _jobs;
   final DownloadImportRepository _imports;
+  final PublicationRetentionRepository _retention;
+  final PublicationRetentionPolicy _retentionPolicy;
   final DownloadedAudioMetadataPreparer _preparer;
   final MetadataReaderService _metadataReader;
   final ArtworkCacheService _artworkCache;
@@ -138,8 +147,16 @@ final class DesktopDownloadCoordinator {
         clock: _clock,
         leaseFor: leaseFor,
         heartbeatEvery: heartbeatEvery);
-    final publisher =
-        DesktopPublicationStore(jobs: owner, files: _files, clock: _clock);
+    final publisher = DesktopPublicationStore(
+        jobs: owner,
+        files: _files,
+        clock: _clock,
+        retentionPolicy: _retentionPolicy);
+    final maintenance = DesktopPublicationMaintenance(
+        repository: _retention,
+        files: _files,
+        policy: _retentionPolicy,
+        clock: _clock);
     final hash = const Sha256FileContentHasher().openSession();
     owner.lossControl.addCancellationListener(control.cancel);
     PreparedDownloadedAudio? prepared;
@@ -150,6 +167,16 @@ final class DesktopDownloadCoordinator {
     try {
       control.throwIfCancelled();
       await owner.start();
+      final destination = await owner.withOwnedDestination(owner.current,
+          clock: _clock, action: (path) async => path);
+      if (destination == null) {
+        throw const PublicationException(PublicationFailure.ownershipLost);
+      }
+      final cleaned = await maintenance.clean(
+          destinationPath: destination,
+          libraryFolderId: initial.key.libraryFolderId,
+          control: control);
+      cleanupFailed = cleaned.failed > 0;
       await publisher.run(owner.current, (workspace) async {
         final candidates = <String>[];
         for (final id in await workspace.pendingPublications()) {
@@ -206,7 +233,7 @@ final class DesktopDownloadCoordinator {
         // Loss of lease/session remains fatal and cannot be ignored.
         final result = await _import(owner, receipt, hash);
         imported = result.$1;
-        cleanupFailed = result.$2;
+        cleanupFailed = cleanupFailed || result.$2;
         outcome = DownloadCoordinationOutcome.completed;
       }, control: control);
     } on Object catch (error) {
@@ -222,9 +249,16 @@ final class DesktopDownloadCoordinator {
         outcome = DownloadCoordinationOutcome.ownershipLost;
       } else if (error is PublicationException &&
           error.reason == PublicationFailure.busy &&
+          owner.current.stage == DownloadJobStage.download &&
           !possiblePublication) {
         outcome = DownloadCoordinationOutcome.busy;
       } else {
+        // Admission may contend after advancing to publication. That snapshot
+        // must reconcile/rewind before accepting another raw download.
+        if (error is PublicationException &&
+            error.reason == PublicationFailure.busy) {
+          possiblePublication = true;
+        }
         final cancelled = error is LibraryScanCancelled ||
             (error is AudioValidationException &&
                 error.outcome == AudioValidationOutcome.cancelled);
@@ -250,6 +284,7 @@ final class DesktopDownloadCoordinator {
       for (final close in [
         () async => await prepared?.close(),
         publisher.close,
+        maintenance.close,
         hash.close,
         owner.close,
       ]) {
@@ -373,6 +408,8 @@ final class DesktopDownloadCoordinator {
 }
 
 DownloadFailure _failure(Object error) => switch (error) {
+      PublicationException(reason: PublicationFailure.quotaExceeded) =>
+        DownloadFailure.noSpace,
       AudioValidationException() => DownloadFailure.invalidMedia,
       PublicationFileException(reason: PublicationFileFailure.noSpace) =>
         DownloadFailure.noSpace,

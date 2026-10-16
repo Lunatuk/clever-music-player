@@ -1642,6 +1642,9 @@ final class _FakeAppRepositories implements AppRepositories {
   @override
   DownloadImportRepository get downloadImports =>
       throw UnsupportedError('Unused in UI tests');
+  @override
+  PublicationRetentionRepository get publicationRetention =>
+      throw UnsupportedError('Unused in UI tests');
 
   @override
   DownloadedAssetRepository get downloadedAssets => throw UnsupportedError(

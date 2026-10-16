@@ -109,8 +109,19 @@ lost acknowledgement replays retain manual metadata and listening history.
 A serialized lease heartbeat stays current during file work. Recovery checks
 published bytes and can finish an interrupted import after reopening SQLite,
 without downloading again. Real MP3/M4A/FLAC coordinator checks run with the
-qualified Windows helper. Transport, retention and Yandex login/update UI still
+qualified Windows helper. Transport and Yandex login/update UI still
 follow. See [coordinator and import rules](docs/architecture/download-publication-coordinator.md).
+
+Package 36 adds bounded publication staging and journal maintenance. A folder
+OS lock serializes reservations (512 operations / 16 GiB reserved staging by
+default); completed music does not consume the staging quota. Before each
+coordinated operation, cleanup checks current terminal jobs and matching assets
+under a SQLite writer fence. Imported journal entries can be removed after
+checking the final bytes; failed/cancelled staging waits at least 24 hours.
+Unresolved results and unknown files are preserved. Durable retirement records
+allow interrupted cleanup to resume, and remain readable by recovery. Final
+music and persistent lock files are never deleted. No startup work or new UI
+is enabled. See [retention rules and limits](docs/architecture/publication-retention.md).
 
 Database schema v13 preserves existing track IDs and history. Metadata signatures
 are non-unique, feedback changes preserve listening counters, and playback events

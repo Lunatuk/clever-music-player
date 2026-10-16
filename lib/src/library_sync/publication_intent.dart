@@ -12,6 +12,7 @@ enum PublicationFailure {
   unsafePath,
   invalidJournal,
   invalidStaging,
+  quotaExceeded,
   changed,
   needsReconciliation,
   unsupported,

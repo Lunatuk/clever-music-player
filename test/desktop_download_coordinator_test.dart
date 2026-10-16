@@ -9,6 +9,7 @@ import 'package:clever_music_player/src/library_sync/desktop_publication_store.d
 import 'package:clever_music_player/src/library_sync/downloaded_audio_metadata_preparer.dart';
 import 'package:clever_music_player/src/library_sync/native_publication_files.dart';
 import 'package:clever_music_player/src/library_sync/publication_intent.dart';
+import 'package:clever_music_player/src/library_sync/publication_journal.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 
@@ -33,6 +34,7 @@ void main() {
     coordinator = DesktopDownloadCoordinator(
         jobs: jobs,
         imports: f.repositories.downloadImports,
+        retention: f.repositories.publicationRetention,
         preparer: DownloadedAudioMetadataPreparer(
             backend: backend, temporaryParent: f.root, clock: f.clock),
         metadataReader: reader,
@@ -95,6 +97,70 @@ void main() {
         isFalse);
     expect(backend.writes, 0);
     await noImport();
+  });
+  test('next coordinated job cleans a completed journal and keeps both songs',
+      () async {
+    final first = await run();
+    final operation = Directory(p.join(
+        f.destination.path,
+        '.cmp-publications-v1',
+        'operations',
+        '${publicationResourceKey(job.key)}-${first.imported!.asset.publication.publicationId}'));
+    expect(await operation.exists(), isTrue);
+    final second = await f.claim(externalId: '002');
+    expect((await run(current: second)).outcome,
+        DownloadCoordinationOutcome.completed);
+    expect(await operation.exists(), isFalse);
+    expect(await published(), hasLength(2));
+    expect(await f.count('tracks'), 2);
+  });
+  test(
+      'quota failure reports noSpace without partial import or touching raw file',
+      () async {
+    await coordinator.close();
+    backend = DownloadTestBackend();
+    coordinator = DesktopDownloadCoordinator(
+        jobs: jobs,
+        imports: f.repositories.downloadImports,
+        retention: f.repositories.publicationRetention,
+        preparer: DownloadedAudioMetadataPreparer(
+            backend: backend, temporaryParent: f.root, clock: f.clock),
+        metadataReader: reader,
+        artworkCache: const NoopArtworkCacheService(),
+        clock: f.clock,
+        retentionPolicy: PublicationRetentionPolicy(maxStagingBytes: 2));
+    final result = await run();
+    expect(result.outcome, DownloadCoordinationOutcome.failed);
+    expect(result.failure, DownloadFailure.noSpace);
+    expect(await f.raw.readAsString(), 'abc');
+    expect(await published(), isEmpty);
+    await noImport();
+  });
+  test(
+      'quota lock contention after preparation reconciles before retrying download',
+      () async {
+    // Initialize the owned state without any publication operation.
+    final initializer = DesktopPublicationStore(jobs: jobs, clock: f.clock);
+    await initializer.run(job, (_) async {});
+    await initializer.close();
+    final path = p.join(
+        f.destination.path, '.cmp-publications-v1', 'locks', 'quota.lock');
+    await File(path).create();
+    final held = await const NativePublicationFiles().lock(path);
+    try {
+      final result = await run();
+      expect(result.outcome, DownloadCoordinationOutcome.needsReconciliation);
+      expect(result.job.state, DownloadJobState.needsReconciliation);
+    } finally {
+      await held.close();
+    }
+    final recovery =
+        (await f.repositories.downloadJobs.claimNext(f.account, now: f.now))!;
+    final result = await coordinator.recover(recovery);
+    expect(result.outcome, DownloadCoordinationOutcome.requiresDownload);
+    expect(result.job.stage, DownloadJobStage.download);
+    expect((await run(current: result.job)).outcome,
+        DownloadCoordinationOutcome.completed);
   });
   test('invalid source/media fails without changing source or sibling files',
       () async {

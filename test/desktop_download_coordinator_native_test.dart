@@ -32,6 +32,7 @@ void main() {
     coordinator = DesktopDownloadCoordinator(
         jobs: f.repositories.downloadJobs,
         imports: f.repositories.downloadImports,
+        retention: f.repositories.publicationRetention,
         clock: f.clock,
         preparer: DownloadedAudioMetadataPreparer(
             backend: qualified.createMetadataBackend(),
@@ -128,6 +129,7 @@ void main() {
       coordinator = DesktopDownloadCoordinator(
           jobs: f.repositories.downloadJobs,
           imports: f.repositories.downloadImports,
+          retention: f.repositories.publicationRetention,
           clock: f.clock,
           preparer: DownloadedAudioMetadataPreparer(
               backend: DownloadTestBackend()..reject = true,

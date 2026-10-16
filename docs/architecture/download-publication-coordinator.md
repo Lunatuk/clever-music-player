@@ -150,12 +150,15 @@ Native checks используют только CC0 tones/covers из repository
 явно пропускаются, остальные общие tests/build сохраняются; физический Mac
 pipeline здесь не объявляется проверенным.
 
-До публичного runner необходимы retention/квоты/очистка журнала (включая
-неподтверждённые staging), затем adapter/credentials/likes+selected playlists/UI.
-Существующие лимиты publisher 10 000 entries / 256 entries одного ключа действуют;
-накопленные несколько публикаций одного задания требуют явного решения, не
-автоматического удаления. Windows/Mac file locks не являются OS sandbox от
+Пакет 36 добавляет [retention и квоты](publication-retention.md): coordinator
+перед публикацией явно очищает подтверждённый журнал, publisher резервирует
+staging под общим folder OS lock. По умолчанию 512 operations / 16 GiB staging;
+старые защитные пределы обхода 10 000 / 256 entries одного ключа также действуют.
+Несколько неподтверждённых результатов требуют явного решения, не угадываются
+при очистке. Следом adapter/credentials/likes+selected playlists/UI.
+Windows/Mac file locks не являются OS sandbox от
 посторонней замены дерева; power-loss/directory-fsync гарантии не добавляются.
 Android требует native SAF preparation/validation/publication adapter; desktop
 File API не используется для телефонных content URI. Автоматический retry,
-расписание, shutdown hook окна ОС и cleanup/retention ещё не подключены к UI.
+расписание, shutdown hook окна ОС и UI обновления ещё впереди. Cleanup вызывается
+только coordinator/явным maintenance, обычный запуск/сканирование его не включают.

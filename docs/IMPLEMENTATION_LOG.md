@@ -2496,3 +2496,89 @@ core35-native-bundled-final.log, core35-native-extracted-final.log,
 core35-helper-distribution.log, core35-source-manifest.json, core35-build-result.json,
 core35-verify-result.json, core35-package.json и core35-apk-*.log; build logs
 в ASCII-копии. Начальные/финальные сборки разделены в build-result.
+
+**16 октября 2026 — пакет 36, квоты staging и очистка журнала публикации**
+
+Пакет 35 подтверждён пользователем («все работает»). Добавлен
+[контракт retention](architecture/publication-retention.md), обновлены README,
+ROADMAP и короткие MANUAL_CHECKS. Схема 13 и зависимости остаются прежними.
+
+Publisher до audio.part сохраняет reservation с атрибуцией задания, размером и
+временем. Общий OS quota lock сериализует admission разных ресурсов одной папки,
+в том числе до получения первого байта; ожидаемый размер учитывается полностью.
+По умолчанию 512 operations / 16 GiB staging, прежний предел одного файла 8 GiB.
+Успешно опубликованная музыка не расходует staging quota. Неизвестное содержимое
+не обходится, превышение квоты возвращает noSpace без частичного импорта.
+
+Coordinator перед публикацией явно вызывает DesktopPublicationMaintenance.
+SQLite preflight отсекает незавершённые задания до хэширования; после IO writer
+reservation повторно проверяет текущие terminal job/folder/asset перед коротким
+удалением. Completed journal чистится после сверки final SHA; failed/cancelled
+staging требует атрибуции, отсутствия всех final extensions и возраста записи/
+завершения не менее 24 часов. Музыка, DB rows/history, постоянные OS lock files,
+незавершённые/неоднозначные результаты и неизвестные файлы сохраняются.
+
+Неизменяемый retirement marker записывается до первого удаления, хранит
+атрибуцию после исчезновения original metadata и удаляется последним. Cleanup
+продолжается после ошибки доступа/отмены/persistent SQLite reopen. Publisher
+pending/read/reconcile понимают intent внутри marker; восстановление не теряет
+его при частичной очистке. Close отменяет и дренирует принятую работу. Busy
+quota lock после подготовки переводит попытку в reconciliation с последующим
+rewind на download, сохраняя корректный контракт повторного запуска.
+
+Проверки завершены на временных данных, без музыки/профиля/аккаунта пользователя:
+
+| Проверка | Результат |
+| --- | --- |
+| Retention | 35 новых tests: terminal/grace/identity/path, повреждения/чужие файлы, OS locks, отмена, частичная очистка и persistent reopen |
+| Quota | 10 новых tests: точный лимит, резерв до первого байта, параллельные ресурсы, legacy/partial staging и освобождение лимита |
+| SQLite fences | Два новых tests с независимыми persistent connections: writer action блокирует revoke; ожидающий cleanup видит новое committed состояние |
+| Coordinator regressions | Три новых tests: очистка предыдущего journal с сохранением двух песен, noSpace без импорта, busy quota → reconciliation → retry |
+| Полный Flutter набор | **1416 passed**, 50 новых, concurrency 4, 58 секунд |
+| Real coordinator pipeline | Четыре MP3/M4A/FLAC/persistent recovery checks с bundled helper повторно исполнены внутри полного набора |
+| Analyze / format | Без замечаний / 241 файл, 0 изменений |
+| Native Windows payload | Сопоставление C++ payload с Dart fixture прошло |
+| Windows delete denial | Дополнительно отдельный native regression passed: journal остаётся пригодным для retry |
+| Android JVM / lint | 15 passed / 0 errors, 6 прежних warnings |
+| Windows / Android release | Обе финальные сборки успешны |
+| Helper | 21 файл byte-identical 35; sources/licenses/imports проверены; по 9 checks на release и extracted bundle |
+
+ASCII copy core36-20261016: **401 source inputs** SHA-256 сверены с workspace и
+build copy, generated DB/schema/pubspec/lock byte-identical 35. Pub get 2,5 с,
+codegen 41,5 с, Android 98,0 с, JVM 5,5 с, lint 31,5 с, gradle stop 0,9 с,
+Windows 87,6 с. Release copy не использовалась для Flutter tests, test-only
+native_assets.json отсутствует; production SQLite/C-asset manifest/exports
+сохранены. APK versionCode 2036, target 36, signer matches 35; CRC/v2/zipalign/
+ELF LOAD+RELRO 16 KiB checks passed. Windows PE x64 и все 39 ZIP entries
+проверены побайтно. Extracted helper работает в кириллице/пробелах с PATH только
+Windows/System32. Прежние AppData resolve_symlinks, JNI C4090 и SDK XML warnings
+не мешают сборке; debug сообщения старых cache fixtures после teardown и Drift
+о нескольких DB executors не являются провалами тестов.
+
+Артефакты созданы отдельно, прежние не перезаписывались:
+
+- dist/clever-music-player-core-36-android-arm64.apk — 20 830 822 байта,
+  SHA-256 `909885ba771846020a72f73a7ad80d1f2d3f89a4eafbfbd2600ab7d0813f5be8`.
+- dist/clever-music-player-core-36-windows-x64.zip — 31 333 854 байта,
+  SHA-256 `ea610664837ab74e017c6e54ce6f491e65e25dfb71946447a4e20f6dbd9659f8`.
+- core-36-checks.txt, manual-checks.txt и .sha256 sidecars.
+
+Обычный запуск/сканирование cleanup не вызывают, UI/сеть ещё не включены.
+Ручная проверка 36 ожидается: знакомый трек/switch/restart; Android APK
+необязательная. Пересканирование не требуется. Далее adapter/credentials/
+«Мне нравится»/выбранные плейлисты/кнопка. При transport runner отдельно учесть
+ownership/общий бюджет raw/prepared workspace: этот пакет ограничивает только
+publication staging и не угадывает старые cmp_audio_metadata_* по имени.
+Legacy pre-intent staging без reservation и спорные результаты сохраняются и
+могут занять лимит до явного разбора. DB history/lock files не чистятся. macOS
+helper qualification/native Android SAF pipeline остаются отдельными работами;
+remote CI/физический Mac здесь не объявляются проверенными. Расписание после
+ручного обновления, рекомендации по решению пользователя отложены.
+
+Логи .dart_tool/core36-full-tests-final.log, core36-targeted-final.log,
+core36-native-retention-deletion.log, core36-analyze-final.log,
+core36-format-final.log, core36-native-windows-protocol.log,
+core36-native-bundled-final.log, core36-native-extracted-final.log,
+core36-helper-distribution.log, core36-source-manifest.json,
+core36-build-result.json, core36-verify-result.json, core36-package.json и
+core36-apk-*.log; platform build logs в ASCII-копии.
