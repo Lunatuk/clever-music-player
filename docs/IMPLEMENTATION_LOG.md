@@ -2582,3 +2582,99 @@ core36-native-bundled-final.log, core36-native-extracted-final.log,
 core36-helper-distribution.log, core36-source-manifest.json,
 core36-build-result.json, core36-verify-result.json, core36-package.json и
 core36-apk-*.log; platform build logs в ASCII-копии.
+
+**16 октября 2026 — пакет 37, read-only адаптер Яндекса и обновление снимков**
+
+Пакет 36 подтверждён пользователем («все работает, давай дальше»). Реализованы
+YandexLibraryClient, типизированные четыре read endpoints, YandexHttpTransport
+и YandexCollectionRefresher. [Контракт](architecture/yandex-library-adapter.md).
+Обновлены README, ROADMAP (включая общий счёт пакетов) и короткие MANUAL_CHECKS.
+Схема 13, pubspec/lock, прежние bootstrap/UI/зависимости остаются прежними.
+
+Протокол сверялся с авторскими исходниками yandex-music-api, pinned commit
+9ca132e5c18a72aab779c1fc68c169380a9357d0, и первичным исходником Rust-клиента
+0.7.0 для page/pageSize/richTracks. Local YaDown 3.5.5/pyproject/API просмотрены
+только как код; его credentials/config, аккаунт и сетевые download/decrypt
+функции не использовались. Python-клиент и исходники reference не включены в
+продукт: независимый Dart-код реализует ограниченные wire contracts.
+
+Клиент проверяет UID токена, получает каталог собственных плейлистов и состав
+likes/выбранного плейлиста. Явный чужой playlist owner поддержан при чтении,
+автоматическое обнаружение подписанных чужих списков пока отсутствует. Состав
+читается полностью дважды, сверяются owner/kind/count/revision/pager/order.
+Порядок/повторы/ведущие нули/album context и недоступные позиции с ID сохраняются;
+заголовок не служит идентификатором. У likes с неполным pager нет guessed
+continuation; playlist pages продолжают фактическую нумерацию первого ответа
+0 или 1. Смена версии/частичный результат не объявляются полным снимком.
+
+HTTP имеет fixed HTTPS origin, типизированный GET, OAuth только в header,
+отключённые redirects и отсутствие cookie jar/автоповторов/истории/remote writes.
+Ограничены 20 с / 16 MiB на запрос, включая chunked и распакованный gzip; JSON
+от 256 KiB разбирается на isolate. Общие пределы клиента: 100 000 items,
+2000 playlists, 256 pages за проход / 5 минут. Отмена/close дренируют accepted
+работу, raw exceptions/body/URLs/credentials не входят в public error. HTTP/API
+ошибки, в том числе error при 200, различаются кодами; Retry-After ограничен
+сутками. Subscription status по одному 403 не угадывается.
+
+Refresher получает beginRefresh ticket до сети, сохраняет полный результат
+через прежний commitSnapshot/CAS. Изменение account session/выбора/ticket,
+network/auth/partial/changed ошибки и SQL rollback сохраняют прежний mirror.
+После принятия DB commit late cancel возвращает фактический результат его
+завершения. Ресурсный owner закрывает reader до SQLite. В vertical integration
+снимок подаётся в существующий planner/apply: три позиции с повтором создают
+две durable download jobs, без исполнения скачивания или записи Track.
+
+| Проверка | Результат |
+| --- | --- |
+| Новый client | 45 tests: identity/catalogue/повторы/версии/пустые/недоступные позиции, paging/согласованность/limits/cancel/close |
+| Реальный HTTP loopback | 30 tests: headers/UTF-8/status/error envelope/redirect, gzip/chunked/large JSON, timeout/cancel/close/socket failure, Retry-After |
+| Refresher + SQLite | 16 tests: successful mirror/ошибки, session/deselection/ticket CAS, SQL rollback, late commit drain и durable planner integration |
+| Полный Flutter набор | **1507 passed**, 91 новый, concurrency 4, 52 секунды |
+| Analyze / format | Без замечаний / 249 файлов, 0 изменений |
+| Existing native pipeline | Четыре реальные bundled-helper MP3/M4A/FLAC/persistent import recovery checks повторно исполнены в полном наборе |
+| Native Windows payload | C++ payload соответствует Dart fixture |
+| Android JVM / lint | 15 passed / 0 errors, 6 прежних warnings |
+| Windows / Android release | Обе сборки успешны |
+| Helper | 21 файл byte-identical 36; sources/licenses/imports проверены, по 9 native checks на release и extracted bundle |
+
+Все API replies синтетические; HTTP работает с настоящими loopback sockets,
+SQLite использует временные данные. Реальный авторизованный Яндекс API ещё
+не испытывался; отдельная проверка нужна после входа через UI. Unit-test опечатка
+в имени метода существующего planner исправлена до финального прогона.
+
+ASCII copy core37-20261016: **409 inputs** SHA-256 сверены с workspace/build,
+generated DB/schema/pubspec/lock byte-identical 36. Pub get 3,1 с, codegen
+56,5 с, Android 96,7 с, JVM 5,4 с, lint 30,8 с, gradle stop 0,9 с,
+Windows 87,6 с. Release copy не использовалась для Flutter tests; test-only
+native_assets.json отсутствует, production SQLite/C-asset manifest/exports
+сохранены. APK versionCode 2037, target 36, signer matches 36; CRC/v2/zipalign/
+ELF LOAD+RELRO 16 KiB passed. Windows PE x64 и все 39 ZIP entries сверены
+побайтно. Helper работает в extracted Unicode/spaced path с PATH только
+Windows/System32. Прежние AppData resolve_symlinks/JNI C4090/SDK XML warnings
+не мешают сборке; remote CI и физический Mac/Android HTTP не объявляются
+проверенными. APK служит проверкой совместимости общих исходников; release
+INTERNET добавится вместе с фактическим сетевым Android UI.
+
+Артефакты созданы отдельно, SHA-256 пакета 36 также перепроверены и не изменены:
+
+- dist/clever-music-player-core-37-android-arm64.apk — 20 830 822 байта,
+  SHA-256 `7d0e5d0d5373d96be8738718e134e62edd1a8a9dbdace79b30fb72a60a7362dc`.
+- dist/clever-music-player-core-37-windows-x64.zip — 31 333 830 байт,
+  SHA-256 `7ea94500b2d8ca8e6a95a3ca1286f73fa52046c4d135fb6b4e277a7aabf65f60`.
+- core-37-checks.txt, manual-checks.txt и .sha256 sidecars.
+
+Обновление необязательное, ручная проверка при установке — знакомый трек и
+restart, пересканирование не требуется. Credentials persistence/вход/выбор
+коллекций в UI следуют далее, затем download transport, ownership/общий бюджет
+raw+prepared workspace и кнопка. Native Android SAF writer/macOS helper остаются
+отдельными платформенными задачами; расписание после ручного обновления.
+Алгоритм рекомендаций по решению пользователя отложен.
+
+Логи .dart_tool/core37-client-initial.log, core37-http-initial.log,
+core37-refresher-final.log, core37-full-tests-final.log, core37-analyze-final.log,
+core37-format-final.log, core37-native-windows-protocol.log,
+core37-native-bundled-final.log, core37-native-extracted-final.log,
+core37-helper-distribution.log, core37-source-manifest.json,
+core37-build-result.json, core37-verify-result.json, core37-package.json и
+core37-apk-*.log; platform build logs в ASCII-копии. Research-only reference
+manifest/source находятся в ignored .dart_tool/yandex37-reference.

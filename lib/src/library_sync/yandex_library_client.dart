@@ -1,0 +1,404 @@
+import 'dart:async';
+import 'dart:math';
+
+import '../domain/models/external_track_ref.dart';
+import '../domain/models/remote_library.dart';
+import '../library/library_scan_control.dart';
+import 'yandex_http_transport.dart';
+import 'yandex_library_protocol.dart';
+
+final class YandexLibraryLimits {
+  YandexLibraryLimits(
+      {this.maxItems = RemoteCollectionSnapshot.maxItems,
+      this.maxPlaylists = 2000,
+      this.maxPages = 256,
+      this.operationTimeout = const Duration(minutes: 5)}) {
+    if (maxItems <= 0 ||
+        maxItems > RemoteCollectionSnapshot.maxItems ||
+        maxPlaylists <= 0 ||
+        maxPlaylists > 10000 ||
+        maxPages <= 0 ||
+        maxPages > 512 ||
+        operationTimeout <= Duration.zero ||
+        operationTimeout > const Duration(minutes: 10)) {
+      throw ArgumentError('Некорректные пределы чтения фонотеки.');
+    }
+  }
+  final int maxItems, maxPlaylists, maxPages;
+  final Duration operationTimeout;
+}
+
+/// One credential session, one operation at a time. No startup work or writes
+/// to Yandex. Complete lists are observed twice before declaring a snapshot.
+final class YandexLibraryClient implements YandexLibraryReader {
+  YandexLibraryClient(
+      {required YandexAccessToken token,
+      YandexApiTransport? transport,
+      YandexLibraryLimits? limits,
+      DateTime Function()? clock})
+      : _token = token,
+        _transport = transport ?? YandexHttpTransport(),
+        _limits = limits ?? YandexLibraryLimits(),
+        _clock = clock ?? DateTime.now;
+  final YandexAccessToken _token;
+  final YandexApiTransport _transport;
+  final YandexLibraryLimits _limits;
+  final DateTime Function() _clock;
+  YandexAccountProfile? _profile;
+  LibraryScanControl? _control;
+  Future<Object?>? _active;
+  Future<void>? _closing;
+  bool _closed = false;
+  @override
+  YandexAccountProfile? get verifiedAccount => _profile;
+
+  Future<T> _run<T extends Object>(
+      Future<T> Function(LibraryScanControl) action,
+      LibraryScanControl? external) {
+    if (_closed || _active != null) {
+      return Future.error(YandexLibraryException(
+          _closed ? YandexLibraryFailure.closed : YandexLibraryFailure.busy));
+    }
+    final control = LibraryScanControl();
+    _control = control;
+    external?.addCancellationListener(control.cancel);
+    var timedOut = false;
+    final timer = Timer(_limits.operationTimeout, () {
+      timedOut = true;
+      control.cancel();
+    });
+    final accepted = () async {
+      try {
+        control.throwIfCancelled();
+        final result = await action(control);
+        control.throwIfCancelled();
+        return result;
+      } on Object catch (error) {
+        if (timedOut) {
+          throw const YandexLibraryException(YandexLibraryFailure.timeout);
+        }
+        if (control.isCancellationRequested) {
+          throw const YandexLibraryException(YandexLibraryFailure.cancelled);
+        }
+        if (error is YandexLibraryException) rethrow;
+        throw YandexLibraryException(error is FormatException ||
+                error is TypeError ||
+                error is ArgumentError
+            ? YandexLibraryFailure.invalidResponse
+            : YandexLibraryFailure.network);
+      } finally {
+        timer.cancel();
+        external?.removeCancellationListener(control.cancel);
+      }
+    }();
+    final operation = accepted.whenComplete(() {
+      _control = null;
+      _active = null;
+    });
+    operation.ignore();
+    _active = operation;
+    return operation;
+  }
+
+  Future<Object?> _get(
+      YandexReadRequest request, LibraryScanControl control) async {
+    control.throwIfCancelled();
+    final result = await _transport.get(request, _token, control);
+    control.throwIfCancelled();
+    return result;
+  }
+
+  @override
+  Future<YandexAccountProfile> verifyAccount({LibraryScanControl? control}) {
+    final previous = _profile;
+    return _run((token) async {
+      _profile = null;
+      final result = _map(await _get(YandexReadRequest.account(), token));
+      final account = _map(result['account']);
+      final uid = yandexNumericId(account['uid']);
+      final profile = YandexAccountProfile(
+          identity:
+              RemoteAccountIdentity(provider: 'yandex_music', accountId: uid),
+          displayName: _displayName(account));
+      if (previous != null && previous.identity != profile.identity) {
+        throw const YandexLibraryException(
+            YandexLibraryFailure.accountMismatch);
+      }
+      return profile;
+    }, control)
+        .then((profile) {
+      _profile = profile;
+      return profile;
+    });
+  }
+
+  String _account(RemoteAccountIdentity expected) {
+    if (_profile == null ||
+        _profile!.identity != expected ||
+        expected.provider != 'yandex_music') {
+      throw const YandexLibraryException(YandexLibraryFailure.accountMismatch);
+    }
+    return yandexNumericId(expected.accountId);
+  }
+
+  @override
+  Future<List<YandexPlaylistDescriptor>> listPlaylists(
+          RemoteAccountIdentity account,
+          {LibraryScanControl? control}) =>
+      _run((token) async {
+        final uid = _account(account);
+        final values =
+            _list(await _get(YandexReadRequest.playlists(uid), token));
+        if (values.length > _limits.maxPlaylists) _tooLarge();
+        final keys = <RemoteCollectionKey>{};
+        final descriptors = <YandexPlaylistDescriptor>[];
+        for (final value in values) {
+          token.throwIfCancelled();
+          final map = _map(value);
+          final owner = _owner(map);
+          if (owner != uid) {
+            throw const YandexLibraryException(
+                YandexLibraryFailure.accountMismatch);
+          }
+          final key = RemoteCollectionKey(
+              kind: RemoteCollectionKind.playlist,
+              ownerId: owner,
+              externalId: yandexNumericId(map['kind']));
+          if (!keys.add(key)) _invalid();
+          descriptors.add(YandexPlaylistDescriptor(
+              key: key,
+              title: _text(map['title']),
+              itemCount: _count(map['trackCount'])));
+        }
+        return List.unmodifiable(descriptors);
+      }, control);
+
+  @override
+  Future<RemoteCollectionSnapshot> readCollection(
+          RemoteAccountIdentity account, RemoteCollectionKey key,
+          {LibraryScanControl? control}) =>
+      _run((token) async {
+        final uid = _account(account);
+        Future<_Pass> read() => key.kind == RemoteCollectionKind.liked
+            ? _liked(uid, token)
+            : _playlist(uid, key, token);
+        final first = await read();
+        final second = await read();
+        if (first.revision != second.revision ||
+            first.items.length != second.items.length ||
+            first.items.indexed
+                .any((item) => item.$2 != second.items[item.$1])) {
+          throw const YandexLibraryException(YandexLibraryFailure.changed);
+        }
+        return RemoteCollectionSnapshot(
+            items: second.items,
+            isComplete: true,
+            expectedItemCount: second.items.length,
+            completedAt: _clock(),
+            revisionAtStart: first.revision,
+            revisionAtEnd: second.revision);
+      }, control);
+
+  Future<_Pass> _liked(String uid, LibraryScanControl control) async {
+    final result = _map(await _get(YandexReadRequest.liked(uid), control));
+    final library = _map(result['library']);
+    if (yandexNumericId(library['uid']) != uid) {
+      throw const YandexLibraryException(YandexLibraryFailure.accountMismatch);
+    }
+    final revision = _revision(library['revision']);
+    if (revision == null) _invalid();
+    final items = _tracks(library['tracks']);
+    if ((library['trackCount'] != null &&
+            _count(library['trackCount']) != items.length) ||
+        library['hasMore'] == true ||
+        library['truncated'] == true ||
+        library['isComplete'] == false) {
+      throw const YandexLibraryException(YandexLibraryFailure.incomplete);
+    }
+    if (library['pager'] != null) {
+      final pager = _pager(library['pager']);
+      if (pager.page > 1 ||
+          pager.total != items.length ||
+          pager.perPage < items.length) {
+        throw const YandexLibraryException(YandexLibraryFailure.incomplete);
+      }
+    }
+    return _Pass(items, revision);
+  }
+
+  Future<_Pass> _playlist(
+      String uid, RemoteCollectionKey key, LibraryScanControl control) async {
+    final owner = key.ownerId.isEmpty ? uid : yandexNumericId(key.ownerId);
+    final kind = yandexNumericId(key.externalId);
+    final first =
+        _map(await _get(YandexReadRequest.playlist(owner, kind), control));
+    _playlistIdentity(first, owner, kind);
+    final count = _count(first['trackCount']);
+    final revision = _revision(first['revision']);
+    final items = _tracks(first['tracks']).toList();
+    final initial = first['pager'] == null ? null : _pager(first['pager']);
+    if (first['truncated'] == true ||
+        first['isComplete'] == false ||
+        items.length > count) {
+      throw const YandexLibraryException(YandexLibraryFailure.incomplete);
+    }
+    if (initial == null) {
+      if (items.length != count || first['hasMore'] == true) {
+        throw const YandexLibraryException(YandexLibraryFailure.incomplete);
+      }
+    } else {
+      if (initial.page > 1 ||
+          initial.total != count ||
+          items.length != min(initial.perPage, count)) {
+        throw const YandexLibraryException(YandexLibraryFailure.incomplete);
+      }
+      final pages = max(1, (count + initial.perPage - 1) ~/ initial.perPage);
+      if (pages > _limits.maxPages) _tooLarge();
+      for (var offset = 1; offset < pages; offset++) {
+        final page = initial.page + offset;
+        final map = _map(await _get(
+            YandexReadRequest.playlist(owner, kind,
+                page: page, pageSize: initial.perPage),
+            control));
+        _playlistIdentity(map, owner, kind);
+        if (_count(map['trackCount']) != count ||
+            _revision(map['revision']) != revision) {
+          throw const YandexLibraryException(YandexLibraryFailure.changed);
+        }
+        final pager = _pager(map['pager']);
+        if (pager.page != page ||
+            pager.total != count ||
+            pager.perPage != initial.perPage) {
+          throw const YandexLibraryException(YandexLibraryFailure.incomplete);
+        }
+        final tracks = _tracks(map['tracks']);
+        if (tracks.length != min(initial.perPage, count - items.length) ||
+            (map['hasMore'] == true && items.length + tracks.length >= count) ||
+            map['truncated'] == true ||
+            map['isComplete'] == false) {
+          throw const YandexLibraryException(YandexLibraryFailure.incomplete);
+        }
+        items.addAll(tracks);
+      }
+    }
+    if (items.length != count ||
+        (initial != null &&
+            count <= initial.perPage &&
+            first['hasMore'] == true)) {
+      throw const YandexLibraryException(YandexLibraryFailure.incomplete);
+    }
+    return _Pass(List.unmodifiable(items), revision);
+  }
+
+  void _playlistIdentity(Map<String, dynamic> map, String owner, String kind) {
+    if (_owner(map) != owner) {
+      throw const YandexLibraryException(YandexLibraryFailure.accountMismatch);
+    }
+    if (yandexNumericId(map['kind']) != kind) _invalid();
+    if (map['available'] == false || map['playlistAbsence'] != null) {
+      throw const YandexLibraryException(YandexLibraryFailure.accessDenied);
+    }
+  }
+
+  String _owner(Map<String, dynamic> map) {
+    final nested = map['owner'] == null ? null : _map(map['owner'])['uid'];
+    final uid = yandexNumericId(map['uid'] ?? nested);
+    if (nested != null && yandexNumericId(nested) != uid) _invalid();
+    return uid;
+  }
+
+  int _count(Object? value) {
+    final number = _number(value);
+    if (number > _limits.maxItems) _tooLarge();
+    return number;
+  }
+
+  _Pager _pager(Object? value) {
+    final map = _map(value);
+    final page = _number(map['page']);
+    final perPage = _number(map['perPage']);
+    if (perPage <= 0 || perPage > RemoteCollectionSnapshot.maxItems) _invalid();
+    return _Pager(page, perPage, _count(map['total']));
+  }
+
+  List<ExternalTrackIdentity> _tracks(Object? value) {
+    final values = _list(value);
+    if (values.length > _limits.maxItems) _tooLarge();
+    return List.unmodifiable(values.map((value) {
+      final track = _map(value);
+      final id = _trackId(track['id']);
+      final album = track['albumId'];
+      final variant =
+          album == null || album == '' ? '' : yandexNumericId(album);
+      final nested = track['track'];
+      if (nested != null && _trackId(_map(nested)['id']) != id) _invalid();
+      return ExternalTrackIdentity(
+          provider: 'yandex_music', externalId: id, variantKey: variant);
+    }));
+  }
+
+  @override
+  Future<void> close() {
+    _closed = true;
+    _control?.cancel();
+    return _closing ??= _drain();
+  }
+
+  Future<void> _drain() async {
+    try {
+      await _active;
+    } on Object {/* Reported by the operation. */} finally {
+      await _transport.close();
+    }
+  }
+}
+
+final class _Pass {
+  const _Pass(this.items, this.revision);
+  final List<ExternalTrackIdentity> items;
+  final String? revision;
+}
+
+final class _Pager {
+  const _Pager(this.page, this.perPage, this.total);
+  final int page, perPage, total;
+}
+
+Never _invalid() =>
+    throw const YandexLibraryException(YandexLibraryFailure.invalidResponse);
+Never _tooLarge() =>
+    throw const YandexLibraryException(YandexLibraryFailure.tooLarge);
+Map<String, dynamic> _map(Object? value) =>
+    value is Map<String, dynamic> ? value : _invalid();
+List<dynamic> _list(Object? value) => value is List ? value : _invalid();
+int _number(Object? value) => value is int && value >= 0 ? value : _invalid();
+String _text(Object? value) {
+  if (value is! String ||
+      value.trim().isEmpty ||
+      value.length > 512 ||
+      value.runes.any((rune) => rune < 32 || rune == 127)) {
+    _invalid();
+  }
+  return value;
+}
+
+String? _optionalText(Object? value) => value == null ? null : _text(value);
+String? _displayName(Map<String, dynamic> account) {
+  for (final field in ['displayName', 'firstName', 'login']) {
+    final value = account[field];
+    if (value == null || (value is String && value.trim().isEmpty)) continue;
+    return _text(value);
+  }
+  return null;
+}
+
+String? _revision(Object? value) =>
+    value is int ? '${_number(value)}' : _optionalText(value);
+String _trackId(Object? value) {
+  final text = value is int && value > 0 ? '$value' : value;
+  if (text is! String ||
+      RegExp(r'^[A-Za-z0-9._-]{1,512}$').stringMatch(text) != text) {
+    _invalid();
+  }
+  return text;
+}

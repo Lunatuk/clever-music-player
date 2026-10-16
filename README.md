@@ -123,6 +123,18 @@ allow interrupted cleanup to resume, and remain readable by recovery. Final
 music and persistent lock files are never deleted. No startup work or new UI
 is enabled. See [retention rules and limits](docs/architecture/publication-retention.md).
 
+Package 37 adds an independently implemented Dart reader for Yandex account
+identity, the user's playlist catalog, liked tracks and selected playlist contents.
+It uses four read endpoints at a fixed HTTPS origin, rejects redirects, bounds
+responses/time/pages and cancels/drains active HTTP. Complete collections are
+observed twice, with owner/count/revision/order checks and explicit paging.
+The refresher commits through the existing revisioned snapshot repository;
+errors, deselection and account changes preserve the previous mirror. Tests use
+synthetic HTTP and temporary SQLite, including the existing durable planner.
+No account login, credential persistence, download transport or new UI is enabled
+yet; a real authorized account check follows the login step. See
+[protocol, completeness and limits](docs/architecture/yandex-library-adapter.md).
+
 Database schema v13 preserves existing track IDs and history. Metadata signatures
 are non-unique, feedback changes preserve listening counters, and playback events
 and their counters commit together. Retrying an event's operation ID does not
