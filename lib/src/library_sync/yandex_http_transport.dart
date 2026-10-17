@@ -4,14 +4,17 @@ import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
 
+import '../diagnostics/diagnostics_service.dart';
 import '../library/library_scan_control.dart';
 import 'yandex_library_protocol.dart';
 
 /// Fixed HTTPS origin in production, no redirects/cookie jar/logging/retries.
-final class YandexHttpTransport implements YandexApiTransport {
+final class YandexHttpTransport
+    implements YandexApiTransport, YandexConnectionProbe {
   YandexHttpTransport(
       {this.requestTimeout = const Duration(seconds: 20),
       this.maxResponseBytes = 16 * 1024 * 1024,
+      this.diagnostics = const NoopDiagnosticsService(),
       DateTime Function()? clock})
       : _origin = Uri.https('api.music.yandex.net'),
         _clock = clock ?? DateTime.now {
@@ -22,6 +25,7 @@ final class YandexHttpTransport implements YandexApiTransport {
   YandexHttpTransport.loopbackForTesting(Uri origin,
       {this.requestTimeout = const Duration(seconds: 20),
       this.maxResponseBytes = 16 * 1024 * 1024,
+      this.diagnostics = const NoopDiagnosticsService(),
       DateTime Function()? clock})
       : _origin = origin,
         _clock = clock ?? DateTime.now {
@@ -36,6 +40,7 @@ final class YandexHttpTransport implements YandexApiTransport {
     }
   }
   final Uri _origin;
+  final DiagnosticsService diagnostics;
   final DateTime Function() _clock;
   final Duration requestTimeout;
   final int maxResponseBytes;
@@ -55,6 +60,14 @@ final class YandexHttpTransport implements YandexApiTransport {
 
   @override
   Future<Object?> get(YandexReadRequest request, YandexAccessToken token,
+          LibraryScanControl control) =>
+      _accept(request, token, control);
+
+  @override
+  Future<void> probe(LibraryScanControl control) =>
+      _accept(YandexReadRequest.account(), null, control).then((_) {});
+
+  Future<Object?> _accept(YandexReadRequest request, YandexAccessToken? token,
       LibraryScanControl control) {
     if (_closed || _active != null) {
       return Future.error(YandexLibraryException(
@@ -66,8 +79,23 @@ final class YandexHttpTransport implements YandexApiTransport {
     return _active = operation;
   }
 
-  Future<Object?> _get(YandexReadRequest request, YandexAccessToken token,
+  Future<Object?> _get(YandexReadRequest request, YandexAccessToken? token,
       LibraryScanControl external) async {
+    final watch = Stopwatch()..start();
+    var stage = YandexRequestStage.connecting;
+    int? status;
+    var received = 0;
+    var credentialAttached = false;
+    Map<DiagnosticField, Object?> fields() => {
+          DiagnosticField.remoteEndpoint: request.endpoint.index,
+          DiagnosticField.remoteStage: stage.index,
+          DiagnosticField.credentialAttached: credentialAttached,
+          DiagnosticField.elapsedMs: watch.elapsedMilliseconds,
+          if (status != null) DiagnosticField.httpStatus: status,
+          DiagnosticField.responseBytes: received,
+        };
+    diagnostics.record(DiagnosticEvent.yandexRequestStarted, fields: fields());
+    var succeeded = false;
     final control = LibraryScanControl();
     _control = control;
     external.addCancellationListener(control.cancel);
@@ -102,10 +130,19 @@ final class YandexHttpTransport implements YandexApiTransport {
           .set(HttpHeaders.userAgentHeader, 'CleverMusicPlayer/0.2.1');
       pending.headers
           .set('X-Yandex-Music-Client', 'YandexMusicAndroid/24023621');
-      token.authorize((value) =>
+      token?.authorize((value) =>
           pending!.headers.set(HttpHeaders.authorizationHeader, value));
+      credentialAttached = token != null;
+      stage = YandexRequestStage.waitingForResponse;
       final response = await pending.close();
+      status = response.statusCode;
+      stage = YandexRequestStage.receivingBody;
       control.throwIfCancelled();
+      // A genuine HTTP 401 proves reachability without requiring authentication.
+      if (token == null && status == HttpStatus.unauthorized) {
+        succeeded = true;
+        return null;
+      }
       if (response.statusCode != HttpStatus.ok) {
         throw YandexLibraryException(
             switch (response.statusCode) {
@@ -137,9 +174,11 @@ final class YandexHttpTransport implements YandexApiTransport {
           throw const YandexLibraryException(YandexLibraryFailure.tooLarge);
         }
         bytes.add(chunk);
+        received = bytes.length;
       }
       control.throwIfCancelled();
       final input = bytes.takeBytes();
+      stage = YandexRequestStage.decoding;
       final value = input.length >= 256 * 1024
           ? await _decodeLarge(input)
           : _decode(input);
@@ -151,6 +190,10 @@ final class YandexHttpTransport implements YandexApiTransport {
       final error = value['error'];
       if (error != null) {
         final name = error is Map ? error['name'] : error;
+        if (token == null && name == 'unauthorized') {
+          succeeded = true;
+          return null;
+        }
         throw YandexLibraryException(switch (name) {
           'unauthorized' => YandexLibraryFailure.unauthorized,
           'forbidden' => YandexLibraryFailure.accessDenied,
@@ -163,19 +206,28 @@ final class YandexHttpTransport implements YandexApiTransport {
         throw const YandexLibraryException(
             YandexLibraryFailure.invalidResponse);
       }
+      succeeded = true;
       return value['result'];
     } on Object catch (error) {
-      if (timedOut) {
-        throw const YandexLibraryException(YandexLibraryFailure.timeout);
-      }
-      if (control.isCancellationRequested) {
-        throw const YandexLibraryException(YandexLibraryFailure.cancelled);
-      }
-      if (error is YandexLibraryException) rethrow;
-      throw YandexLibraryException(
-          error is FormatException || error is HttpException
-              ? YandexLibraryFailure.invalidResponse
-              : YandexLibraryFailure.network);
+      final failure = timedOut || error is TimeoutException
+          ? YandexLibraryFailure.timeout
+          : control.isCancellationRequested
+              ? YandexLibraryFailure.cancelled
+              : error is YandexLibraryException
+                  ? error.failure
+                  : error is FormatException || error is HttpException
+                      ? YandexLibraryFailure.invalidResponse
+                      : YandexLibraryFailure.network;
+      diagnostics.record(DiagnosticEvent.yandexRequestFailed, fields: {
+        ...fields(),
+        DiagnosticField.remoteFailure: failure.index,
+        if (error is SocketException && error.osError != null)
+          DiagnosticField.networkErrorCode: error.osError!.errorCode,
+      });
+      throw YandexLibraryException(failure,
+          stage: stage,
+          retryAfter:
+              error is YandexLibraryException ? error.retryAfter : null);
     } finally {
       timer.cancel();
       control.removeCancellationListener(abort);
@@ -183,6 +235,10 @@ final class YandexHttpTransport implements YandexApiTransport {
       client.close(force: true);
       _client = null;
       _control = null;
+      if (succeeded) {
+        diagnostics.record(DiagnosticEvent.yandexRequestCompleted,
+            fields: fields());
+      }
     }
   }
 

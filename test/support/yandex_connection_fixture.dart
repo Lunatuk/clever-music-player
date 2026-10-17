@@ -1,4 +1,23 @@
 import 'package:clever_music_player/src/library_sync/yandex_credential_store.dart';
+import 'package:clever_music_player/src/library/library_scan_control.dart';
+import 'package:clever_music_player/src/library_sync/yandex_library_protocol.dart';
+
+final class FakeYandexProbe implements YandexConnectionProbe {
+  int calls = 0;
+  bool closed = false;
+  Future<void> Function(LibraryScanControl)? onProbe;
+  @override
+  Future<void> probe(LibraryScanControl control) async {
+    calls++;
+    control.throwIfCancelled();
+    await onProbe?.call(control);
+  }
+
+  @override
+  Future<void> close() async {
+    closed = true;
+  }
+}
 
 final class MemoryYandexCredentials implements YandexCredentialStore {
   YandexSavedCredential? value;

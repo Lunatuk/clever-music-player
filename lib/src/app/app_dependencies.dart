@@ -69,6 +69,7 @@ final class AppDependencies {
         YandexConnectionController(
             repository: repositories.remoteLibrary,
             sessions: repositories.yandexSessions,
+            diagnostics: diagnostics,
             credentials: const SecureYandexCredentialStore());
   }
 

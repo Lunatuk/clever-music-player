@@ -1,6 +1,7 @@
 import '../domain/models/remote_library.dart';
 import '../library/library_scan_control.dart';
 
+// Persisted diagnostic indices: append values; do not reorder existing entries.
 enum YandexLibraryFailure {
   unauthorized,
   accessDenied,
@@ -19,11 +20,20 @@ enum YandexLibraryFailure {
   busy,
 }
 
+/// Fixed diagnostic phases; connecting includes DNS, TCP and TLS.
+enum YandexRequestStage {
+  connecting,
+  waitingForResponse,
+  receivingBody,
+  decoding
+}
+
 /// Never carries server text, URLs, headers, credentials or raw exceptions.
 final class YandexLibraryException implements Exception {
-  const YandexLibraryException(this.failure, {this.retryAfter});
+  const YandexLibraryException(this.failure, {this.retryAfter, this.stage});
   final YandexLibraryFailure failure;
   final Duration? retryAfter;
+  final YandexRequestStage? stage;
   @override
   String toString() => 'YandexLibraryException(${failure.name})';
 }
@@ -128,6 +138,12 @@ abstract interface class YandexApiTransport {
   /// The decoded result envelope. Must observe cancellation and release sockets.
   Future<Object?> get(YandexReadRequest request, YandexAccessToken token,
       LibraryScanControl control);
+  Future<void> close();
+}
+
+/// Explicit API reachability check; never reads or attaches a credential.
+abstract interface class YandexConnectionProbe {
+  Future<void> probe(LibraryScanControl control);
   Future<void> close();
 }
 

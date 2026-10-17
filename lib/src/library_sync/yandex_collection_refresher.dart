@@ -6,10 +6,12 @@ import 'yandex_library_protocol.dart';
 enum YandexRefreshOutcome { updated, stale, cancelled, failed }
 
 final class YandexRefreshResult {
-  const YandexRefreshResult(this.outcome, {this.itemCount, this.failure});
+  const YandexRefreshResult(this.outcome,
+      {this.itemCount, this.failure, this.stage});
   final YandexRefreshOutcome outcome;
   final int? itemCount;
   final YandexLibraryFailure? failure;
+  final YandexRequestStage? stage;
 }
 
 /// Owns the reader; close before SQLite. One selected collection per call.
@@ -78,7 +80,8 @@ final class YandexCollectionRefresher {
           error.failure == YandexLibraryFailure.cancelled
               ? YandexRefreshOutcome.cancelled
               : YandexRefreshOutcome.failed,
-          failure: error.failure);
+          failure: error.failure,
+          stage: error.stage);
     } on Object {
       return const YandexRefreshResult(YandexRefreshOutcome.failed,
           failure: YandexLibraryFailure.storage);

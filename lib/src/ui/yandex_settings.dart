@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../library_sync/yandex_connection_controller.dart';
+import '../library_sync/yandex_library_protocol.dart';
 
 class YandexSettings extends StatefulWidget {
   const YandexSettings({super.key, required this.controller, this.openHelp});
@@ -163,6 +164,13 @@ class _YandexSettingsState extends State<YandexSettings> {
                   },
                 )),
           ],
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+              key: const ValueKey('yandex-probe'),
+              onPressed: busy ? null : connection.probeConnection,
+              icon: const Icon(Icons.network_check),
+              label: const Text('Проверить соединение')),
+          const Text('Проверка доступности API выполняется без токена.'),
           if (busy) ...[
             const SizedBox(height: 12),
             const LinearProgressIndicator(),
@@ -174,7 +182,16 @@ class _YandexSettingsState extends State<YandexSettings> {
                   Text(switch (connection.activity) {
                     YandexConnectionActivity.restoring =>
                       'Читаю сохранённое подключение…',
-                    YandexConnectionActivity.connecting => 'Проверяю аккаунт…',
+                    YandexConnectionActivity.connecting => switch (
+                          connection.connectionStep) {
+                        YandexConnectionStep.loadingPlaylists =>
+                          'Получаю список плейлистов…',
+                        YandexConnectionStep.savingCredential =>
+                          'Сохраняю подключение…',
+                        _ => 'Проверяю аккаунт…',
+                      },
+                    YandexConnectionActivity.probing =>
+                      'Проверяю соединение без токена…',
                     YandexConnectionActivity.catalogue => 'Получаю плейлисты…',
                     YandexConnectionActivity.checking =>
                       'Проверяю состав коллекций…',
@@ -194,7 +211,9 @@ class _YandexSettingsState extends State<YandexSettings> {
           if (connection.failure != null)
             Padding(
                 padding: const EdgeInsets.only(top: 12),
-                child: Text(_failureMessage(connection.failure!),
+                child: Text(
+                    _failureMessage(
+                        connection.failure!, connection.failureStage),
                     key: const ValueKey('yandex-error'),
                     style:
                         TextStyle(color: Theme.of(context).colorScheme.error))),
@@ -212,7 +231,9 @@ class _YandexSettingsState extends State<YandexSettings> {
       });
 }
 
-String _failureMessage(YandexConnectionFailure value) => switch (value) {
+String _failureMessage(
+        YandexConnectionFailure value, YandexRequestStage? stage) =>
+    switch (value) {
       YandexConnectionFailure.invalidToken =>
         'Не удалось распознать токен. Вставь сам токен или ссылку с access_token.',
       YandexConnectionFailure.storage =>
@@ -225,8 +246,18 @@ String _failureMessage(YandexConnectionFailure value) => switch (value) {
         'Яндекс не разрешил доступ к коллекции. Сохранённый состав остаётся доступен.',
       YandexConnectionFailure.network =>
         'Не удалось связаться с Яндексом. Проверь сеть и повтори действие.',
-      YandexConnectionFailure.timeout =>
-        'Яндекс не ответил вовремя. Можно повторить действие.',
+      YandexConnectionFailure.timeout => switch (stage) {
+          YandexRequestStage.connecting =>
+            'Не удалось установить соединение с API Яндекс Музыки вовремя. Проверь сеть и маршрут VPN, затем повтори действие.',
+          YandexRequestStage.waitingForResponse =>
+            'Соединение с Яндексом установлено, но ответ не получен вовремя. Повтори действие.',
+          YandexRequestStage.receivingBody =>
+            'Яндекс начал отвечать, но ответ не удалось получить полностью вовремя. Повтори действие.',
+          YandexRequestStage.decoding =>
+            'Превышено время обработки ответа Яндекса. Повтори действие.',
+          _ =>
+            'Превышено время обращения к Яндексу. Проверь соединение и повтори действие.',
+        },
       YandexConnectionFailure.rateLimited =>
         'Яндекс временно ограничил запросы. Повтори проверку позже.',
       YandexConnectionFailure.incomplete =>

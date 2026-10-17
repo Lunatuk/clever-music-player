@@ -2789,3 +2789,85 @@ platform build logs в ASCII-копии. Прежние AppData/JNI/SDK XML warn
 не мешают финальным сборкам; remote CI/реальный API/физический Mac не
 объявляются проверенными. Следующая ручная проверка — вход/состав/перезапуск/выход,
 без пересканирования и без передачи токена в чат.
+
+
+**17 октября 2026 — пакет 39: диагностика тайм-аута Яндекса**
+
+Пакет 38 пока не подтверждён: пользователь сообщил тайм-аут, обновил токен и
+повторил без системного VPN с тем же результатом. Два предоставленных отчёта
+не содержат Yandex событий: контроллер обрабатывал исключение для UI, но не
+записывал его в diagnostics. Это исправлено; причина настоящего входа пока
+не установлена и скачивание не подключается до её выяснения.
+
+Первый curl probe без токена не устанавливал TCP за 8 s при доступном сайте.
+Повторное исследование после нового отчёта: API HTTP 200 за ~2,85 s через curl
+и ~2,00 s через штатный Dart HttpClient с теми же обычными client headers, но
+без Authorization. Тело не сохранялось/не выводилось, только статус/байты/время.
+Это не проверка авторизации и не доказательство виновности VPN. Настройки сети,
+VPN, DNS и proxy не изменялись. Проверены только booleans конфигурации системного
+proxy и имена env variables. Реальные credentials пользователя не читались.
+
+Добавлена «Проверить соединение» в Windows/Android настройках Яндекса. Она явно
+делает credential-free GET /account/status с прежними TLS/origin/пределами;
+200 корректный envelope/401 подтверждают доступность API. Проба не получает
+OAuth и не читает store/DB; ошибка/отмена сохраняет существующий аккаунт.
+Close отменяет и дожидается принятой пробы до SQLite. Вход показывает отдельные
+шаги account → playlists → protected write. Порядок и атомарность сохранения
+сессии не изменены. Тайм-ауты теперь различают connecting (DNS/TCP/TLS вместе),
+ожидание ответа, незавершённое тело, decode; metadata этапа проходит через
+client/refresher/controller. Native TimeoutException также считается timeout.
+
+Записываются yandexRequestStarted/Completed/Failed и operation аналоги:
+фиксированные enum-коды, elapsedMs, HTTP status, decoded response bytes,
+credentialAttached и numeric OS network error. OAuth header отмечается только
+после открытия соединения и фактической установки; это не proof доставки.
+URL/UID/названия/заголовки/сырой ответ/error text/stack trace не записываются.
+Шкалы protocol failure и UI failure имеют разные поля. Обычный startup не
+вызывает API/пробу. [Контракт и коды](architecture/yandex-network-diagnostics.md).
+
+20 новых тестов: 10 настоящих loopback HTTP/JSON report export, 6 controller,
+4 widget. Воспроизведены header/body timeout, закрытый порт, invalid JSON,
+401/unauthorized envelope, redirect; проверены отсутствие Authorization на
+пробе, сохранность рабочего входа, cancel/close и шаг списка плейлистов.
+Полный набор **1586 tests passed, 117 s**. После уточнения credentialAttached
+и style-fix дополнительно прошли **67 focused tests** для transport/network/
+controller. Analyzer без замечаний; formatter **263 files, 0 changed**.
+Схема 13 и зависимости прежние. Новые report events проверены с реальным
+LocalDiagnosticsService на temp каталоге; настоящие user credentials/API
+авторизация в автоматических тестах не использовались.
+
+Ручная проверка: кнопка соединения, одна попытка входа, новый отчёт. Полный
+прогон/пересканирование/копирование музыки не нужны. Root cause и успешная
+авторизация ещё требуют результата этой проверки. Следующий download этап
+остаётся в плане после устранения проблемы входа.
+
+
+Выпуск: ASCII-копия `%LOCALAPPDATA%/CleverMusicPlayerBuilds/core39-20261017`,
+433 source files сверены SHA-256 между workspace/build. Pub get enforced,
+codegen (БД побайтно прежняя), Android release/JVM/lint и Windows release прошли.
+APK 2039/target36, signer совпадает с38, CRC/v2/zipalign/ELF16KiB проверены.
+15 JVM tests passed; lint 0 errors/6 прежних warnings, разрешения/backup прежние.
+Windows41 files проверены побайтно, PE x64 и production NativeAssetsManifest
+сохранены, test-only sidecar отсутствует. 21 helper файл побайтно прежний,
+NOTICES содержит лицензии новых с38 плагинов. Native Windows audio protocol
+и9 helper smoke checks прошли; ещё9 helper checks выполнены после extraction
+в Unicode/spaced path с PATH только Windows/System32. Схема13/pubspec/lock
+прежние, артефакты38 не перезаписаны и повторно сверены по sidecar SHA-256.
+
+Артефакты:
+
+- dist/clever-music-player-core-39-android-arm64.apk — 22102539 bytes, SHA-256 `866652a21bf35d778445f998d6b5c81d573cd780d6feb5c070af509113ee7a3e`.
+
+- dist/clever-music-player-core-39-windows-x64.zip — 31514117 bytes, SHA-256 `bfede118b2ccdc2f8f193a436998a6a1b4fbaf71421d83aa01df3471bd503707`.
+
+- core-39-checks.txt, manual-checks.txt и .sha256 sidecars.
+
+Логи .dart_tool/core39-full-tests-final.log, core39-targeted-final.log,
+core39-widgets-refresher.log, core39-analyze-final.log, core39-format-final.log,
+core39-native-windows-protocol.log, core39-native-bundled-final.log,
+core39-native-extracted-final.log, core39-apk-*.log, core39-source-manifest.json,
+core39-build-result.json, core39-verify-result.json, core39-package.json;
+platform logs в ASCII-копии. Прежние AppData/JNI/SDK XML warnings остаются,
+финальным сборкам не мешают. Remote CI, физические Mac/Android и настоящая
+авторизация не объявляются прошедшими. Исследование причины тайм-аута
+продолжится по отчёту из39; прежние отчёты эту причину не показывают.

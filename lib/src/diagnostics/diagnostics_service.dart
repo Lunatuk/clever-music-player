@@ -46,6 +46,12 @@ enum DiagnosticEvent {
   systemMediaFailed,
   playbackHistoryWriteFailed,
   trackFeedbackWriteFailed,
+  yandexRequestStarted,
+  yandexRequestCompleted,
+  yandexRequestFailed,
+  yandexOperationStarted,
+  yandexOperationCompleted,
+  yandexOperationFailed,
 }
 
 enum DiagnosticField {
@@ -89,6 +95,15 @@ enum DiagnosticField {
   databaseLookupUs,
   databaseImportUs,
   databaseMaintenanceUs,
+  remoteEndpoint,
+  remoteStage,
+  remoteFailure,
+  remoteConnectionFailure,
+  remoteOperation,
+  httpStatus,
+  responseBytes,
+  credentialAttached,
+  networkErrorCode,
 }
 
 /// Only fixed event/field names and numeric/boolean values enter the journal.

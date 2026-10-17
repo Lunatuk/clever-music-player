@@ -2,12 +2,14 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../diagnostics/diagnostics_service.dart';
 import '../domain/models/remote_library.dart';
 import '../domain/repositories/remote_library_repository.dart';
 import '../domain/repositories/yandex_session_repository.dart';
 import '../library/library_scan_control.dart';
 import 'yandex_collection_refresher.dart';
 import 'yandex_credential_store.dart';
+import 'yandex_http_transport.dart';
 import 'yandex_library_client.dart';
 import 'yandex_library_protocol.dart';
 
@@ -18,7 +20,14 @@ enum YandexConnectionActivity {
   catalogue,
   checking,
   selecting,
-  disconnecting
+  disconnecting,
+  probing
+}
+
+enum YandexConnectionStep {
+  verifyingAccount,
+  loadingPlaylists,
+  savingCredential
 }
 
 enum YandexConnectionFailure {
@@ -58,12 +67,20 @@ final class YandexConnectionController extends ChangeNotifier {
       {required RemoteLibraryRepository repository,
       required YandexSessionRepository sessions,
       required YandexCredentialStore credentials,
+      this.diagnostics = const NoopDiagnosticsService(),
+      YandexConnectionProbe Function()? probeFactory,
       YandexLibraryReader Function(YandexAccessToken)? readerFactory})
       : _repository = repository,
         _sessions = sessions,
         _credentials = credentials,
-        _readerFactory =
-            readerFactory ?? ((token) => YandexLibraryClient(token: token));
+        _readerFactory = readerFactory ??
+            ((token) => YandexLibraryClient(
+                token: token,
+                transport: YandexHttpTransport(diagnostics: diagnostics))),
+        _probeFactory = probeFactory ??
+            (() => YandexHttpTransport(diagnostics: diagnostics));
+  final DiagnosticsService diagnostics;
+  final YandexConnectionProbe Function() _probeFactory;
   final RemoteLibraryRepository _repository;
   final YandexSessionRepository _sessions;
   final YandexCredentialStore _credentials;
@@ -80,12 +97,16 @@ final class YandexConnectionController extends ChangeNotifier {
   YandexConnectionActivity _activity = YandexConnectionActivity.idle;
   YandexConnectionFailure? _failure;
   String? _message;
+  YandexRequestStage? _failureStage;
+  YandexConnectionStep? _step;
   RemoteLibraryAccount? get account => _account;
   List<YandexCollectionChoice> get choices => _choices;
   bool get isBusy => _active != null;
   YandexConnectionActivity get activity => _activity;
   YandexConnectionFailure? get failure => _failure;
   String? get message => _message;
+  YandexRequestStage? get failureStage => _failureStage;
+  YandexConnectionStep? get connectionStep => _step;
 
   Future<void> _run(YandexConnectionActivity activity,
       Future<void> Function(LibraryScanControl) action) {
@@ -97,6 +118,12 @@ final class YandexConnectionController extends ChangeNotifier {
     _activity = activity;
     _failure = null;
     _message = null;
+    _failureStage = null;
+    _step = null;
+    final watch = Stopwatch()..start();
+    diagnostics.record(DiagnosticEvent.yandexOperationStarted, fields: {
+      DiagnosticField.remoteOperation: activity.index,
+    });
     notifyListeners();
     final operation = () async {
       try {
@@ -112,9 +139,11 @@ final class YandexConnectionController extends ChangeNotifier {
         _failure = YandexConnectionFailure.stale;
       } on YandexLibraryException catch (error) {
         _failure = _apiFailure(error.failure);
+        _failureStage = error.stage;
         if (error.failure == YandexLibraryFailure.unauthorized &&
             _account != null &&
-            activity != YandexConnectionActivity.connecting) {
+            activity != YandexConnectionActivity.connecting &&
+            activity != YandexConnectionActivity.probing) {
           try {
             await _disconnect();
           } on Object {
@@ -126,6 +155,18 @@ final class YandexConnectionController extends ChangeNotifier {
       } on Object {
         _failure = YandexConnectionFailure.storage;
       } finally {
+        diagnostics.record(
+            _failure == null
+                ? DiagnosticEvent.yandexOperationCompleted
+                : DiagnosticEvent.yandexOperationFailed,
+            fields: {
+              DiagnosticField.remoteOperation: activity.index,
+              DiagnosticField.elapsedMs: watch.elapsedMilliseconds,
+              if (_failure != null)
+                DiagnosticField.remoteConnectionFailure: _failure!.index,
+              if (_failureStage != null)
+                DiagnosticField.remoteStage: _failureStage!.index,
+            });
         _control = null;
         _active = null;
         _activity = YandexConnectionActivity.idle;
@@ -163,16 +204,36 @@ final class YandexConnectionController extends ChangeNotifier {
         YandexCollectionRefresher(repository: _repository, reader: reader);
   }
 
+  void _setStep(YandexConnectionStep step) {
+    _step = step;
+    if (!_closed) notifyListeners();
+  }
+
+  Future<void> probeConnection() =>
+      _run(YandexConnectionActivity.probing, (control) async {
+        final probe = _probeFactory();
+        try {
+          await probe.probe(control);
+          _message =
+              'API Яндекс Музыки доступен. Проверка выполнена без токена; теперь можно повторить подключение.';
+        } finally {
+          await probe.close();
+        }
+      });
+
   Future<void> connect(String input) =>
       _run(YandexConnectionActivity.connecting, (control) async {
         final token = parseYandexTokenInput(input);
         final expected = await _sessions.capture();
         YandexLibraryReader? candidate = _readerFactory(token);
         try {
+          _setStep(YandexConnectionStep.verifyingAccount);
           final profile = await candidate.verifyAccount(control: control);
+          _setStep(YandexConnectionStep.loadingPlaylists);
           final catalogue =
               await candidate.listPlaylists(profile.identity, control: control);
           control.throwIfCancelled();
+          _setStep(YandexConnectionStep.savingCredential);
           // Once accepted, the small credential/DB commit drains despite late cancel.
           final account = await _sessions.connect(expected, profile.identity,
               displayName: profile.displayName,
@@ -293,7 +354,8 @@ final class YandexConnectionController extends ChangeNotifier {
                 throw const LibraryScanCancelled();
               case YandexRefreshOutcome.failed:
                 throw YandexLibraryException(
-                    result.failure ?? YandexLibraryFailure.storage);
+                    result.failure ?? YandexLibraryFailure.storage,
+                    stage: result.stage);
             }
           }
           _message = 'Проверено коллекций: $updated. Позиций: $positions.';

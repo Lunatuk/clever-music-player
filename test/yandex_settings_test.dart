@@ -14,14 +14,17 @@ void main() {
   late YandexConnectionController c;
   late YandexTestTransport transport;
   late MemoryYandexCredentials store;
+  late FakeYandexProbe probe;
   setUp(() async {
     f = await DownloadFixture.open();
     store = MemoryYandexCredentials();
     transport = YandexTestTransport();
+    probe = FakeYandexProbe();
     c = YandexConnectionController(
         repository: f.repositories.remoteLibrary,
         sessions: f.repositories.yandexSessions,
         credentials: store,
+        probeFactory: () => probe,
         readerFactory: (token) => YandexLibraryClient(
             token: token, transport: transport, clock: f.clock));
   });
@@ -53,6 +56,68 @@ void main() {
     await settle(tester);
   }
 
+  testWidgets('connection probe works with an empty token field',
+      (tester) async {
+    await pump(tester);
+    await tester.tap(find.byKey(const ValueKey('yandex-probe')));
+    await settle(tester);
+    expect(probe.calls, 1);
+    expect(probe.closed, isTrue);
+    expect(store.reads, 1);
+    expect(store.writes, 0);
+    expect(transport.requests, isEmpty);
+    expect(find.textContaining('API Яндекс Музыки доступен.'), findsOneWidget);
+    expect(tester.widget<TextField>(find.byType(TextField)).controller!.text,
+        isEmpty);
+  });
+  testWidgets('connect timeout explains the failed network phase',
+      (tester) async {
+    probe.onProbe = (_) async => throw const YandexLibraryException(
+        YandexLibraryFailure.timeout,
+        stage: YandexRequestStage.connecting);
+    await pump(tester);
+    await tester.tap(find.byKey(const ValueKey('yandex-probe')));
+    await settle(tester);
+    expect(find.textContaining('Не удалось установить соединение с API'),
+        findsOneWidget);
+    expect(find.textContaining('Токен недействителен'), findsNothing);
+  });
+  testWidgets('header timeout after connection gets a different explanation',
+      (tester) async {
+    probe.onProbe = (_) async => throw const YandexLibraryException(
+        YandexLibraryFailure.timeout,
+        stage: YandexRequestStage.waitingForResponse);
+    await pump(tester);
+    await tester.tap(find.byKey(const ValueKey('yandex-probe')));
+    await settle(tester);
+    expect(find.textContaining('Соединение с Яндексом установлено'),
+        findsOneWidget);
+  });
+  testWidgets('busy login displays playlist step after account verification',
+      (tester) async {
+    final entered = Completer<void>();
+    transport.onGet = (request, control) async {
+      if (request.endpoint == YandexReadEndpoint.account) return yandexStatus();
+      final done = Completer<void>();
+      control.addCancellationListener(done.complete);
+      entered.complete();
+      await done.future;
+      control.throwIfCancelled();
+      return null;
+    };
+    await pump(tester);
+    await tester.enterText(find.byType(TextField), 'synthetic-token');
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('yandex-connect')));
+    await tester.runAsync(() => entered.future);
+    await tester.pump();
+    expect(find.text('Получаю список плейлистов…'), findsOneWidget);
+    await tester.ensureVisible(find.text('Отмена'));
+    await tester.tap(find.text('Отмена'));
+    await settle(tester);
+    expect(c.failure, YandexConnectionFailure.cancelled);
+    expect(store.writes, 0);
+  });
   testWidgets('token is masked and cleared, account and opt-in choices appear',
       (tester) async {
     await pump(tester);

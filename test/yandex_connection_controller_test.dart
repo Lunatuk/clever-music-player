@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:clever_music_player/src/diagnostics/diagnostics_service.dart';
 import 'package:clever_music_player/src/library_sync/yandex_connection_controller.dart';
 import 'package:clever_music_player/src/library_sync/yandex_library_client.dart';
 import 'package:clever_music_player/src/library_sync/yandex_library_protocol.dart';
@@ -6,16 +7,21 @@ import 'package:flutter_test/flutter_test.dart';
 import 'support/download_fixture.dart';
 import 'support/yandex_connection_fixture.dart';
 import 'support/yandex_fixture.dart';
+import 'support/recording_diagnostics.dart';
 
 void main() {
   late DownloadFixture f;
   late MemoryYandexCredentials store;
   late YandexConnectionController c;
   late List<YandexTestTransport> transports;
+  late FakeYandexProbe probe;
+  late RecordingDiagnostics diagnostics;
   YandexConnectionController create() => YandexConnectionController(
       repository: f.repositories.remoteLibrary,
       sessions: f.repositories.yandexSessions,
       credentials: store,
+      diagnostics: diagnostics,
+      probeFactory: () => probe,
       readerFactory: (token) {
         final t = YandexTestTransport();
         transports.add(t);
@@ -25,6 +31,8 @@ void main() {
     f = await DownloadFixture.open();
     store = MemoryYandexCredentials();
     transports = [];
+    probe = FakeYandexProbe();
+    diagnostics = RecordingDiagnostics();
     c = create();
   });
   tearDown(() async {
@@ -37,6 +45,122 @@ void main() {
     expect(c.failure, isNull);
     expect(c.account!.identity, yandexAccount);
   }
+
+  test('explicit probe creates no reader, DB session or credential access',
+      () async {
+    await c.probeConnection();
+    expect(probe.calls, 1);
+    expect(probe.closed, isTrue);
+    expect(store.reads + store.writes + store.deletes, 0);
+    expect(transports, isEmpty);
+    expect(c.account, isNull);
+    expect(c.message, contains('без токена'));
+    expect(diagnostics.entries.map((e) => e.event), [
+      DiagnosticEvent.yandexOperationStarted,
+      DiagnosticEvent.yandexOperationCompleted
+    ]);
+    expect(diagnostics.entries.last.fields[DiagnosticField.remoteOperation],
+        YandexConnectionActivity.probing.index);
+  });
+  test(
+      'failed probe preserves an existing account and logs fixed failure codes',
+      () async {
+    await connected();
+    final account = c.account, saved = store.value;
+    probe.onProbe = (_) async => throw const YandexLibraryException(
+        YandexLibraryFailure.timeout,
+        stage: YandexRequestStage.connecting);
+    await c.probeConnection();
+    expect(c.account, account);
+    expect(store.value, saved);
+    expect(store.deletes, 0);
+    expect(c.failureStage, YandexRequestStage.connecting);
+    expect(c.failure, YandexConnectionFailure.timeout);
+    expect(
+        diagnostics.entries.last.event, DiagnosticEvent.yandexOperationFailed);
+    expect(
+        diagnostics
+            .entries.last.fields[DiagnosticField.remoteConnectionFailure],
+        YandexConnectionFailure.timeout.index);
+    expect(
+        diagnostics.entries
+            .every((e) => e.fields.values.every((v) => v is num || v is bool)),
+        isTrue);
+  });
+  test('closing cancels and drains an active probe before releasing its owner',
+      () async {
+    final entered = Completer<void>();
+    probe.onProbe = (control) async {
+      final done = Completer<void>();
+      control.addCancellationListener(done.complete);
+      entered.complete();
+      await done.future;
+      control.throwIfCancelled();
+    };
+    final operation = c.probeConnection();
+    await entered.future;
+    await c.close();
+    await operation;
+    expect(probe.closed, isTrue);
+    expect(c.failure, YandexConnectionFailure.cancelled);
+    expect(store.reads, 0);
+    await c.probeConnection();
+    expect(probe.calls, 1);
+  });
+  test('connection progress separates account, playlists and protected write',
+      () async {
+    final steps = <YandexConnectionStep>[];
+    c.addListener(() {
+      final step = c.connectionStep;
+      if (c.isBusy && step != null && (steps.isEmpty || steps.last != step)) {
+        steps.add(step);
+      }
+    });
+    await connected();
+    expect(steps, YandexConnectionStep.values);
+  });
+  test(
+      'playlist failure retains HTTP stage and does not save an uncompleted login',
+      () async {
+    await c.close();
+    c = YandexConnectionController(
+        repository: f.repositories.remoteLibrary,
+        sessions: f.repositories.yandexSessions,
+        credentials: store,
+        diagnostics: diagnostics,
+        readerFactory: (token) {
+          final t = YandexTestTransport()
+            ..onGet = ((request, _) async =>
+                request.endpoint == YandexReadEndpoint.account
+                    ? yandexStatus()
+                    : throw const YandexLibraryException(
+                        YandexLibraryFailure.timeout,
+                        stage: YandexRequestStage.waitingForResponse));
+          transports.add(t);
+          return YandexLibraryClient(
+              token: token, transport: t, clock: f.clock);
+        });
+    await c.connect('synthetic-token');
+    expect(c.failureStage, YandexRequestStage.waitingForResponse);
+    expect(store.writes, 0);
+    expect(c.account, isNull);
+    expect(diagnostics.entries.last.fields[DiagnosticField.remoteStage],
+        YandexRequestStage.waitingForResponse.index);
+  });
+  test(
+      'collection refresher preserves failure phase and previous completed mirror',
+      () async {
+    await connected();
+    await c.checkCollections();
+    final completed = c.choices.first.completedAt;
+    transports.single.onGet = (_, __) async =>
+        throw const YandexLibraryException(YandexLibraryFailure.timeout,
+            stage: YandexRequestStage.receivingBody);
+    await c.checkCollections();
+    expect(c.failureStage, YandexRequestStage.receivingBody);
+    expect(c.choices.first.completedAt, completed);
+    expect(c.choices.first.itemCount, 3);
+  });
 
   test('construction and restoring absent credentials never use the network',
       () async {

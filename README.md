@@ -397,6 +397,11 @@ newer login. Windows secure storage is vendored to bound failures and atomically
 replace ciphertext without deleting damaged data. Downloading follows next.
 See [connection rules](docs/architecture/yandex-account-settings.md).
 
+Package 39 adds an explicit credential-free API connection check and safe network
+stage/timing/status diagnostics. Login shows account/playlist/storage steps and
+network timeouts identify the failed phase. The reported real-account timeout is
+still under investigation. See [network diagnostics](docs/architecture/yandex-network-diagnostics.md).
+
 ## Library operation ownership
 
 One app-scoped `LibraryController` handles folder selection, scans, enable/disable
