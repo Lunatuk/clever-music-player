@@ -32,6 +32,12 @@ for its gain, and a late fade cannot overwrite a newer full-volume selection.
 Pending startup still respects pause/stop/replacement/disposal and mute.
 See [output ordering](docs/architecture/playback-output-ordering.md).
 
+Package 42 adds a bounded streaming binary GET into an owned raw file, explicit
+reader lifetime, cancellation/drained close and a shared in-process raw budget.
+Real loopback HTTP feeds the existing MP3/M4A/FLAC tagging/cover/import tests.
+The provider resolver, full workspace budget and user-facing download runner
+remain subsequent work. See [binary transport](docs/architecture/binary-download-transport.md).
+
 Package 24 introduces provider IDs with optional album/version context, provenance
 and exact, indexed lookup. Several independent local copies can share an external
 ID; matching names never creates associations. Bounded writes are atomic and

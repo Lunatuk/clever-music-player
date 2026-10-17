@@ -3032,3 +3032,71 @@ format-final.log, native-windows-protocol.log, native-extracted-final.log, apk-*
 (все с префиксом core41-), source-manifest/build-result/verify-result/package JSON.
 Артефакты дополнены checks.txt, manual-checks.txt и .sha256. Физическая проверка
 редкого случая тишины и remote CI/macOS ещё не подтверждены.
+
+**17 октября 2026 — пакет 42: потоковый HTTP/raw транспорт**
+
+Пакет 41 подтверждён пользователем: проблем больше нет. Продолжен следующий
+блок синхронизации. Реализованы BinaryDownloadAddress/Transport и RawDownloadPool
+с явным владением результатом; экран/обычный запуск приложения пока их не
+создают. Политика download-варианта Яндекса и пользовательский runner ещё не
+подключены, новые кнопки/скачивание фонотеки не объявляются реализованными.
+
+HTTPS принимает точный independently trusted host; OAuth/произвольные headers
+не входят в API транспорта. Один GET отдельным клиентом, без redirects/retry/
+resume/Range, identity content encoding. HTTP status/MIME/range/size проверяются
+до выдачи файла. Потоковая запись с backpressure/64 KiB writes, без накопления
+полного файла; cap/ожидаемый размер проверяются до каждого chunk, после EOF
+flush/close/type/size/cancel. Общий/idle deadline, abort/force-close, drain
+connect/header/body/IO и повторный вход close через callback проверены.
+
+Синхронное резервирование raw до сети, по умолчанию 512 MiB/2 files. Резерв
+удерживается всё время чтения результата. Случайный owned temp каталог,
+exclusive audio.part; путь не зависит от URL. Cleanup удаляет только созданный
+файл и пустой каталог. Неизвестный файл/подмена типа сохраняются; при отказе
+резерв остаётся занят, возможен явный retry. Pool admission close/HTTP close
+не удаляют выданный координатору raw. Это raw-бюджет одного процесса, не общий
+raw+prepared+publication бюджет и не учёт orphan файлов после crash.
+
+Добавлены фиксированные числовые transfer stage/failure/status/bytes/time
+и отдельная ошибка cleanup; signed URL/headers/token/path/server text не
+входят в диагностические события или toString ошибок/адреса. Транспорт не
+проверяет музыкальную идентичность/качество и не расшифровывает encraw: эти
+контракты принадлежат следующему provider adapter/validator.
+
+95 новых тестов: raw20/address30/real HTTP43/pipeline2; профильный набор111
+включает прежнюю диагностику и четыре native coordinator tests. Три прежних
+MP3/M4A/FLAC native tests теперь проходят через настоящий loopback HTTP,
+затем реальный bundled FFmpeg, теги/обложка, publication и SQLite import.
+Raw закрывается после завершения читателя, опубликованная музыка сохраняется.
+Отдельный synthetic rejection test подтверждает отсутствие Track/asset при
+ошибке подготовки. User credentials/БД/музыка не читались/не изменялись.
+
+Полный набор **1727 passed, 109s**, включая native tests без skips; analyze
+clean, formatter273/0. [Контракт](architecture/binary-download-transport.md).
+Схема13, pubspec/lock, OS permissions, player и алгоритм рекомендаций прежние.
+
+Следующий шаг до UI: provider вариант/качество/track-album/CDN/ключ, lease во
+время сети, общий рабочий бюджет и учёт raw после crash, затем runner/кнопка.
+Android SAF/теги и macOS helper — платформенные шаги. Дополнительных ручных
+проверок этого внутреннего этапа нет; пользователь может продолжать пользоваться
+подтверждённой 41. Расписание/новый подбор остаются отложенными.
+
+
+Release42 compatibility builds: core42-20261017, 443 source SHA совпали.
+Android release/JVM15/lint0errors (6 прежних warnings), Windows release прошли.
+APK2042/target36: signer41, CRC/v2/zipalign/ELF16KiB, permissions/backup/icon проверены.
+Windows41 files: PE x64, production NativeAssetsManifest, без test-only sidecar.
+21 helper file прежний;9 checks после extraction в Unicode/spaced путь с минимальным PATH.
+Codegen/schema13/pubspec/lock прежние, SHA sidecars41/42 сверены. Backend ещё
+не подключён к приложению: тесты исполняют его явно, release может tree-shake
+неиспользуемый код. Эти сборки проверяют совместимость, не включают скачивание.
+
+- dist/clever-music-player-core-42-android-arm64.apk — 22102539 bytes, SHA-256 `2c6775f4edd9acb068d6a6f0e8f61908b4070934b5d20679fdd98da97d945285`.
+
+- dist/clever-music-player-core-42-windows-x64.zip — 31516614 bytes, SHA-256 `05766dc3873d211201462dd1383fae996815cf09e886cdaf7749899840926108`.
+
+Логи .dart_tool/core42-targeted-final.log, full-tests-final.log, analyze-final.log,
+format-final.log, native-windows-protocol.log, native-extracted-final.log, apk-*.log
+(все с префиксом core42-), source-manifest/build-result/verify-result/package JSON.
+Артефакты дополнены checks/manual-checks/.sha256. Physical Android/macOS/remote
+CI и реальная download-сессия Яндекса не объявляются проверенными.

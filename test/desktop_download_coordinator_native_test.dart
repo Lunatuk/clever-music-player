@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:clever_music_player/src/domain/models/models.dart';
 import 'package:clever_music_player/src/library/artwork_cache_service.dart';
 import 'package:clever_music_player/src/library_sync/bundled_media_helper.dart';
+import 'package:clever_music_player/src/library_sync/binary_http_download_transport.dart';
+import 'package:clever_music_player/src/library_sync/raw_download_pool.dart';
 import 'package:clever_music_player/src/library_sync/desktop_download_coordinator.dart';
 import 'package:clever_music_player/src/library_sync/downloaded_audio_metadata.dart';
 import 'package:clever_music_player/src/library_sync/downloaded_audio_metadata_preparer.dart';
@@ -12,6 +14,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 
 import 'support/download_fixture.dart';
+import 'support/binary_download_fixture.dart';
 
 void main() {
   final bundle = Platform.environment['CMP_TEST_MEDIA_HELPER'];
@@ -73,13 +76,23 @@ void main() {
 
   for (final format in ['mp3', 'm4a', 'flac']) {
     test(
-        'real bundled helper $format: tags/cover -> publication -> atomic Track/ref/asset/completion',
+        'real HTTP + bundled helper $format: tags/cover -> publication -> atomic Track/ref/asset/completion',
         () async {
       final expected = await configure(format);
+      final server = await TestBinaryDownloadServer.open(f.raw);
+      final pool = RawDownloadPool(
+          parent: f.root, maxReservedBytes: expected.fileSizeBytes);
+      final transport = BinaryHttpDownloadTransport.loopbackForTesting(
+          server.origin,
+          pool: pool);
+      RawDownloadedAudio? raw;
       try {
+        raw = await transport.download(server.address,
+            maxBytes: expected.fileSizeBytes,
+            expectedBytes: expected.fileSizeBytes);
         final job = await f.claim();
         final result = await coordinator.processDownloadedFile(
-            job, FileAudioSource(f.raw.path), expected,
+            job, raw.source, expected,
             cover: await cover());
         expect(result.outcome, DownloadCoordinationOutcome.completed);
         expect(result.cleanupFailed, isFalse);
@@ -103,7 +116,13 @@ void main() {
                 .single
                 .outcome,
             DownloadAttemptOutcome.completed);
+        await raw.close();
+        expect(pool.reservedBytes, 0);
+        expect(await File(track.filePath).exists(), isTrue);
       } finally {
+        await transport.close();
+        await raw?.close();
+        await server.close();
         await close();
       }
     }, skip: skip);
