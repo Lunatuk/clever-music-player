@@ -62,6 +62,9 @@ void main() {
     f.first.emitPosition(const Duration(seconds: 57));
     expect(await requested.timeout(const Duration(seconds: 2)), f.b);
     await f.player.playAutomatically(f.b);
+    // Play completes at the transport boundary; native playback acknowledges
+    // asynchronously after the output settings have been confirmed.
+    await _until(() => f.first.playing && f.second.playing);
     expect(f.first.playing, isTrue);
     expect(f.second.playing, isTrue);
     f.clock.advance(const Duration(seconds: 4));

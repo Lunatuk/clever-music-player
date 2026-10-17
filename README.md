@@ -26,6 +26,12 @@ See the [roadmap](docs/ROADMAP.md), [implementation log](docs/IMPLEMENTATION_LOG
 and [targeted manual checks](docs/MANUAL_CHECKS.md) for completed changes,
 verification results and remaining work.
 
+Package 41 serializes decoder output changes and confirms the latest volume
+after opening a source and before Play/resume. Prepared-track promotion waits
+for its gain, and a late fade cannot overwrite a newer full-volume selection.
+Pending startup still respects pause/stop/replacement/disposal and mute.
+See [output ordering](docs/architecture/playback-output-ordering.md).
+
 Package 24 introduces provider IDs with optional album/version context, provenance
 and exact, indexed lookup. Several independent local copies can share an external
 ID; matching names never creates associations. Bounded writes are atomic and

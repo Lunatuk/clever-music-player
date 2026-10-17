@@ -2964,3 +2964,71 @@ core40-source-manifest.json, core40-build-result.json, core40-verify-result.json
 core40-package.json; platform build logs в ASCII-копии. Прежние
 AppData/JNI/SDK XML warnings не мешают финальным сборкам. Remote CI и реальные
 private-account/physical Android/macOS checks не объявляются прошедшими.
+
+**17 октября 2026 — пакет 41: громкость перед Play и запоздалый fade**
+
+Пользователь подтвердил пакет 40 на Windows и Android; скриншоты показывают
+сохранённые коллекции, новый отчёт — успешные операции/запросы Яндекса без
+ошибок в последних двух сессиях. Реальные credentials/БД/музыка пользователя
+в автоматических проверках этого пакета не читались и не изменялись.
+Следующий download transport временно уступил приоритет сообщению о редком
+desktop воспроизведении без звука, устраняемом pause/resume.
+
+Прежний журнал подтверждает Play/state, но не акустический выход: точную
+причину каждого случая установить по нему нельзя. На управляемом движке
+подтверждены и воспроизведены до исправления: Play подготовленного источника
+до подтверждения ненулевого gain; поздний gain отменённого fade после полного
+gain нового выбора. Третья регрессия моделирует сброс вывода при пересоздании
+декодера: она проверяет границу адаптера, не доказывает такой сброс в WinRT.
+
+В JustAudioPlayerService введена отдельная очередь нативных команд громкости,
+общая для пользовательского volume и fade gain. При исполнении берётся
+последнее намерение; первая медленная команда не обгоняет последующую.
+Перед каждым Play/resume, после load, подтверждается текущая громкость,
+затем проверяются поколение/ревизия/отмена. Started/resumed записывается после
+проверок; pause/stop/replace/dispose не оставляют запоздалого Play. Mute и
+намеренный нулевой gain в начале fade сохраняются. Ошибка настройки не
+отравляет очередь; остановка после ошибки выполняется за пределами текущей
+транспортной команды. Native Play Future по-прежнему не ожидается до конца
+трека. Пользовательский последний запрос volume имеет приоритет при
+публикации/сохранении уровня.
+
+В audioPlayRequested добавлены числовые outputVolume (подтверждённая команда)
+и outputGain (текущий желаемый gain). Содержимое источника/названия/пути/секреты
+не добавляются. Нативный плагин, очередь треков, алгоритм рекомендаций,
+длительность fade, схема 13, зависимости и Android permissions не меняются.
+
+11 новых тестов покрывают описанные гонки, отмены во время настройки,
+сохранение mute, громкость при resume без нового started/load, ошибки
+первичного запуска/resume и последующий успешный запуск. Три прежних теста
+URI/fade и Android noisy/interruption теперь ожидают фактического подтверждения
+движка вместо числа микрозадач, сохраняя все проверки звука обеих дек/паузы.
+Профильный набор **171 passed**, полный **1632 passed, 73s**, включая четыре
+реальных bundled-helper coordinator теста. Analyzer clean, formatter 265/0,
+MSVC native Windows payload fixture совпадает. [Контракт](architecture/playback-output-ordering.md).
+
+Короткая ручная проверка: первый запуск/несколько next/previous, один fade
+и ручная смена во время него, pause/resume/mute. Пересканирование/повторный
+вход Яндекса не нужны. При повторении тишины нужен свежий отчёт и тип
+переключения; исправление конкретного редкого аппаратного случая ещё не
+объявляется подтверждённым. Download transport/workspace budget следующий,
+улучшение рекомендаций остаётся отложенным.
+
+
+Release41 собран в ASCII-копии core41-20261017; 435 source SHA совпали.
+Android release/JVM15/lint0errors (6 прежних warnings), Windows release прошли.
+APK2041/target36: signer40, CRC/v2/zipalign/ELF16KiB, permissions/backup/icon проверены.
+Windows41 files: PE x64, production NativeAssetsManifest, без test-only sidecar.
+21 helper file прежний; 9 проверок распакованного helper прошли из Unicode/spaced
+пути с минимальным PATH. Оба AOT изменились и содержат новые поля громкости.
+Codegen/schema13/pubspec/lock прежние, SHA sidecars40/41 сверены.
+
+- dist/clever-music-player-core-41-android-arm64.apk — 22102539 bytes, SHA-256 `c8c06c22aae921971d659dbc350059bc0dfd1cd05fa6774b424c2c1c06a25e9d`.
+
+- dist/clever-music-player-core-41-windows-x64.zip — 31516889 bytes, SHA-256 `0661bf3e451b030f3ab34ff853292cc55761f9d269b30e9fd5c1b5f4aee9653b`.
+
+Логи: .dart_tool/core41-targeted-final.log, full-tests-final.log, analyze-final.log,
+format-final.log, native-windows-protocol.log, native-extracted-final.log, apk-*.log
+(все с префиксом core41-), source-manifest/build-result/verify-result/package JSON.
+Артефакты дополнены checks.txt, manual-checks.txt и .sha256. Физическая проверка
+редкого случая тишины и remote CI/macOS ещё не подтверждены.

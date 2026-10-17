@@ -164,6 +164,211 @@ void main() {
     expect(await f.completions(f.a), 0);
   });
 
+  test('prepared promotion confirms audible gain before native Play', () async {
+    await f.player.playTrack(f.a);
+    await f.player.prepareNextTrack(f.b);
+    final gainEntered = Completer<void>();
+    final gainReleased = Completer<void>();
+    f.second.volumeHandler = (volume) async {
+      if (volume > 0 && !gainEntered.isCompleted) {
+        gainEntered.complete();
+        await gainReleased.future;
+      }
+    };
+    final promotion = f.player.playTrack(f.b);
+    try {
+      await gainEntered.future;
+      await flush();
+      expect(f.second.playCalls, 0,
+          reason: 'The prepared decoder is still physically muted');
+    } finally {
+      gainReleased.complete();
+      await promotion;
+    }
+    await until(() => f.second.playCalls == 1);
+    expect(f.second.setVolumes.last, 1);
+  });
+
+  test('source opening cannot leave the foreground decoder muted', () async {
+    double nativeVolume = 0;
+    final volumesAtPlay = <double>[];
+    f.first.volumeHandler = (volume) async => nativeVolume = volume;
+    f.first.setFilePathHandler = (_, __) async {
+      // A native decoder is recreated by stop/load. Its output can still have
+      // the standby/default settings, independently of the logical UI volume.
+      nativeVolume = 0;
+      return const Duration(seconds: 60);
+    };
+    f.first.playHandler = (_) async => volumesAtPlay.add(nativeVolume);
+    await f.player.playTrack(f.a);
+    await f.player.playTrack(f.c);
+    expect(volumesAtPlay, [1, 1]);
+  });
+
+  test('late fade gain cannot overwrite a newer full-volume selection',
+      () async {
+    await f.startFade();
+    final gainEntered = Completer<void>();
+    final gainReleased = Completer<void>();
+    double nativeVolume = 0;
+    f.second.volumeHandler = (volume) async {
+      if (volume > 0 && volume < 1 && !gainEntered.isCompleted) {
+        gainEntered.complete();
+        await gainReleased.future;
+      }
+      nativeVolume = volume;
+    };
+    f.clock.advance(const Duration(milliseconds: 300));
+    await gainEntered.future;
+    final selection = f.player.playTrack(f.c);
+    try {
+      await flush();
+    } finally {
+      gainReleased.complete();
+      await selection;
+    }
+    await flush();
+    expect(f.player.currentTrack, f.c);
+    expect(nativeVolume, 1);
+  });
+
+  test('pause during startup output confirmation cancels native autoplay',
+      () async {
+    final entered = Completer<void>();
+    final released = Completer<void>();
+    var sourceOpened = false;
+    f.first.setFilePathHandler = (_, __) async {
+      sourceOpened = true;
+      return const Duration(seconds: 60);
+    };
+    f.first.volumeHandler = (_) async {
+      if (sourceOpened && !entered.isCompleted) {
+        entered.complete();
+        await released.future;
+      }
+    };
+    final playing = f.player.playTrack(f.a);
+    await entered.future;
+    final pausing = f.player.pause();
+    try {
+      await flush();
+      expect(f.player.isPlaying, isFalse);
+    } finally {
+      released.complete();
+      await Future.wait([playing, pausing]);
+    }
+    expect(f.first.playCalls, 0);
+    expect(await f.starts(f.a), 0);
+    expect(f.player.state.status, PlayerPlaybackStatus.paused);
+  });
+
+  for (final action in ['stop', 'replace', 'dispose']) {
+    test('$action invalidates a pending output-confirmed startup', () async {
+      final entered = Completer<void>();
+      final released = Completer<void>();
+      var sourceOpened = false;
+      f.first.setFilePathHandler = (_, __) async {
+        sourceOpened = true;
+        return const Duration(seconds: 60);
+      };
+      f.first.volumeHandler = (_) async {
+        if (sourceOpened && !entered.isCompleted) {
+          entered.complete();
+          await released.future;
+        }
+      };
+      final playing = f.player.playTrack(f.a);
+      await entered.future;
+      final command = switch (action) {
+        'stop' => f.player.stop(),
+        'replace' => f.player.playTrack(f.c),
+        _ => f.player.dispose(),
+      };
+      released.complete();
+      await Future.wait([playing, command]);
+      expect(await f.starts(f.a), 0);
+      expect(f.first.playCalls, action == 'replace' ? 1 : 0);
+      if (action == 'replace') {
+        expect(f.player.currentTrack, f.c);
+        expect(await f.starts(f.c), 1);
+      }
+    });
+  }
+
+  test('mute remains silent through fresh loads, promotion and resume',
+      () async {
+    await f.player.setVolume(.4);
+    await f.player.toggleMute();
+    final volumesAtPlay = <double>[];
+    double firstVolume = 1, secondVolume = 1;
+    f.first.volumeHandler = (value) async => firstVolume = value;
+    f.second.volumeHandler = (value) async => secondVolume = value;
+    f.first.playHandler = (_) async => volumesAtPlay.add(firstVolume);
+    f.second.playHandler = (_) async => volumesAtPlay.add(secondVolume);
+    await f.player.playTrack(f.a);
+    await f.player.prepareNextTrack(f.b);
+    await f.player.playTrack(f.b);
+    await f.player.pause();
+    await f.player.play();
+    expect(volumesAtPlay, [0, 0, 0]);
+    expect(f.player.volume, 0);
+    await f.player.toggleMute();
+    expect(f.player.volume, .4);
+    expect(secondVolume, .4);
+  });
+
+  test('resume reapplies user volume without loading or recording a new start',
+      () async {
+    await f.player.setVolume(.35);
+    double nativeVolume = 0;
+    final volumesAtPlay = <double>[];
+    f.first.volumeHandler = (value) async => nativeVolume = value;
+    f.first.playHandler = (_) async => volumesAtPlay.add(nativeVolume);
+    await f.player.playTrack(f.a);
+    await f.player.pause();
+    nativeVolume = 0;
+    await f.player.play();
+    expect(volumesAtPlay, [.35, .35]);
+    expect(f.first.setFilePathCalls, 1);
+    expect(await f.starts(f.a), 1);
+    expect(await f.count(f.a, PlaybackEventType.resumed), 1);
+  });
+
+  test('failed startup output never plays or records a listening start',
+      () async {
+    var sourceOpened = false;
+    f.first.setFilePathHandler = (_, __) async {
+      sourceOpened = true;
+      return const Duration(seconds: 60);
+    };
+    f.first.volumeHandler = (_) async {
+      if (sourceOpened) throw StateError('volume failed');
+    };
+    await f.player.playTrack(f.a);
+    await flush();
+    expect(f.first.playCalls, 0);
+    expect(f.player.state.hasError, isTrue);
+    expect(await f.starts(f.a), 0);
+  });
+
+  test('resume output failure stops safely and later playback still works',
+      () async {
+    await f.player.playTrack(f.a);
+    await f.player.pause();
+    final plays = f.first.playCalls;
+    f.first.volumeHandler = (_) async => throw StateError('volume failed');
+    await f.player.play().timeout(const Duration(seconds: 2));
+    await flush();
+    expect(f.player.state.hasError, isTrue);
+    expect(f.first.playCalls, plays);
+    expect(f.first.playing, isFalse);
+    f.first.volumeHandler = null;
+    await f.player.playTrack(f.c);
+    await until(() => f.first.playing);
+    expect(f.player.currentTrack, f.c);
+    expect(await f.starts(f.c), 1);
+  });
+
   test(
       'manual selection during a fade stops the old tail and cancels its timer',
       () async {

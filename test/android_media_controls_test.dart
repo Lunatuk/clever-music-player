@@ -276,6 +276,7 @@ void main() {
       f.first.emitPosition(const Duration(seconds: 57));
       await flush();
       await f.player.playAutomatically(f.tracks[1]);
+      await until(() => f.first.playing && f.second.playing);
       expect(f.first.playing && f.second.playing, isTrue);
       (noisy ? f.session.noisy : f.session.interrupted).add(null);
       await until(() => !f.first.playing && !f.second.playing);

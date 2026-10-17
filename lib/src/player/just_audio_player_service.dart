@@ -234,6 +234,9 @@ final class JustAudioPlayerService implements PlayerService {
   bool _hasStartedSession = false;
   Duration? _pendingSeek;
   Future<void> _engineCommands = Future<void>.value();
+  Future<void> _outputCommands = Future<void>.value();
+  double _requestedVolume = _defaultVolume;
+  int _volumeRevision = 0;
   int _positionEventsSinceLoad = 0;
   int _durationEventsSinceLoad = 0;
   Timer? _positionDiagnosticsTimer;
@@ -294,7 +297,7 @@ final class JustAudioPlayerService implements PlayerService {
         _outputGain = gain.clamp(0.0, 1.0);
         final generation = _sessionGeneration;
         try {
-          await _audioEngine.setVolume(_state.volume * _outputGain);
+          await _applyOutputVolume();
         } on Object catch (error) {
           if (_isCurrentSession(generation)) {
             await _stopAfterFailure(generation,
@@ -302,6 +305,23 @@ final class JustAudioPlayerService implements PlayerService {
           }
         }
       });
+
+  /// Output commands have their own queue: a slow cache/source load must not
+  /// block volume controls, but an old fade must never finish after a newer
+  /// foreground gain and leave that decoder silent. Read the latest intent
+  /// when the command reaches the engine, including a concurrent mute/volume.
+  Future<double> _applyOutputVolume() {
+    final result = _outputCommands.then((_) async {
+      final output = _requestedVolume * _outputGain;
+      if (!_isDisposed) {
+        await _audioEngine.setVolume(output);
+      }
+      return output;
+    });
+    _outputCommands =
+        result.then((_) {}, onError: (Object _, StackTrace __) {});
+    return result;
+  }
 
   /// A full automatic fade finishes the outgoing listening session once.
   /// Interrupted fades (seek, manual selection, stop) use stop() instead.
@@ -407,7 +427,7 @@ final class JustAudioPlayerService implements PlayerService {
               DiagnosticField.preparing: !startPlaying,
               DiagnosticField.cached: _leasedCachePath != null,
             });
-            if (_wantsToPlay) _startPlayback(generation, track);
+            if (_wantsToPlay) await _startPlayback(generation, track);
           });
         } on Object catch (error) {
           if (!_isCurrentSession(generation)) return;
@@ -460,10 +480,17 @@ final class JustAudioPlayerService implements PlayerService {
           errorMessage: null,
         ));
         if (_loadingGeneration == generation) return;
-        await _runEngineCommand(generation, () async {
-          if (revision != _transportRevision) return;
-          _startPlayback(generation, track);
-        });
+        try {
+          await _runEngineCommand(generation, () async {
+            if (revision != _transportRevision) return;
+            await _startPlayback(generation, track);
+          });
+        } on Object {
+          if (_isCurrentSession(generation) && revision == _transportRevision) {
+            await _stopAfterFailure(
+                generation, 'Не удалось настроить громкость воспроизведения.');
+          }
+        }
       });
 
   @override
@@ -581,10 +608,24 @@ final class JustAudioPlayerService implements PlayerService {
     return result;
   }
 
-  void _startPlayback(int generation, Track track) {
+  Future<void> _startPlayback(int generation, Track track) async {
     if (!_isCurrentSession(generation) || !_wantsToPlay) return;
-    diagnostics.record(DiagnosticEvent.audioPlayRequested,
-        fields: {DiagnosticField.trackId: track.id});
+    final revision = _transportRevision;
+    // stop/load can replace the native decoder. Confirm the latest output on
+    // that decoder before Play, including prepared-deck promotion/resume.
+    // The caller handles errors after leaving the transport queue: stopping
+    // through that same queue here would wait on this command itself.
+    final outputVolume = await _applyOutputVolume();
+    if (!_isCurrentSession(generation) ||
+        revision != _transportRevision ||
+        !_wantsToPlay) {
+      return;
+    }
+    diagnostics.record(DiagnosticEvent.audioPlayRequested, fields: {
+      DiagnosticField.trackId: track.id,
+      DiagnosticField.outputVolume: outputVolume,
+      DiagnosticField.outputGain: _outputGain,
+    });
     if (_hasStartedSession) {
       unawaited(_recordEvent(track, PlaybackEventType.resumed));
     } else {
@@ -593,17 +634,19 @@ final class JustAudioPlayerService implements PlayerService {
     }
     _startWindowsProgressRecovery(anchorPosition: _state.position);
     _scheduleWindowsPositionDiagnostics(track);
-    _pendingTransportRevision = _transportRevision;
-    unawaited(_playAndReportErrors(generation, _transportRevision));
+    _pendingTransportRevision = revision;
+    unawaited(_playAndReportErrors(generation, revision));
   }
 
   @override
   Future<void> setVolume(double volume) => _operations.run(() async {
         if (_isDisposed) return;
         final normalizedVolume = _normalizeVolume(volume);
+        _requestedVolume = normalizedVolume;
+        final revision = ++_volumeRevision;
         try {
-          await _audioEngine.setVolume(normalizedVolume * _outputGain);
-          if (_isDisposed) return;
+          await _applyOutputVolume();
+          if (_isDisposed || revision != _volumeRevision) return;
           if (normalizedVolume > 0) {
             _previousVolumeBeforeMute = normalizedVolume;
           }
@@ -615,6 +658,7 @@ final class JustAudioPlayerService implements PlayerService {
           );
           await _persistVolume(normalizedVolume);
         } on Object catch (error) {
+          if (_isDisposed || revision != _volumeRevision) return;
           _emitPlaybackError(
             'Не удалось изменить громкость: ${_describeError(error)}',
           );
