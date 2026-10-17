@@ -121,6 +121,8 @@ final class YandexConnectionController extends ChangeNotifier {
     _failureStage = null;
     _step = null;
     final watch = Stopwatch()..start();
+    YandexLibraryFailure? protocolFailure;
+    YandexResponseIssue? responseIssue;
     diagnostics.record(DiagnosticEvent.yandexOperationStarted, fields: {
       DiagnosticField.remoteOperation: activity.index,
     });
@@ -138,6 +140,8 @@ final class YandexConnectionController extends ChangeNotifier {
         _initializing = null;
         _failure = YandexConnectionFailure.stale;
       } on YandexLibraryException catch (error) {
+        protocolFailure = error.failure;
+        responseIssue = error.responseIssue;
         _failure = _apiFailure(error.failure);
         _failureStage = error.stage;
         if (error.failure == YandexLibraryFailure.unauthorized &&
@@ -166,6 +170,10 @@ final class YandexConnectionController extends ChangeNotifier {
                 DiagnosticField.remoteConnectionFailure: _failure!.index,
               if (_failureStage != null)
                 DiagnosticField.remoteStage: _failureStage!.index,
+              if (protocolFailure != null)
+                DiagnosticField.remoteFailure: protocolFailure!.index,
+              if (responseIssue != null)
+                DiagnosticField.remoteResponseIssue: responseIssue!.index,
             });
         _control = null;
         _active = null;
@@ -229,9 +237,6 @@ final class YandexConnectionController extends ChangeNotifier {
         try {
           _setStep(YandexConnectionStep.verifyingAccount);
           final profile = await candidate.verifyAccount(control: control);
-          _setStep(YandexConnectionStep.loadingPlaylists);
-          final catalogue =
-              await candidate.listPlaylists(profile.identity, control: control);
           control.throwIfCancelled();
           _setStep(YandexConnectionStep.savingCredential);
           // Once accepted, the small credential/DB commit drains despite late cancel.
@@ -243,7 +248,7 @@ final class YandexConnectionController extends ChangeNotifier {
           final old = _refresher;
           _account = account;
           _expected = [account];
-          _catalogue = catalogue;
+          _catalogue = const [];
           _adopt(candidate);
           candidate = null;
           await old?.close();
@@ -257,6 +262,26 @@ final class YandexConnectionController extends ChangeNotifier {
           }
           await _loadChoices();
           _message = 'Аккаунт подключён. Выбери коллекции.';
+          // Account verification is sufficient for login. Optional discovery
+          // must never roll back a successfully saved, verified credential.
+          if (control.isCancellationRequested) return;
+          _setStep(YandexConnectionStep.loadingPlaylists);
+          try {
+            final catalogue = await _reader!
+                .listPlaylists(account.identity, control: control);
+            control.throwIfCancelled();
+            _catalogue = catalogue;
+            await _loadChoices();
+          } on YandexLibraryException catch (error) {
+            if (error.failure == YandexLibraryFailure.unauthorized) {
+              await _disconnect();
+              _message = null;
+            } else {
+              _message =
+                  'Аккаунт подключён. Список плейлистов можно получить повторно отдельной кнопкой; «Мне нравится» уже доступно.';
+            }
+            rethrow;
+          }
         } finally {
           await candidate?.close();
         }

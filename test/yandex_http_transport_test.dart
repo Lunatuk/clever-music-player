@@ -52,6 +52,17 @@ void main() {
         clock: clock);
   }
 
+  test('saved playlist discovery is a fixed GET with credential only in header',
+      () async {
+    await transport.get(YandexReadRequest.likedPlaylists('101'),
+        YandexAccessToken('synthetic-secret'), LibraryScanControl());
+    expect(requests.single.uri.toString(), '/users/101/likes/playlists');
+    expect(requests.single.method, 'GET');
+    expect(requests.single.headers.value('authorization'),
+        'OAuth synthetic-secret');
+    expect(() => YandexReadRequest.likedPlaylists('../private-host'),
+        throwsA(isA<YandexLibraryException>()));
+  });
   test('real HTTP UTF-8 result, credential only in header, read-only method',
       () async {
     expect(await get(), {'value': 'Музыка'});

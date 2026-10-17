@@ -402,6 +402,11 @@ stage/timing/status diagnostics. Login shows account/playlist/storage steps and
 network timeouts identify the failed phase. The reported real-account timeout is
 still under investigation. See [network diagnostics](docs/architecture/yandex-network-diagnostics.md).
 
+Package 40 saves the verified login before playlist discovery, combines own and
+saved playlists using owner/kind identities, and tolerates optional catalogue
+labels/counts without weakening complete-track snapshot checks. Discovery errors
+can be retried with the saved credential. See [catalogue rules](docs/architecture/yandex-playlist-catalogue.md).
+
 ## Library operation ownership
 
 One app-scoped `LibraryController` handles folder selection, scans, enable/disable

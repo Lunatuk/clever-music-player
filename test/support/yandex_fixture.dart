@@ -58,6 +58,7 @@ final class YandexTestTransport implements YandexApiTransport {
       YandexReadEndpoint.playlists => [yandexList()],
       YandexReadEndpoint.likedTracks => yandexLikes(),
       YandexReadEndpoint.playlist => yandexList(),
+      YandexReadEndpoint.likedPlaylists => [],
     };
   }
 

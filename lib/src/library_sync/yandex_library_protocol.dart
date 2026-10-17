@@ -30,12 +30,24 @@ enum YandexRequestStage {
 
 /// Never carries server text, URLs, headers, credentials or raw exceptions.
 final class YandexLibraryException implements Exception {
-  const YandexLibraryException(this.failure, {this.retryAfter, this.stage});
+  const YandexLibraryException(this.failure,
+      {this.retryAfter, this.stage, this.responseIssue});
   final YandexLibraryFailure failure;
   final Duration? retryAfter;
   final YandexRequestStage? stage;
+  final YandexResponseIssue? responseIssue;
   @override
   String toString() => 'YandexLibraryException(${failure.name})';
+}
+
+/// Safe catalogue validation codes, never field values. Append only.
+enum YandexResponseIssue {
+  catalogueList,
+  playlistEntry,
+  playlistOwner,
+  conflictingOwner,
+  playlistId,
+  savedPlaylistEntry,
 }
 
 /// Session-scoped input. Persistence belongs to the future credential owner.
@@ -66,12 +78,18 @@ final class YandexPlaylistDescriptor {
       {required this.key, required this.title, required this.itemCount});
   final RemoteCollectionKey key;
   final String title;
-  final int itemCount;
+  final int? itemCount;
 }
 
-enum YandexReadEndpoint { account, playlists, likedTracks, playlist }
+enum YandexReadEndpoint {
+  account,
+  playlists,
+  likedTracks,
+  playlist,
+  likedPlaylists
+}
 
-/// Only four read endpoints; no arbitrary authenticated URL or remote mutations.
+/// Fixed read endpoints; no arbitrary authenticated URL or remote mutations.
 final class YandexReadRequest {
   YandexReadRequest.account()
       : endpoint = YandexReadEndpoint.account,
@@ -87,6 +105,12 @@ final class YandexReadRequest {
         pageSize = null;
   YandexReadRequest.liked(String uid)
       : endpoint = YandexReadEndpoint.likedTracks,
+        ownerId = yandexNumericId(uid),
+        playlistId = null,
+        page = null,
+        pageSize = null;
+  YandexReadRequest.likedPlaylists(String uid)
+      : endpoint = YandexReadEndpoint.likedPlaylists,
         ownerId = yandexNumericId(uid),
         playlistId = null,
         page = null,
@@ -121,6 +145,8 @@ final class YandexReadRequest {
             if (page != null) 'page': '$page',
             if (pageSize != null) 'pageSize': '$pageSize'
           }),
+        YandexReadEndpoint.likedPlaylists =>
+          Uri(path: '/users/$ownerId/likes/playlists'),
       };
 }
 

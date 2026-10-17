@@ -2871,3 +2871,96 @@ platform logs в ASCII-копии. Прежние AppData/JNI/SDK XML warnings �
 финальным сборкам не мешают. Remote CI, физические Mac/Android и настоящая
 авторизация не объявляются прошедшими. Исследование причины тайм-аута
 продолжится по отчёту из39; прежние отчёты эту причину не показывают.
+
+
+**17 октября 2026 — пакет40: verified login и собственные/сохранённые плейлисты**
+
+Получен отчёт39: probe200/269ms, account200/41ms, catalogue200/123ms,
+затем operation2/remoteConnectionFailure8. Авторизация прошла и endpoint
+списка ответил; ошибка семантической проверки каталога. Конкретное поле в39
+не логировалось: invalidResponse UI объединял несколько protocol failures.
+Нельзя утверждать, что отказал именно foreign owner, title или count.
+Пользователь подтвердил свои и сохранённые чужие плейлисты.
+
+Исправлены известные проблемы: успешный verified профиль/credential теперь
+сохраняется до discovery; ошибка списка/отмена после commit не отменяет вход,
+можно проверять «Мне нравится» и повторять список без нового токена. Сохранение
+сохраняет прежние DB writer fence/revision binding/rollback; ошибка secure
+write вообще не начинает discovery. 401 после успешной проверки при discovery
+отзывает новый вход через тот же fence. Неверный кандидат при account verify
+по-прежнему сохраняет прежний рабочий аккаунт. Новая фаза UI: verify → protected
+write → own+saved lists. Close дожидается принятых эффектов до SQLite.
+
+Добавлен read-only endpoint users/UID/likes/playlists, result List<Like> с
+вложенным playlist. Контракт сверён с pinned yandex-music-api9ca132e/_get_likes,
+Like/test_like; author reference hashes в ignored .dart_tool/yandex40-reference.
+Продукт не импортирует Python SDK. Catalogue объединяет own+saved owner/kind
+ключи, сохраняет явных чужих владельцев и не матчится по названиям. Повтор
+одного ресурса в каталоге — один checkbox, разные owner/kind при равных
+названиях остаются раздельными; track order/repeats не дедуплицируются.
+UI отмечает foreign ресурс «Сохранённый плейлист», выбор opt-in.
+
+Optional title нормализуется/ограничивается512 UTF16 с bounded2048-rune preview,
+не обрывая surrogate pair. Отсутствующий/некорректный count остаётся null,
+не пустым завершённым snapshot. Missing owner у own summary получает UID из
+явного проверенного request scope; saved owner всегда нужен явно. Invalid/
+conflicting explicit owner, kind и wrapper остаются ошибками. Весь snapshot
+конвейер (owner/kind/count/revision/pages/two full passes) прежний. Raw/combined
+каталоги bounded maxPlaylists. Source metadata не создаёт download jobs.
+
+Диагностика сохраняет исходный protocol failure отдельно от UI failure и
+remoteResponseIssue code0–5 без значений. Endpoint4=likedPlaylists, старые
+индексы не меняются. Если остаётся новый нестандартный формат, отчёт покажет
+тип конкретной проверки без UID/URL/title/token/server payload. Учёт/хранение
+секретов, права Android, схема13 и зависимости прежние.
+
+35 новых тестов: catalogue26, controller/SQLite/session6, widgets2, HTTP1.
+Targeted148 passed, full **1621 tests passed,117s**, analyzer clean,
+formatter265 files/0 changed. Проверены metadata/fallback/count unknown,
+owner/kind сохранённых списков и equal titles, source duplication, limits,
+strict detail rejection, 401/cancel/storage rollback, restart без HTTP и
+повтор discovery без token input. Исправлены прежние mock ответы для пятого
+endpoint; mobile narrow/large catalogue tests снова проверяют настоящий
+успешный список. Новый вертикальный тест сохраняет foreign snapshot с тремя
+позициями/повтором, выбор и состав переживают restart; jobs0.
+
+Без Authorization проверены schema публичного search и двух публичных
+каталогов:1065/141 entries соответствовали прежнему обычному формату. Это
+сверка baseline, не воспроизведение приватного rejected поля. Данные/токен
+пользователя не читались/не отправлялись, реальные приватные ответы не
+сохранялись. Нативный Windows payload и9 helper smoke checks прошли.
+[Контракт](architecture/yandex-playlist-catalogue.md).
+
+Ручная проверка: подключиться, выбрать свой/сохранённый список вместе с likes,
+проверить состав и restart. Пересканирование/полный music regression не нужны.
+Если catalogue/detail всё ещё ошибается, нужен новый report с кодом проверки.
+Successful real account login/Keystore/macOS/remote CI ещё не объявляются
+подтверждёнными. Download transport/workspace budget остаются следующими.
+
+
+Release40 выполнен в ASCII-копии `%LOCALAPPDATA%/CleverMusicPlayerBuilds/core40-20261017`.
+435 source files сверены SHA-256; pub get enforced, codegen/БД побайтно прежняя,
+Android release/JVM/lint, Windows release прошли. APK2040/target36, тот же
+signer39, CRC/v2/zipalign/ELF16KiB проверены. JVM15 passed, lint0errors/6 прежних
+warnings, Android manifest permissions/backup прежние. Windows41files
+побайтно сверены, PE x64 и production native assets manifest сохранены,
+test-only sidecar отсутствует. 21 helper file прежний, лицензии/исходники
+сохранены. После extraction в Unicode/spaced path с минимальным PATH9 helper
+checks прошли. В обоих AOT binaries подтверждены новые endpoint/diagnostic
+markers; Android libapp.so отличается от39. Старые39/new40 sidecars сверены.
+
+Артефакты:
+
+- dist/clever-music-player-core-40-android-arm64.apk — 22102539 bytes, SHA-256 `4d7130c2ca566da5db7c7e1736ee7e8040cb6172ffacbe426a5959b6971ac0d0`.
+
+- dist/clever-music-player-core-40-windows-x64.zip — 31516369 bytes, SHA-256 `dc8f9ae028df534a257a4282cc257550c0af89f4e5be55be232f49af2d105d14`.
+
+- core-40-checks.txt, manual-checks.txt и .sha256 sidecars.
+
+Логи .dart_tool/core40-targeted-final.log, core40-full-tests-final.log,
+core40-analyze-final.log, core40-format-final.log, core40-native-windows-protocol.log,
+core40-native-bundled-final.log, core40-native-extracted-final.log, core40-apk-*.log,
+core40-source-manifest.json, core40-build-result.json, core40-verify-result.json,
+core40-package.json; platform build logs в ASCII-копии. Прежние
+AppData/JNI/SDK XML warnings не мешают финальным сборкам. Remote CI и реальные
+private-account/physical Android/macOS checks не объявляются прошедшими.

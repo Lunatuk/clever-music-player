@@ -104,6 +104,7 @@ enum DiagnosticField {
   responseBytes,
   credentialAttached,
   networkErrorCode,
+  remoteResponseIssue,
 }
 
 /// Only fixed event/field names and numeric/boolean values enter the journal.

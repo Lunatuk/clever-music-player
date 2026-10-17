@@ -117,10 +117,14 @@ void main() {
       }
     });
     await connected();
-    expect(steps, YandexConnectionStep.values);
+    expect(steps, [
+      YandexConnectionStep.verifyingAccount,
+      YandexConnectionStep.savingCredential,
+      YandexConnectionStep.loadingPlaylists
+    ]);
   });
   test(
-      'playlist failure retains HTTP stage and does not save an uncompleted login',
+      'playlist failure retains HTTP stage and preserves the verified saved login',
       () async {
     await c.close();
     c = YandexConnectionController(
@@ -142,8 +146,9 @@ void main() {
         });
     await c.connect('synthetic-token');
     expect(c.failureStage, YandexRequestStage.waitingForResponse);
-    expect(store.writes, 0);
-    expect(c.account, isNull);
+    expect(store.writes, 1);
+    expect(c.account!.identity, yandexAccount);
+    expect(c.choices.single.key, yandexLiked);
     expect(diagnostics.entries.last.fields[DiagnosticField.remoteStage],
         YandexRequestStage.waitingForResponse.index);
   });
@@ -178,8 +183,11 @@ void main() {
     await connected();
     expect(store.writes, 1);
     expect(store.value!.matches(c.account!), isTrue);
-    expect(transports.single.requests.map((r) => r.endpoint),
-        [YandexReadEndpoint.account, YandexReadEndpoint.playlists]);
+    expect(transports.single.requests.map((r) => r.endpoint), [
+      YandexReadEndpoint.account,
+      YandexReadEndpoint.playlists,
+      YandexReadEndpoint.likedPlaylists
+    ]);
     expect(c.choices.map((v) => v.isSelected), [true, false]);
     expect(c.message, isNot(contains('synthetic-token')));
   });
@@ -193,7 +201,7 @@ void main() {
     expect(c.choices.map((v) => v.isSelected), [true, true]);
     expect(transports.last.requests, isEmpty);
     await c.loadPlaylists();
-    expect(transports.last.requests, hasLength(2));
+    expect(transports.last.requests, hasLength(3));
   });
   test('reconnection retains explicitly deselected likes', () async {
     await connected();

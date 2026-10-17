@@ -56,7 +56,10 @@ void main() {
   test('inventory uses owner/kind and never uses display names for identity',
       () async {
     await client.verifyAccount();
-    transport.onGet = (_, __) async => [yandexList(), yandexList(kind: 1001)];
+    transport.onGet = (r, _) async =>
+        r.endpoint == YandexReadEndpoint.likedPlaylists
+            ? []
+            : [yandexList(), yandexList(kind: 1001)];
     final result = await client.listPlaylists(yandexAccount);
     expect(result.map((e) => e.key.externalId), ['1000', '1001']);
     expect(result.map((e) => e.title).toSet(), {'Мой плейлист'});
@@ -70,10 +73,10 @@ void main() {
   for (final response in [
     null,
     {},
-    [yandexList(), yandexList()],
-    [yandexList(uid: 102)]
+    [yandexList(kind: 'invalid')],
+    [yandexList(uid: 0)]
   ]) {
-    test('invalid/duplicate/foreign inventory rejected: $response', () async {
+    test('malformed inventory shape or identity rejected: $response', () async {
       await client.verifyAccount();
       transport.onGet = (_, __) async => response;
       await expectLater(client.listPlaylists(yandexAccount),

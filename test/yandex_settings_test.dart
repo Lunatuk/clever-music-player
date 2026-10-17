@@ -116,7 +116,7 @@ void main() {
     await tester.tap(find.text('Отмена'));
     await settle(tester);
     expect(c.failure, YandexConnectionFailure.cancelled);
-    expect(store.writes, 0);
+    expect(store.writes, 1);
   });
   testWidgets('token is masked and cleared, account and opt-in choices appear',
       (tester) async {
@@ -184,24 +184,81 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
-    transport.onGet = (request, _) async => request.endpoint ==
-            YandexReadEndpoint.account
-        ? yandexStatus()
-        : [yandexList()..['title'] = 'Очень длинное название плейлиста ' * 15];
+    transport.onGet = (request, _) async =>
+        request.endpoint == YandexReadEndpoint.likedPlaylists
+            ? []
+            : request.endpoint == YandexReadEndpoint.account
+                ? yandexStatus()
+                : [
+                    yandexList()
+                      ..['title'] = 'Очень длинное название плейлиста ' * 15
+                  ];
     await pump(tester, scale: 2);
     await tester.runAsync(() => c.connect('synthetic-token'));
     await settle(tester);
+    expect(c.failure, isNull);
+    expect(find.textContaining('Очень длинное название плейлиста'),
+        findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.runAsync(c.disconnect);
     await settle(tester);
     expect(tester.takeException(), isNull);
   });
-  testWidgets('large playlist catalogue builds only a bounded viewport',
+  testWidgets(
+      'catalogue error keeps verified account visible and retry needs no token',
       (tester) async {
     transport.onGet = (request, _) async =>
         request.endpoint == YandexReadEndpoint.account
             ? yandexStatus()
-            : List.generate(2000, (i) => yandexList(kind: i + 1));
+            : [yandexList(kind: 'invalid')];
+    await pump(tester);
+    await tester.runAsync(() => c.connect('synthetic-token'));
+    await settle(tester);
+    expect(find.byKey(const ValueKey('yandex-account')), findsOneWidget);
+    expect(find.text('Мне нравится'), findsOneWidget);
+    expect(find.byType(TextField), findsNothing);
+    expect(find.byKey(const ValueKey('yandex-error')), findsOneWidget);
+    expect(store.writes, 1);
+    transport.onGet = null;
+    await tester.tap(find.byKey(const ValueKey('yandex-catalogue')));
+    await settle(tester);
+    expect(find.byKey(const ValueKey('yandex-error')), findsNothing);
+    expect(find.text('Мой плейлист'), findsOneWidget);
+    expect(store.writes, 1);
+  });
+  testWidgets('saved foreign playlist is a separate unselected choice',
+      (tester) async {
+    transport.onGet = (r, _) async => switch (r.endpoint) {
+          YandexReadEndpoint.account => yandexStatus(),
+          YandexReadEndpoint.playlists => [yandexList()],
+          YandexReadEndpoint.likedPlaylists => [
+              {'playlist': yandexList(uid: 202)}
+            ],
+          _ => throw StateError('Unexpected request'),
+        };
+    await pump(tester);
+    await tester.runAsync(() => c.connect('synthetic-token'));
+    await settle(tester);
+    expect(find.text('Мой плейлист'), findsNWidgets(2));
+    final saved = find.widgetWithText(
+        CheckboxListTile, 'Сохранённый плейлист\nПозиций в плейлисте: 3');
+    expect(tester.widget<CheckboxListTile>(saved).value, isFalse);
+    await tester.tap(saved);
+    await settle(tester);
+    expect(
+        c.choices
+            .singleWhere((choice) => choice.key.ownerId == '202')
+            .isSelected,
+        isTrue);
+  });
+  testWidgets('large playlist catalogue builds only a bounded viewport',
+      (tester) async {
+    transport.onGet = (request, _) async =>
+        request.endpoint == YandexReadEndpoint.likedPlaylists
+            ? []
+            : request.endpoint == YandexReadEndpoint.account
+                ? yandexStatus()
+                : List.generate(2000, (i) => yandexList(kind: i + 1));
     await pump(tester);
     await tester.runAsync(() => c.connect('synthetic-token'));
     await settle(tester);

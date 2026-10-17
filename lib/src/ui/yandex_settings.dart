@@ -147,6 +147,15 @@ class _YandexSettingsState extends State<YandexSettings> {
                   itemCount: connection.choices.length,
                   itemBuilder: (context, index) {
                     final choice = connection.choices[index];
+                    final subtitle = [
+                      if (choice.key.ownerId.isNotEmpty &&
+                          choice.key.ownerId != account.identity.accountId)
+                        'Сохранённый плейлист',
+                      if (choice.itemCount != null)
+                        choice.completedAt == null
+                            ? 'Позиций в плейлисте: ${choice.itemCount}'
+                            : 'Сохранённый состав: ${choice.itemCount} позиций',
+                    ].join('\n');
                     return CheckboxListTile(
                         contentPadding: EdgeInsets.zero,
                         value: choice.isSelected,
@@ -155,11 +164,7 @@ class _YandexSettingsState extends State<YandexSettings> {
                             : (value) => connection.select(choice.key, value!),
                         title: Text(choice.title,
                             maxLines: 2, overflow: TextOverflow.ellipsis),
-                        subtitle: choice.itemCount == null
-                            ? null
-                            : Text(choice.completedAt == null
-                                ? 'Позиций в плейлисте: ${choice.itemCount}'
-                                : 'Сохранённый состав: ${choice.itemCount} позиций'),
+                        subtitle: subtitle.isEmpty ? null : Text(subtitle),
                         controlAffinity: ListTileControlAffinity.leading);
                   },
                 )),

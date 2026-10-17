@@ -147,30 +147,51 @@ final class YandexLibraryClient implements YandexLibraryReader {
           {LibraryScanControl? control}) =>
       _run((token) async {
         final uid = _account(account);
-        final values =
-            _list(await _get(YandexReadRequest.playlists(uid), token));
-        if (values.length > _limits.maxPlaylists) _tooLarge();
-        final keys = <RemoteCollectionKey>{};
-        final descriptors = <YandexPlaylistDescriptor>[];
-        for (final value in values) {
-          token.throwIfCancelled();
-          final map = _map(value);
-          final owner = _owner(map);
-          if (owner != uid) {
-            throw const YandexLibraryException(
-                YandexLibraryFailure.accountMismatch);
+        final descriptors = <RemoteCollectionKey, YandexPlaylistDescriptor>{};
+        void append(Object? response, {required bool saved}) {
+          if (response is! List) {
+            _catalogueInvalid(YandexResponseIssue.catalogueList);
           }
-          final key = RemoteCollectionKey(
-              kind: RemoteCollectionKind.playlist,
-              ownerId: owner,
-              externalId: yandexNumericId(map['kind']));
-          if (!keys.add(key)) _invalid();
-          descriptors.add(YandexPlaylistDescriptor(
-              key: key,
-              title: _text(map['title']),
-              itemCount: _count(map['trackCount'])));
+          if (response.length > _limits.maxPlaylists) _tooLarge();
+          for (final value in response) {
+            token.throwIfCancelled();
+            if (value is! Map<String, dynamic>) {
+              _catalogueInvalid(YandexResponseIssue.playlistEntry);
+            }
+            if (saved && value['type'] != null && value['type'] != 'playlist') {
+              _catalogueInvalid(YandexResponseIssue.savedPlaylistEntry);
+            }
+            final Object? data = saved ? value['playlist'] : value;
+            if (data is! Map<String, dynamic>) {
+              _catalogueInvalid(YandexResponseIssue.savedPlaylistEntry);
+            }
+            final owner = _catalogueOwner(data, fallback: saved ? null : uid);
+            final kind =
+                _catalogueId(data['kind'], YandexResponseIssue.playlistId);
+            final key = RemoteCollectionKey(
+                kind: RemoteCollectionKind.playlist,
+                ownerId: owner,
+                externalId: kind);
+            // A repeated catalogue identity is one selectable resource. Ordered
+            // track positions are never deduplicated by this operation.
+            descriptors.putIfAbsent(
+                key,
+                () => YandexPlaylistDescriptor(
+                    key: key,
+                    title: _catalogueTitle(data['title']),
+                    itemCount: data['trackCount'] is int &&
+                            (data['trackCount'] as int) >= 0
+                        ? data['trackCount'] as int
+                        : null));
+            if (descriptors.length > _limits.maxPlaylists) _tooLarge();
+          }
         }
-        return List.unmodifiable(descriptors);
+
+        append(await _get(YandexReadRequest.playlists(uid), token),
+            saved: false);
+        append(await _get(YandexReadRequest.likedPlaylists(uid), token),
+            saved: true);
+        return List.unmodifiable(descriptors.values);
       }, control);
 
   @override
@@ -401,4 +422,54 @@ String _trackId(Object? value) {
     _invalid();
   }
   return text;
+}
+
+Never _catalogueInvalid(YandexResponseIssue issue) =>
+    throw YandexLibraryException(YandexLibraryFailure.invalidResponse,
+        responseIssue: issue);
+
+String _catalogueId(Object? value, YandexResponseIssue issue) {
+  try {
+    return yandexNumericId(value);
+  } on YandexLibraryException {
+    _catalogueInvalid(issue);
+  }
+}
+
+String _catalogueOwner(Map<String, dynamic> map, {String? fallback}) {
+  final owner = map['owner'];
+  if (owner != null && owner is! Map<String, dynamic>) {
+    _catalogueInvalid(YandexResponseIssue.playlistOwner);
+  }
+  final nested = owner == null ? null : (owner as Map<String, dynamic>)['uid'];
+  if (map['uid'] == null && nested == null) {
+    if (fallback != null) {
+      return fallback; // Explicit own-catalogue request scope.
+    }
+    _catalogueInvalid(YandexResponseIssue.playlistOwner);
+  }
+  final uid =
+      _catalogueId(map['uid'] ?? nested, YandexResponseIssue.playlistOwner);
+  if (nested != null &&
+      _catalogueId(nested, YandexResponseIssue.playlistOwner) != uid) {
+    _catalogueInvalid(YandexResponseIssue.conflictingOwner);
+  }
+  return uid;
+}
+
+String _catalogueTitle(Object? value) {
+  if (value is! String) return 'Плейлист без названия';
+  // Presentation only: bound work even when a remote name fills the whole body.
+  final preview = String.fromCharCodes(value.runes.take(2048));
+  final text = preview
+      .replaceAll(RegExp(r'[\x00-\x1f\x7f]'), ' ')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
+  if (text.isEmpty) return 'Плейлист без названия';
+  final bounded = StringBuffer();
+  for (final rune in text.runes) {
+    if (bounded.length + (rune > 0xffff ? 2 : 1) > 512) break;
+    bounded.writeCharCode(rune);
+  }
+  return bounded.toString();
 }
