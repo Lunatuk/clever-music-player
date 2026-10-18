@@ -337,7 +337,8 @@ final class _Backend implements AudioMetadataBackend {
       DownloadedAudioExpectation expected,
       LibraryScanControl control,
       {File? cover,
-      EmbeddedCoverFormat? coverFormat}) async {
+      EmbeddedCoverFormat? coverFormat,
+      int? maxOutputBytes}) async {
     writes++;
     await onWrite?.call(output, control);
     control.throwIfCancelled();

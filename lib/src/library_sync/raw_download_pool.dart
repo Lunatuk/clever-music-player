@@ -7,6 +7,7 @@ import 'package:path/path.dart' as p;
 import '../domain/models/audio_source_reference.dart';
 import '../library/library_scan_control.dart';
 import 'binary_download.dart';
+import 'download_workspace.dart';
 
 /// Shared admission for raw downloads, including delivered files still in use.
 /// No startup IO/recursive deletion. This is not the prepared/publication quota
@@ -14,6 +15,7 @@ import 'binary_download.dart';
 final class RawDownloadPool {
   RawDownloadPool(
       {required Directory parent,
+      this.workspace,
       this.maxReservedBytes = 512 * 1024 * 1024,
       this.maxFiles = 2})
       : _parent = parent.absolute {
@@ -25,6 +27,7 @@ final class RawDownloadPool {
     }
   }
   final Directory _parent;
+  final DownloadWorkspace? workspace;
   final int maxReservedBytes, maxFiles;
   int _reservedBytes = 0;
   final _reservations = <RawDownloadReservation>{};
@@ -44,7 +47,20 @@ final class RawDownloadPool {
         maxBytes > maxReservedBytes - _reservedBytes) {
       throw const BinaryDownloadException(BinaryDownloadFailure.quotaExceeded);
     }
-    final slot = RawDownloadReservation._(this, maxBytes);
+    final DownloadWorkspaceReservation? managed;
+    try {
+      managed = workspace?.reserve(DownloadWorkspaceStage.raw,
+          maxAudioBytes: maxBytes);
+    } on DownloadWorkspaceException catch (error) {
+      throw BinaryDownloadException(switch (error.failure) {
+        DownloadWorkspaceFailure.quotaExceeded =>
+          BinaryDownloadFailure.quotaExceeded,
+        DownloadWorkspaceFailure.closed => BinaryDownloadFailure.closed,
+        DownloadWorkspaceFailure.busy => BinaryDownloadFailure.busy,
+        _ => BinaryDownloadFailure.unsafePath,
+      });
+    }
+    final slot = RawDownloadReservation._(this, maxBytes, managed);
     _reservations.add(slot);
     _reservedBytes += maxBytes;
     return slot;
@@ -75,9 +91,10 @@ final class RawDownloadPool {
 
 /// A single generated file. The lease remains charged until cleanup succeeds.
 final class RawDownloadReservation {
-  RawDownloadReservation._(this._pool, this.maxBytes);
+  RawDownloadReservation._(this._pool, this.maxBytes, this._managed);
   final RawDownloadPool _pool;
   final int maxBytes;
+  final DownloadWorkspaceReservation? _managed;
   final _control = LibraryScanControl();
   Directory? _directory;
   File? _file;
@@ -145,13 +162,18 @@ final class RawDownloadReservation {
 
     try {
       _control.throwIfCancelled();
-      final root = await _pool._parent.resolveSymbolicLinks();
-      _control.throwIfCancelled();
-      if (await FileSystemEntity.type(root, followLinks: false) !=
-          FileSystemEntityType.directory) {
-        throw const BinaryDownloadException(BinaryDownloadFailure.unsafePath);
+      final Directory directory;
+      if (_managed != null) {
+        directory = await _managed.materialize();
+      } else {
+        final root = await _pool._parent.resolveSymbolicLinks();
+        _control.throwIfCancelled();
+        if (await FileSystemEntity.type(root, followLinks: false) !=
+            FileSystemEntityType.directory) {
+          throw const BinaryDownloadException(BinaryDownloadFailure.unsafePath);
+        }
+        directory = await Directory(root).createTemp('cmp_raw_download_');
       }
-      final directory = await Directory(root).createTemp('cmp_raw_download_');
       _directory = directory;
       _control.throwIfCancelled();
       _file = File(p.join(directory.path, 'audio.part'));
@@ -202,6 +224,15 @@ final class RawDownloadReservation {
       rethrow;
     } on LibraryScanCancelled {
       throw const BinaryDownloadException(BinaryDownloadFailure.cancelled);
+    } on DownloadWorkspaceException catch (error) {
+      throw BinaryDownloadException(switch (error.failure) {
+        DownloadWorkspaceFailure.quotaExceeded =>
+          BinaryDownloadFailure.quotaExceeded,
+        DownloadWorkspaceFailure.unsafePath ||
+        DownloadWorkspaceFailure.invalidJournal =>
+          BinaryDownloadFailure.unsafePath,
+        _ => BinaryDownloadFailure.storage,
+      });
     } on FileSystemException {
       throw const BinaryDownloadException(BinaryDownloadFailure.storage);
     } on TimeoutException {
@@ -241,7 +272,9 @@ final class RawDownloadReservation {
         // A failed write still owns its partial file.
       }
       final directory = _directory;
-      if (directory != null) {
+      if (_managed != null) {
+        await _managed.close();
+      } else if (directory != null) {
         if (await FileSystemEntity.type(directory.path, followLinks: false) !=
             FileSystemEntityType.directory) {
           throw const BinaryDownloadException(BinaryDownloadFailure.unsafePath);

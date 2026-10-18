@@ -147,7 +147,7 @@ DownloadedAudioExpectation downloadExpectation() => DownloadedAudioExpectation(
 
 /// Deterministic unit-test backend, deliberately not a decoder. Real codecs
 /// and the complete coordinator are also exercised with the bundled helper.
-final class DownloadTestBackend implements AudioMetadataBackend {
+base class DownloadTestBackend implements AudioMetadataBackend {
   Future<void> Function(LibraryScanControl)? onWrite;
   bool reject = false, closed = false;
   int writes = 0;
@@ -176,7 +176,8 @@ final class DownloadTestBackend implements AudioMetadataBackend {
       DownloadedAudioExpectation expected,
       LibraryScanControl control,
       {File? cover,
-      EmbeddedCoverFormat? coverFormat}) async {
+      EmbeddedCoverFormat? coverFormat,
+      int? maxOutputBytes}) async {
     writes++;
     await onWrite?.call(control);
     control.throwIfCancelled();

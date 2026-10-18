@@ -84,3 +84,7 @@ Android SAF writer/теги и macOS helper остаются платформе�
 реализованы для raw full audio с точным track/album/quality/codec. Encraw явно
 отклоняется. До UI остаются общий рабочий бюджет/учёт orphan raw, bounded cover
 download и session-bound runner. Прежние ограничения raw pool сохраняются.
+
+Обновление пакета 44: raw pool может использовать общий [DownloadWorkspace](download-workspace.md)
+с подготовкой/публикацией и persistent recovery. Без этой явной зависимости
+низкоуровневый pool сохраняет прежний отдельный бюджет; UI runner ещё не подключён.

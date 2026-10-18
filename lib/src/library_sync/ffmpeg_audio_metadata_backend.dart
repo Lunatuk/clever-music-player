@@ -115,7 +115,12 @@ final class FfmpegAudioMetadataBackend implements AudioMetadataBackend {
       DownloadedAudioExpectation expected,
       LibraryScanControl control,
       {File? cover,
-      EmbeddedCoverFormat? coverFormat}) async {
+      EmbeddedCoverFormat? coverFormat,
+      int? maxOutputBytes}) async {
+    if (maxOutputBytes != null &&
+        (maxOutputBytes <= 0 || maxOutputBytes > 8589934592)) {
+      throw ArgumentError('Некорректный предел подготовки.');
+    }
     if ((cover == null) != (coverFormat == null) ||
         source.absolute.path == output.absolute.path) {
       throw ArgumentError('Некорректное назначение метаданных.');
@@ -174,7 +179,7 @@ final class FfmpegAudioMetadataBackend implements AudioMetadataBackend {
         '+faststart',
       ],
       '-fs',
-      '8589934592',
+      '${maxOutputBytes ?? 8589934592}',
       '-f',
       switch (expected.container) {
         DownloadedAudioContainer.mp3 => 'mp3',

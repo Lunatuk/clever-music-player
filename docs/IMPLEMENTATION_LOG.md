@@ -3173,3 +3173,89 @@ format-final.log, native-windows-protocol.log, native-extracted-final.log, apk-*
 (с префиксом core43-), source-manifest/build-result/verify-result/package JSON.
 Артефакты дополнены checks/manual-checks/.sha256. Physical Android/macOS/remote CI
 и реальная авторизованная загрузка Яндекса не объявляются проверенными.
+
+
+## Пакет 44 — общий рабочий бюджет и восстановление (18 октября 2026)
+
+Пользователь: «давай дальше тогда». Добавлена DownloadWorkspace для явно
+собираемого desktop pipeline. RawDownloadPool, MetadataPreparer и PublicationStore
+могут использовать один reservation budget: по умолчанию 2 GiB данных/128 записей,
+JSON до 32 KiB на запись. Подготовка резервирует source + 32 MiB и файл обложки;
+публикация — проверенный размер копии. Неиспользованный предел удерживается до
+закрытия читателя, ошибка очистки не освобождает его фиктивно.
+
+Корень app-private, фиксированный owner marker и постоянный native OS lock.
+Синхронный допуск до raw HTTP; marker flush/move-no-replace до payload.
+Exclusive root ownership исключает другой процесс/алиас, а close ждёт принятых
+raw/prepared readers и дренирует IO. NativePublicationFiles переиспользован,
+новых зависимостей/схемы/разрешений нет. Согласованные orphan raw/prepared/cover
+чистятся при явном open/recover. Только известные обычные файлы и пустой каталог,
+без recursive delete и угадывания старых temp directories. Unknown/type/link/
+ID/version/size/JSON остаются; новый допуск блокируется до полного разбора.
+
+Publication copy не удаляется этим сервисом. Его reserve/ref сохраняется через
+перезапуск, пока под прежним resource lock не доказано отсутствие audio.part.
+Недоступный destination, занятый lock и неизвестный журнал удерживают квоту.
+Удаление copy по-прежнему разрешает прежняя DB-fenced retention; после неё
+recover освобождает общий резерв. Готовая перемещённая музыка, включая ещё не
+импортированную, остаётся на месте и не считается временной копией.
+
+Managed preparer задаёт FFmpeg -fs и повторно проверяет итоговый размер, полное
+аудио, packets/PCM, обложку и исходный hash. Обрезанный/слишком большой результат
+не импортируется. По контракту FFmpeg -fs может немного превышаться на mux/packet;
+это reservation/admission budget, не OS quota/строгий потолок пикового файла.
+Приватный publication root в journal не попадает в диагностику; ошибки/summary
+не включают URL, credentials, названия или сырые OS сообщения.
+
+На итоговой проверке закрыт крайний случай первой инициализации: поздняя отмена
+дренирует создание owner/operations до возврата, поэтому повтор не получает
+полусозданный корень. Повторная очистка старого владельца запрещена с начала
+shutdown. Отменённый/неполный recover сохраняет запрет нового допуска.
+
+**43 новых теста:** workspace30 (включая настоящий отдельный процесс), pipeline11,
+FFmpeg limit1, native budget rejection1. Профильный набор **241 passed**; полный
+**1855 passed, 117s**, с explicit Windows helper без skips. Analyzer clean,
+formatter283/0; native Windows payload fixture matched. Три прежних resolver
+MP3/M4A/FLAC pipelines теперь разделяют workspace с настоящими helper/cover/
+publication/SQLite; отдельные preview и слишком маленький output budget
+отклоняются. Всего девять native coordinator checks. Сохранены legacy pipelines.
+
+Проверены read lifetime/close/busy, общая квота разных pools и стадий, отказ
+Windows delete/retry, root aliases, pending marker/пустой каталог после crash,
+искажённый/слишком большой журнал/подмена типа, disabled/недоступный destination,
+OS resource lock и освобождение publication reserve после DB-authorized cleanup.
+Subprocess writer берёт production C lock и точные записи, сериализованные
+DownloadWorkspace; exit(73) пропускает cleanup. Настоящий сервис отказывает
+второму владельцу и очищает records после выхода, сохраняя музыку. Это не
+симуляция потери питания и не проверка всего приложения при force-stop.
+
+Контракт: [download-workspace.md](architecture/download-workspace.md).
+Схема13/pubspec/lock/native code прежние. Реальные профиль, БД, токен и музыка
+пользователя не читались/не менялись. UI/обычный запуск workspace не создают,
+дополнительных ручных проверок нет; можно пользоваться подтверждённой 41.
+Следом: bounded cover fetch, session-bound runner/кнопка/прогресс/отмена и малая
+живая проверка Яндекса. Android private lock/SAF/теги и macOS helper остаются
+платформенной квалификацией; расписание и новый подбор музыки отложены.
+
+
+Release44 compatibility builds: core44-20261018, 454 source SHA совпали.
+Обе сборки повторно скомпилированы с финальным исправлением отмены первого open.
+Android release/JVM15/lint0errors (6 прежних warnings), Windows release прошли.
+APK2044/target36: signer43, CRC/v2/zipalign/ELF16KiB/permissions/backup/icon проверены.
+Windows,41 files: PE x64, production NativeAssetsManifest, без test-only sidecar.
+21 helper file прежний;9 checks после extraction в Unicode/spaced путь с минимальным PATH.
+Codegen/schema13/pubspec/lock/native прежние, SHA sidecars43/44 сверены. Backend
+не включён в UI; release может tree-shake неиспользуемый код. Сборки проверяют
+совместимость, не включают автоматическое скачивание или startup очистку.
+
+- dist/clever-music-player-core-44-android-arm64.apk — 22102539 bytes, SHA-256 `711fd8503cc24c12b183a3d4bd06748ffee490903bd5c4f4adef740a1903b039`.
+
+- dist/clever-music-player-core-44-windows-x64.zip — 31517477 bytes, SHA-256 `4fee5d37bfdd9ca70ac6d8e677b8d334c562da5b2c1e73486dd4fb9de55f048d`.
+
+Логи .dart_tool/core44-targeted-final.log, full-tests-final.log, analyze-final.log,
+format-final.log, process-recovery.log, native-windows-protocol.log, native-extracted-final.log,
+apk-*.log (с префиксом core44-), source-manifest/build-result/verify-result/package JSON.
+Профильный/full прогон содержит реальный process test. Отдельный process-recovery.log
+сохранён для исходного набора29; финальный набор30 включает позднюю отмену open.
+Артефакты дополнены checks/manual-checks/.sha256. Physical Android/macOS/remote CI
+и реальная авторизованная загрузка Яндекса не объявляются проверенными.

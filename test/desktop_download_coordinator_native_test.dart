@@ -15,6 +15,7 @@ import 'package:clever_music_player/src/library_sync/yandex_http_transport.dart'
 import 'package:clever_music_player/src/library_sync/yandex_library_client.dart';
 import 'package:clever_music_player/src/library_sync/yandex_library_protocol.dart';
 import 'package:clever_music_player/src/library_sync/yandex_track_downloader.dart';
+import 'package:clever_music_player/src/library_sync/download_workspace.dart';
 import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
@@ -31,11 +32,20 @@ void main() {
       : false;
   late DownloadFixture f;
   late DesktopDownloadCoordinator coordinator;
+  DownloadWorkspace? workingSet;
   final fixtureRoot =
       p.join(Directory.current.path, 'test', 'fixtures', 'media_helper');
   Future<DownloadedAudioExpectation> configure(String format,
-      {bool persistent = false}) async {
+      {bool persistent = false,
+      bool managed = false,
+      int growth = 65536}) async {
     f = await DownloadFixture.open(persistent: persistent);
+    if (managed) {
+      workingSet = await DownloadWorkspace.open(
+          parent: f.root,
+          maxReservedBytes: 64 * 1024 * 1024,
+          preparedGrowthBytes: growth);
+    }
     final helper = BundledMediaHelper(directory: Directory(bundle!));
     final qualified = await helper.qualify();
     await helper.close();
@@ -44,9 +54,11 @@ void main() {
         jobs: f.repositories.downloadJobs,
         imports: f.repositories.downloadImports,
         retention: f.repositories.publicationRetention,
+        workspace: workingSet,
         clock: f.clock,
         preparer: DownloadedAudioMetadataPreparer(
             backend: qualified.createMetadataBackend(),
+            workspace: workingSet,
             clock: f.clock,
             temporaryParent: f.root),
         artworkCache: AppSupportArtworkCacheService(
@@ -79,6 +91,8 @@ void main() {
       EmbeddedCoverFormat.png);
   Future<void> close() async {
     await coordinator.close();
+    await workingSet?.close();
+    workingSet = null;
     await f.close();
   }
 
@@ -135,16 +149,18 @@ void main() {
       }
     }, skip: skip);
   }
-  for (final (format, durationMs) in [
-    ('mp3', 2000),
-    ('m4a', 2000),
-    ('flac', 2000),
-    ('flac', 180000)
+  for (final (format, durationMs, growth) in [
+    ('mp3', 2000, 65536),
+    ('m4a', 2000, 65536),
+    ('flac', 2000, 65536),
+    ('flac', 180000, 65536),
+    ('mp3', 2000, 0),
   ]) {
     test(
-        'Yandex resolver -> leased raw $format -> real helper/cover -> ${durationMs == 2000 ? 'atomic import' : 'preview rejection'}',
+        'Yandex resolver -> shared budget $format -> real helper/cover -> ${durationMs != 2000 ? 'preview rejection' : growth == 0 ? 'budget rejection' : 'atomic import'}',
         () async {
-      final fixtureExpected = await configure(format);
+      final fixtureExpected =
+          await configure(format, managed: true, growth: growth);
       final selection = format == 'flac'
           ? yandexFlacSelection
           : YandexAudioSelection.lossy(
@@ -160,7 +176,9 @@ void main() {
       server.selection = selection;
       server.metadata = yandexDownloadTrack(durationMs: durationMs);
       final pool = RawDownloadPool(
-          parent: f.root, maxReservedBytes: fixtureExpected.fileSizeBytes);
+          parent: f.root,
+          workspace: workingSet,
+          maxReservedBytes: fixtureExpected.fileSizeBytes);
       final reader = YandexLibraryClient(
           token: YandexAccessToken('synthetic-secret'),
           transport: YandexHttpTransport.loopbackForTesting(server.origin),
@@ -196,7 +214,7 @@ void main() {
         final result = await coordinator.processDownloadedFile(
             downloaded.job, downloaded.raw.source, expected,
             cover: await cover());
-        if (durationMs != 2000) {
+        if (durationMs != 2000 || growth == 0) {
           // A valid, fully received short audio file is not the full song.
           expect(result.outcome, DownloadCoordinationOutcome.failed);
           expect(await f.count('tracks'), 0);
@@ -206,6 +224,7 @@ void main() {
               DownloadJobState.failed);
           await downloaded.close();
           expect(pool.reservedBytes, 0);
+          expect(workingSet!.reservedBytes, 0);
           return;
         }
         expect(result.outcome, DownloadCoordinationOutcome.completed);
@@ -226,6 +245,7 @@ void main() {
             DownloadJobState.completed);
         await downloaded.close();
         expect(pool.reservedBytes, 0);
+        expect(workingSet!.reservedBytes, 0);
       } finally {
         await downloader.close();
         await downloaded?.close();

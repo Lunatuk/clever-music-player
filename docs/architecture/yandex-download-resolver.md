@@ -110,3 +110,7 @@ binding, прогресс/отмена и проверка реального а
 Проверка приватного API на fixtures не заменяет эту живую проверку. Android SAF
 publication/теги и macOS helper ещё отдельные платформенные работы. Расписание,
 переработка рекомендаций и новый дизайн остаются в согласованной очереди.
+
+Обновление пакета 44: [общий workspace budget и восстановление](download-workspace.md)
+реализованы для явно собранного desktop pipeline. До UI остаются bounded cover
+fetch, credential/session-bound runner и малая живая проверка API.

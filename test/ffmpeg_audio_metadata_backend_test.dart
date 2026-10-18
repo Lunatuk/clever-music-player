@@ -64,6 +64,20 @@ void main() {
         ]));
     expect(runner.arguments, isNot(contains('0:4')));
   });
+  test(
+      'workspace output ceiling is passed to FFmpeg instead of its legacy 8GiB ceiling',
+      () async {
+    await backend.writeMetadata(
+        source,
+        output,
+        _info(DownloadedAudioContainer.mp3),
+        _expected(DownloadedAudioContainer.mp3),
+        LibraryScanControl(),
+        maxOutputBytes: 12345);
+    final args = runner.arguments!;
+    expect(args[args.indexOf('-fs') + 1], '12345');
+    expect(args, isNot(contains('8589934592')));
+  });
   test('missing replacement retains precisely the existing attached picture',
       () async {
     await backend.writeMetadata(

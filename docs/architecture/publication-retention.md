@@ -98,3 +98,9 @@ transport runner должен управлять их ownership и общим б
 Яндекс adapter/credentials/«Мне нравится»/выбранные плейлисты/кнопка следуют далее.
 macOS helper qualification и native Android SAF writer остаются отдельными
 платформенными работами; desktop File API не используется для content URI.
+
+Обновление пакета 44: [DownloadWorkspace](download-workspace.md) дополнительно
+учитывает raw/prepared/cover и reservation publication. Он сохраняет общий
+резерв, пока audio.part существует, и не подменяет DB authority этой retention.
+Завершённая музыка не удаляется. Прежние неподтверждённые temp directories вне
+новой app-private области не угадываются и не очищаются автоматически.

@@ -7,6 +7,7 @@ import '../library/library_scan_control.dart';
 import 'downloaded_audio_metadata.dart';
 import 'downloaded_audio_validation.dart';
 import 'downloaded_audio_validator.dart';
+import 'download_workspace.dart';
 
 /// Preparation of an exclusively owned downloaded staging source, never an
 /// in-place metadata editor. Only the returned validated file may be published.
@@ -15,6 +16,7 @@ final class DownloadedAudioMetadataPreparer {
       {required AudioMetadataBackend backend,
       FileContentHashSession? hashSession,
       Directory? temporaryParent,
+      this.workspace,
       DateTime Function()? clock,
       Duration timeout = const Duration(minutes: 10)})
       : _backend = backend,
@@ -31,6 +33,7 @@ final class DownloadedAudioMetadataPreparer {
   final FileContentHashSession _hash;
   final Directory _temporaryParent;
   final Duration _timeout;
+  final DownloadWorkspace? workspace;
   late final DownloadedAudioValidator _validator;
   bool _closed = false;
   Completer<void>? _active;
@@ -85,6 +88,12 @@ final class DownloadedAudioMetadataPreparer {
       if (await input.length() != expected.fileSizeBytes) {
         throw const AudioValidationException(AudioValidationOutcome.changed);
       }
+      final outputLimit = workspace?.preparedLimit(expected.fileSizeBytes);
+      temporary = await AudioPreparationTemporary.create(_temporaryParent,
+          workspace: workspace,
+          maxAudioBytes: outputLimit,
+          maxCoverBytes: cover?.bytes.length ?? 0);
+      operation.throwIfCancelled();
       final before = await _hash.hashFileWithControl(input, control: operation);
       operation.throwIfCancelled();
       if (before.sizeBytes != expected.fileSizeBytes) {
@@ -108,7 +117,6 @@ final class DownloadedAudioMetadataPreparer {
           await _digest(input, original, AudioCopyDigest.packets, operation);
       final pcm =
           await _digest(input, original, AudioCopyDigest.decodedPcm, operation);
-      temporary = await AudioPreparationTemporary.create(_temporaryParent);
       operation.throwIfCancelled();
       final String? expectedCoverHash;
       if (cover != null) {
@@ -128,7 +136,8 @@ final class DownloadedAudioMetadataPreparer {
       await _backend.writeMetadata(
           input, temporary.audio, original, expected, operation,
           cover: cover == null ? null : temporary.cover,
-          coverFormat: cover?.format);
+          coverFormat: cover?.format,
+          maxOutputBytes: outputLimit);
       operation.throwIfCancelled();
       if (await FileSystemEntity.type(temporary.audio.path,
               followLinks: false) !=
@@ -139,6 +148,10 @@ final class DownloadedAudioMetadataPreparer {
       if (size <= 0 || size > 8 * 1024 * 1024 * 1024) {
         throw const AudioValidationException(
             AudioValidationOutcome.invalidAudio);
+      }
+      if (outputLimit != null && size > outputLimit) {
+        throw const DownloadWorkspaceException(
+            DownloadWorkspaceFailure.quotaExceeded);
       }
       final result = await _validator.validate(
           FileAudioSource(temporary.audio.path),
@@ -205,6 +218,8 @@ final class DownloadedAudioMetadataPreparer {
           : AudioValidationOutcome.cancelled);
     } on FileContentChangedException {
       throw const AudioValidationException(AudioValidationOutcome.changed);
+    } on DownloadWorkspaceException {
+      rethrow;
     } on AudioValidationException {
       if (operation.isCancellationRequested) {
         throw AudioValidationException(timedOut

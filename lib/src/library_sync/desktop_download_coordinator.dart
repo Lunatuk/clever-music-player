@@ -21,6 +21,7 @@ import 'downloaded_audio_metadata_preparer.dart';
 import 'downloaded_audio_validation.dart';
 import 'native_publication_files.dart';
 import 'publication_intent.dart';
+import 'download_workspace.dart';
 
 enum DownloadCoordinationOutcome {
   completed,
@@ -60,6 +61,7 @@ final class DesktopDownloadCoordinator {
       required ArtworkCacheService artworkCache,
       PublicationFiles files = const NativePublicationFiles(),
       PublicationRetentionPolicy? retentionPolicy,
+      this.workspace,
       DateTime Function()? clock,
       this.leaseFor = const Duration(seconds: 60),
       this.heartbeatEvery = const Duration(seconds: 20)})
@@ -71,7 +73,12 @@ final class DesktopDownloadCoordinator {
         _metadataReader = metadataReader,
         _artworkCache = artworkCache,
         _files = files,
-        _clock = clock ?? DateTime.now;
+        _clock = clock ?? DateTime.now {
+    if (preparer.workspace != workspace) {
+      throw ArgumentError(
+          'Подготовка и публикация должны разделять рабочий бюджет.');
+    }
+  }
   final DownloadJobRepository _jobs;
   final DownloadImportRepository _imports;
   final PublicationRetentionRepository _retention;
@@ -80,6 +87,7 @@ final class DesktopDownloadCoordinator {
   final MetadataReaderService _metadataReader;
   final ArtworkCacheService _artworkCache;
   final PublicationFiles _files;
+  final DownloadWorkspace? workspace;
   final DateTime Function() _clock;
   final Duration leaseFor, heartbeatEvery;
   bool _closed = false;
@@ -151,6 +159,7 @@ final class DesktopDownloadCoordinator {
         jobs: owner,
         files: _files,
         clock: _clock,
+        workspace: workspace,
         retentionPolicy: _retentionPolicy);
     final maintenance = DesktopPublicationMaintenance(
         repository: _retention,
@@ -408,6 +417,10 @@ final class DesktopDownloadCoordinator {
 }
 
 DownloadFailure _failure(Object error) => switch (error) {
+      DownloadWorkspaceException(
+        failure: DownloadWorkspaceFailure.quotaExceeded
+      ) =>
+        DownloadFailure.noSpace,
       PublicationException(reason: PublicationFailure.quotaExceeded) =>
         DownloadFailure.noSpace,
       AudioValidationException() => DownloadFailure.invalidMedia,

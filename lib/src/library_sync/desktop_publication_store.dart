@@ -13,6 +13,7 @@ import '../library/library_scan_control.dart';
 import 'native_publication_files.dart';
 import 'publication_intent.dart';
 import 'publication_journal.dart';
+import 'download_workspace.dart';
 
 /// No automatic startup work. One workspace, OS resource lock, drained close.
 final class DesktopPublicationStore {
@@ -20,6 +21,7 @@ final class DesktopPublicationStore {
       {required PublicationJobAccess jobs,
       PublicationFiles files = const NativePublicationFiles(),
       PublicationRetentionPolicy? retentionPolicy,
+      this.workspace,
       DateTime Function()? clock})
       : _jobs = jobs,
         _files = files,
@@ -29,6 +31,7 @@ final class DesktopPublicationStore {
   final PublicationFiles _files;
   final PublicationRetentionPolicy _retentionPolicy;
   final DateTime Function() _clock;
+  final DownloadWorkspace? workspace;
   bool _closed = false;
   LibraryScanControl? _control;
   Completer<void>? _active;
@@ -86,7 +89,7 @@ final class DesktopPublicationStore {
         await _file(lockFile.path);
         final lock = await _files.lock(lockFile.path);
         return workspace = PublicationWorkspace._(root, job, _jobs, _files,
-            _clock, operation, lock, _retentionPolicy);
+            _clock, operation, lock, _retentionPolicy, this.workspace);
       });
       final acquired = workspace;
       if (acquired == null) {
@@ -120,8 +123,16 @@ final class DesktopPublicationStore {
 }
 
 final class PublicationWorkspace {
-  PublicationWorkspace._(this.root, this.job, this._jobs, this._files,
-      this._clock, this.control, this._lock, this._retentionPolicy);
+  PublicationWorkspace._(
+      this.root,
+      this.job,
+      this._jobs,
+      this._files,
+      this._clock,
+      this.control,
+      this._lock,
+      this._retentionPolicy,
+      this._workspace);
   final String root;
   final DownloadJob job;
   final PublicationJobAccess _jobs;
@@ -130,6 +141,8 @@ final class PublicationWorkspace {
   final LibraryScanControl control;
   final PublicationFileLock _lock;
   final PublicationRetentionPolicy _retentionPolicy;
+  final DownloadWorkspace? _workspace;
+  DownloadWorkspaceReservation? _workingReservation;
   final String publicationId = _randomId();
   final FileContentHashSession _hash =
       const Sha256FileContentHasher().openSession();
@@ -170,10 +183,17 @@ final class PublicationWorkspace {
       _one(() async {
         control.throwIfCancelled();
         if (_started ||
+            _workingReservation != null ||
             expectedSize <= 0 ||
             expectedSize > 8 * 1024 * 1024 * 1024) {
           throw const PublicationException(PublicationFailure.invalidStaging);
         }
+        _workingReservation = _workspace?.reserve(
+            DownloadWorkspaceStage.publication,
+            maxAudioBytes: expectedSize,
+            publication: DownloadPublicationReference(
+                destinationRoot: root, operation: p.basename(_operation)));
+        await _workingReservation?.materialize();
         await _paths();
         await reservePublication(
             root,
@@ -483,8 +503,14 @@ final class PublicationWorkspace {
     _closed = true;
     control.cancel();
     await _operationDone?.future;
-    await Future.wait(
-        [Future<void>.sync(_hash.close), Future<void>.sync(_lock.close)]);
+    try {
+      await Future.wait(
+          [Future<void>.sync(_hash.close), Future<void>.sync(_lock.close)]);
+    } finally {
+      // Observe staging after releasing its resource lock; cleanup reacquires
+      // that lock and never deletes publication/final music itself.
+      await _workingReservation?.close();
+    }
   }
 }
 

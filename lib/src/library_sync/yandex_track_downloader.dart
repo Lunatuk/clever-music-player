@@ -226,7 +226,9 @@ DownloadFailure _jobFailure(Object error) => switch (error) {
           BinaryDownloadFailure.notFound => DownloadFailure.unavailable,
           BinaryDownloadFailure.rateLimited => DownloadFailure.rateLimited,
           BinaryDownloadFailure.quotaExceeded => DownloadFailure.noSpace,
-          BinaryDownloadFailure.storage => DownloadFailure.internalError,
+          BinaryDownloadFailure.storage ||
+          BinaryDownloadFailure.unsafePath =>
+            DownloadFailure.internalError,
           BinaryDownloadFailure.cancelled => DownloadFailure.cancelled,
           _ => DownloadFailure.network,
         },

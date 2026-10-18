@@ -5,6 +5,7 @@ import '../domain/models/downloaded_asset.dart';
 import '../library/library_scan_control.dart';
 import 'downloaded_audio_validation.dart';
 import 'downloaded_audio_validator.dart';
+import 'download_workspace.dart';
 
 enum EmbeddedCoverFormat { png, jpeg }
 
@@ -49,7 +50,8 @@ abstract interface class AudioMetadataBackend
       DownloadedAudioExpectation expected,
       LibraryScanControl control,
       {File? cover,
-      EmbeddedCoverFormat? coverFormat});
+      EmbeddedCoverFormat? coverFormat,
+      int? maxOutputBytes});
 }
 
 /// A validated private temporary file. The caller closes it after all reads /
@@ -76,21 +78,40 @@ final class PreparedDownloadedAudio {
 /// Only removes its two known generated files and the empty owned directory.
 /// No recursive deletion, scanning or cleanup of other temporary directories.
 final class AudioPreparationTemporary {
-  AudioPreparationTemporary._(this.directory);
+  AudioPreparationTemporary._(this.directory, [this._managed]);
   final Directory directory;
+  final DownloadWorkspaceReservation? _managed;
   File get audio =>
       File('${directory.path}${Platform.pathSeparator}audio.part');
   File get cover =>
       File('${directory.path}${Platform.pathSeparator}cover.part');
   Future<void>? _closing;
 
-  static Future<AudioPreparationTemporary> create(Directory parent) async =>
-      AudioPreparationTemporary._(
+  static Future<AudioPreparationTemporary> create(Directory parent,
+      {DownloadWorkspace? workspace,
+      int? maxAudioBytes,
+      int maxCoverBytes = 0}) async {
+    if (workspace == null) {
+      return AudioPreparationTemporary._(
           await parent.absolute.createTemp('cmp_audio_metadata_'));
+    }
+    final managed = workspace.reserve(DownloadWorkspaceStage.prepared,
+        maxAudioBytes: maxAudioBytes!, maxCoverBytes: maxCoverBytes);
+    try {
+      return AudioPreparationTemporary._(await managed.materialize(), managed);
+    } on Object {
+      await managed.close();
+      rethrow;
+    }
+  }
 
   Future<void> close() => _closing ??= _close();
   Future<void> _close() async {
     try {
+      if (_managed != null) {
+        await _managed.close();
+        return;
+      }
       if (await FileSystemEntity.type(directory.path, followLinks: false) !=
           FileSystemEntityType.directory) {
         throw const AudioValidationException(AudioValidationOutcome.unreadable);
@@ -107,7 +128,11 @@ final class AudioPreparationTemporary {
       }
       await directory.delete();
     } on FileSystemException {
+      _closing = null;
       throw const AudioValidationException(AudioValidationOutcome.unreadable);
+    } on Object {
+      _closing = null;
+      rethrow;
     }
   }
 }
