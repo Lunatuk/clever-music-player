@@ -1,5 +1,10 @@
+import 'dart:convert';
+
+import 'package:crypto/crypto.dart';
+
 import '../domain/models/remote_library.dart';
 import '../library/library_scan_control.dart';
+import 'yandex_audio_selection.dart';
 
 // Persisted diagnostic indices: append values; do not reorder existing entries.
 enum YandexLibraryFailure {
@@ -86,52 +91,79 @@ enum YandexReadEndpoint {
   playlists,
   likedTracks,
   playlist,
-  likedPlaylists
+  likedPlaylists,
+  track,
+  fileInfo,
 }
 
 /// Fixed read endpoints; no arbitrary authenticated URL or remote mutations.
 final class YandexReadRequest {
-  YandexReadRequest.account()
-      : endpoint = YandexReadEndpoint.account,
-        ownerId = null,
-        playlistId = null,
-        page = null,
-        pageSize = null;
-  YandexReadRequest.playlists(String uid)
-      : endpoint = YandexReadEndpoint.playlists,
-        ownerId = yandexNumericId(uid),
-        playlistId = null,
-        page = null,
-        pageSize = null;
-  YandexReadRequest.liked(String uid)
-      : endpoint = YandexReadEndpoint.likedTracks,
-        ownerId = yandexNumericId(uid),
-        playlistId = null,
-        page = null,
-        pageSize = null;
-  YandexReadRequest.likedPlaylists(String uid)
-      : endpoint = YandexReadEndpoint.likedPlaylists,
-        ownerId = yandexNumericId(uid),
-        playlistId = null,
-        page = null,
-        pageSize = null;
-  YandexReadRequest.playlist(String uid, String kind,
-      {this.page, this.pageSize})
-      : endpoint = YandexReadEndpoint.playlist,
-        ownerId = yandexNumericId(uid),
-        playlistId = yandexNumericId(kind) {
+  const YandexReadRequest._(this.endpoint,
+      {this.ownerId,
+      this.playlistId,
+      this.page,
+      this.pageSize,
+      this.trackKey,
+      this.selection,
+      this.timestamp});
+  factory YandexReadRequest.account() =>
+      const YandexReadRequest._(YandexReadEndpoint.account);
+  factory YandexReadRequest.playlists(String uid) =>
+      YandexReadRequest._(YandexReadEndpoint.playlists,
+          ownerId: yandexNumericId(uid));
+  factory YandexReadRequest.liked(String uid) =>
+      YandexReadRequest._(YandexReadEndpoint.likedTracks,
+          ownerId: yandexNumericId(uid));
+  factory YandexReadRequest.likedPlaylists(String uid) =>
+      YandexReadRequest._(YandexReadEndpoint.likedPlaylists,
+          ownerId: yandexNumericId(uid));
+  factory YandexReadRequest.playlist(String uid, String kind,
+      {int? page, int? pageSize}) {
     if ((page == null) != (pageSize == null) ||
         (page != null &&
-            (page! < 0 ||
-                page! > 100000 ||
+            (page < 0 ||
+                page > 100000 ||
                 pageSize! <= 0 ||
-                pageSize! > 100000))) {
+                pageSize > 100000))) {
       throw const YandexLibraryException(YandexLibraryFailure.invalidResponse);
     }
+    return YandexReadRequest._(YandexReadEndpoint.playlist,
+        ownerId: yandexNumericId(uid),
+        playlistId: yandexNumericId(kind),
+        page: page,
+        pageSize: pageSize);
+  }
+  factory YandexReadRequest.track(String id, {String album = ''}) =>
+      YandexReadRequest._(YandexReadEndpoint.track,
+          trackKey: yandexTrackKey(id, album));
+  factory YandexReadRequest.fileInfo(String id,
+      {String album = '',
+      required YandexAudioSelection selection,
+      required int timestamp}) {
+    if (timestamp <= 0 || timestamp > 9999999999) {
+      throw const YandexLibraryException(YandexLibraryFailure.invalidResponse);
+    }
+    return YandexReadRequest._(YandexReadEndpoint.fileInfo,
+        trackKey: yandexTrackKey(id, album),
+        selection: selection,
+        timestamp: timestamp);
   }
   final YandexReadEndpoint endpoint;
-  final String? ownerId, playlistId;
-  final int? page, pageSize;
+  final String? ownerId, playlistId, trackKey;
+  final int? page, pageSize, timestamp;
+  final YandexAudioSelection? selection;
+
+  // /tracks is a read-only form POST in the upstream SDK, never an arbitrary
+  // authenticated POST. Every other endpoint retains its previous GET.
+  bool get usesFormPost => endpoint == YandexReadEndpoint.track;
+  String? get formBody => usesFormPost
+      ? Uri(queryParameters: {'track-ids': trackKey!, 'with-positions': 'True'})
+          .query
+      : null;
+  String get clientHeader => endpoint == YandexReadEndpoint.fileInfo
+      ? 'YandexMusicDesktopAppWindows/5.95.0'
+      : 'YandexMusicAndroid/24023621';
+
   Uri get relativeUri => switch (endpoint) {
         YandexReadEndpoint.account => Uri(path: '/account/status'),
         YandexReadEndpoint.playlists =>
@@ -147,8 +179,35 @@ final class YandexReadRequest {
           }),
         YandexReadEndpoint.likedPlaylists =>
           Uri(path: '/users/$ownerId/likes/playlists'),
+        YandexReadEndpoint.track => Uri(path: '/tracks'),
+        YandexReadEndpoint.fileInfo =>
+          Uri(path: '/get-file-info', queryParameters: {
+            'ts': '$timestamp',
+            'trackId': trackKey!,
+            'quality': selection!.quality.name,
+            'codecs': selection!.encoding.apiKey,
+            'transports': 'raw',
+            'sign': _fileSignature(),
+          }),
       };
+
+  String _fileSignature() {
+    // Public desktop protocol constant, not the user's OAuth credential.
+    // Pinned upstream sign_request.py: base64 SHA-256, drop ONE '=' padding.
+    final message = '$timestamp$trackKey${selection!.quality.name}'
+        '${selection!.encoding.apiKey}raw';
+    final digest = Hmac(sha256, utf8.encode('kzqU4XhfCaY6B6JTHODeq5'))
+        .convert(utf8.encode(message));
+    final encoded = base64.encode(digest.bytes);
+    return encoded.substring(0, encoded.length - 1);
+  }
+
+  @override
+  String toString() => 'YandexReadRequest(${endpoint.name}, <redacted>)';
 }
+
+String yandexTrackKey(String id, String album) =>
+    '${yandexNumericId(id)}${album.isEmpty ? '' : ':${yandexNumericId(album)}'}';
 
 String yandexNumericId(Object? value) {
   final text = value is int && value > 0 ? '$value' : value;

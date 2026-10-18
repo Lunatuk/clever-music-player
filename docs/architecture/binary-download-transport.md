@@ -79,3 +79,8 @@ text в release-отчёте. События transfer started/completed/failed/c
 не объявляется завершением этих задач. После них подключается runner/UI.
 Android SAF writer/теги и macOS helper остаются платформенными шагами;
 расписание и новый алгоритм рекомендаций сейчас не включаются.
+
+Обновление пакета 43: [Yandex resolver и сетевой lease](yandex-download-resolver.md)
+реализованы для raw full audio с точным track/album/quality/codec. Encraw явно
+отклоняется. До UI остаются общий рабочий бюджет/учёт orphan raw, bounded cover
+download и session-bound runner. Прежние ограничения raw pool сохраняются.

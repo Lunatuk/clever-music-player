@@ -59,6 +59,9 @@ final class YandexTestTransport implements YandexApiTransport {
       YandexReadEndpoint.likedTracks => yandexLikes(),
       YandexReadEndpoint.playlist => yandexList(),
       YandexReadEndpoint.likedPlaylists => [],
+      YandexReadEndpoint.track ||
+      YandexReadEndpoint.fileInfo =>
+        throw StateError('Download fixture required.'),
     };
   }
 

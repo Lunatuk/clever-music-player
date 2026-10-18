@@ -5,6 +5,7 @@ import 'package:clever_music_player/src/diagnostics/diagnostics_service.dart';
 import 'package:clever_music_player/src/library/library_scan_control.dart';
 import 'package:clever_music_player/src/library_sync/yandex_http_transport.dart';
 import 'package:clever_music_player/src/library_sync/yandex_library_protocol.dart';
+import 'package:clever_music_player/src/library_sync/yandex_audio_selection.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'support/recording_diagnostics.dart';
 
@@ -76,6 +77,46 @@ void main() {
         isFalse);
     expect(
         diagnostics.entries.last.event, DiagnosticEvent.yandexRequestCompleted);
+  });
+  test('signed file-info and POST metadata retain numeric diagnostics only',
+      () async {
+    handler = (r) async {
+      await r.drain<void>();
+      r.response.headers.contentType = ContentType.json;
+      r.response.write(jsonEncode({
+        'result': {
+          'url': 'private-signed-url',
+          'title': 'private-title',
+          'key': 'private-key'
+        }
+      }));
+      await r.response.close();
+    };
+    final signed = YandexReadRequest.fileInfo('001',
+        album: '009',
+        selection: const YandexAudioSelection.losslessFlac(),
+        timestamp: 1700000000);
+    for (final request in [
+      YandexReadRequest.track('001', album: '009'),
+      signed
+    ]) {
+      await transport.get(
+          request, YandexAccessToken('synthetic-secret'), LibraryScanControl());
+      final fields = diagnostics.entries.last.fields;
+      expect(fields[DiagnosticField.remoteEndpoint], request.endpoint.index);
+      expect(fields.values.every((v) => v is num || v is bool), isTrue);
+    }
+    final report = diagnostics.entries.map((e) => e.fields).toString();
+    for (final forbidden in [
+      'synthetic-secret',
+      'private-signed-url',
+      'private-title',
+      'private-key',
+      '001:009',
+      signed.relativeUri.queryParameters['sign']!
+    ]) {
+      expect(report, isNot(contains(forbidden)));
+    }
   });
   test('401 proves probe reachability but rejects authenticated requests',
       () async {

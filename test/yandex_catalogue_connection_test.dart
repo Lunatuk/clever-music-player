@@ -143,6 +143,9 @@ void main() {
             ],
           YandexReadEndpoint.likedTracks => yandexLikes(),
           YandexReadEndpoint.playlist => yandexList(uid: r.ownerId),
+          YandexReadEndpoint.track ||
+          YandexReadEndpoint.fileInfo =>
+            throw StateError('Unexpected download request'),
         };
     await c.connect('synthetic-secret');
     expect(c.failure, isNull);

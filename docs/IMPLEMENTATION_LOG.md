@@ -3100,3 +3100,76 @@ format-final.log, native-windows-protocol.log, native-extracted-final.log, apk-*
 (все с префиксом core42-), source-manifest/build-result/verify-result/package JSON.
 Артефакты дополнены checks/manual-checks/.sha256. Physical Android/macOS/remote
 CI и реальная download-сессия Яндекса не объявляются проверенными.
+
+
+## Пакет 43 — вариант Яндекса и владение сетевой попыткой (18 октября 2026)
+
+Пользователь разрешил следующий этап: «давай». Реализованы YandexAudioSelection,
+YandexDownloadParser/Variant, отдельная capability YandexDownloadReader у прежнего
+клиента и YandexTrackDownloader. UI/обычный запуск ещё не создают downloader.
+
+Первичные исходники SDK закреплены на 9ca132e5c18a72aab779c1fc68c169380a9357d0;
+сверены metadata batch, file-info, HMAC и desktop header, модели Track/Album/
+FileDownloadInfo и upstream tests. Локальный YaDown 3.5.5 прочитан без запуска.
+Выбран поддерживаемый upstream raw transport; AES/encraw в этом пакете не
+реализован и не объявлен поддержанным. Токен/профиль/фонотека пользователя не
+читались. [Контракт, источники и границы](architecture/yandex-download-resolver.md).
+
+Метаданные читаются фиксированным form POST /tracks (это read-only endpoint
+upstream), затем подписанный GET /get-file-info. Прежние endpoints остаются
+GET/Android header. Для file-info — соответствующий desktop header и публичная
+константа HMAC; OAuth только на фиксированный API origin. Track:album и ведущие
+нули сохраняются. Три независимых Python HMAC-вектора проверяют подпись.
+
+Не принимаются подмена трека/альбома/realId, substituted/matchedTrack, неполные
+метаданные, неподходящий тип, недоступный трек, codec/quality fallback, encraw/key,
+preview/чужой CDN/redirect. Поддержаны standalone FLAC, MP3 и AAC-M4A. Для lossy
+порог объявленного и фактически измеренного битрейта задаётся явно, с разными
+job keys для разных политик. Нулевой size означает неизвестный размер согласно
+upstream raw примеру, положительный проверяется транспортом. Track.fileSize
+другого варианта не используется. Метаданные и список URL ограничены.
+
+Lease продлевается перед API и в течение сети. Проверяются текущий account в
+repository, job/account revision и профиль. Отзыв аккаунта/новая сессия/папка
+отменяют HTTP/IO. Финальный writer fence ловит отзыв до handoff даже без tick;
+после остановки/drain heartbeat передаются owned raw и последний job snapshot.
+Consumer закрывает raw после координатора. Ошибки/CAS/cleanup не усыновляют
+чужую попытку. Close downloader дренирует принятую работу и не удаляет уже
+выданный файл. Ранний cancel и поздний cancel при drain также учтены.
+
+Добавлено **85 тестов**: parser/request61, client8, leased downloader11, native
+pipeline4, diagnostics1. Профильный набор **194 passed** с прежними UI/network
+проверками. Полный набор **1812 passed, 97s**, без skips при явном Windows
+helper. Analyzer clean, formatter279/0, native Windows payload contract matched.
+Настоящие MP3/M4A/FLAC fixture проходят synthetic API/анонимный HTTP, helper,
+теги/обложку, публикацию и атомарные Track/ref/asset/job. Отдельный native test
+отклоняет валидное короткое аудио вместо полной песни без записей библиотеки.
+Проверены отмена/close/busy/timeout, отзыв во время resolver и перед EOF, живой
+heartbeat, отсутствие OAuth на CDN и подписей/названий/ключей в диагностике.
+
+Схема 13 и зависимости прежние. Дополнительных ручных проверок нет, можно
+оставаться на подтверждённой 41. Следом: общий бюджет/восстановление raw после
+crash, bounded обложки, затем runner с точным credential revision и кнопка.
+Реальный приватный API ещё требует малой живой проверки после подключения UI;
+fixtures не объявляются проверкой аккаунта. Android SAF/теги, macOS helper и
+расписание остаются отдельными шагами. Новый подбор музыки пока не меняется.
+
+
+Release43 compatibility builds: core43-20261018, 450 source SHA совпали.
+Android release/JVM15/lint0errors (6 прежних warnings), Windows release прошли.
+APK2043/target36: signer42, CRC/v2/zipalign/ELF16KiB/permissions/backup/icon проверены.
+Windows41 files: PE x64, production NativeAssetsManifest, без test-only sidecar.
+21 helper file прежний;9 checks после extraction в Unicode/spaced путь с минимальным PATH.
+Codegen/schema13/pubspec/lock/native прежние, SHA sidecars42/43 сверены. Backend
+ещё не включён в UI; release может tree-shake неиспользуемый код. Эти сборки
+проверяют совместимость, не включают скачивание аккаунта.
+
+- dist/clever-music-player-core-43-android-arm64.apk — 22102539 bytes, SHA-256 `1d4221fd8dfba94ec70b55c8aa067c2dd1e9b690dc63f9a516e3017d586f4b91`.
+
+- dist/clever-music-player-core-43-windows-x64.zip — 31517519 bytes, SHA-256 `77000e6d5129dfdfa3711c52a3645b107874553e274adb4c45175cb7b16f07b1`.
+
+Логи .dart_tool/core43-targeted-final.log, full-tests-final.log, analyze-final.log,
+format-final.log, native-windows-protocol.log, native-extracted-final.log, apk-*.log
+(с префиксом core43-), source-manifest/build-result/verify-result/package JSON.
+Артефакты дополнены checks/manual-checks/.sha256. Physical Android/macOS/remote CI
+и реальная авторизованная загрузка Яндекса не объявляются проверенными.

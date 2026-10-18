@@ -1,0 +1,137 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:clever_music_player/src/domain/models/external_track_ref.dart';
+import 'package:clever_music_player/src/library_sync/yandex_audio_selection.dart';
+
+final yandexDownloadIdentity = ExternalTrackIdentity(
+    provider: 'yandex_music', externalId: '001', variantKey: '009');
+const yandexFlacSelection = YandexAudioSelection.losslessFlac();
+final yandexMp3Selection = YandexAudioSelection.lossy(
+    quality: YandexFileQuality.hq,
+    encoding: YandexFileEncoding.mp3,
+    minimumDeclaredKbps: 128,
+    minimumMeasuredBitRate: 96000);
+
+List<Object?> yandexDownloadTrack(
+        {String id = '001', String album = '009', int durationMs = 3000}) =>
+    [
+      {
+        'id': id,
+        'realId': id,
+        'type': 'music',
+        'available': true,
+        'title': 'Provider title',
+        'durationMs': durationMs,
+        'artists': [
+          {'name': 'Artist'}
+        ],
+        'albums': [
+          {
+            'id': album,
+            'title': 'Album',
+            'genre': 'Rock',
+            'year': 2026,
+            'artists': [
+              {'name': 'Album artist'}
+            ],
+            'trackPosition': {'index': 2, 'volume': 1}
+          }
+        ],
+      }
+    ];
+
+Map<String, dynamic> yandexDownloadInfo(
+        {String url =
+            'https://media.strm.yandex.net/music-v2/raw/synthetic/flac',
+        YandexAudioSelection selection = yandexFlacSelection,
+        int? size}) =>
+    {
+      'downloadInfo': {
+        'trackId': '001:009',
+        'realId': '001',
+        'quality': selection.quality.name,
+        'codec': selection.encoding.apiKey,
+        'transport': 'raw',
+        'bitrate': selection.minimumDeclaredKbps ?? 0,
+        'url': url,
+        'urls': [url],
+        if (size != null) 'size': size,
+      }
+    };
+
+/// Real API+CDN loopback; synthetic credentials/data only. Distinct transports
+/// must keep OAuth on API requests even when test origins happen to coincide.
+final class YandexDownloadTestServer {
+  YandexDownloadTestServer._(this.server, this.source);
+  final HttpServer server;
+  final File source;
+  Uri get origin => Uri.parse('http://127.0.0.1:${server.port}');
+  String get audioUrl => '$origin/music-v2/raw/synthetic/audio';
+  final requests = <({
+    String path,
+    String method,
+    String body,
+    String? authorization,
+    String? client,
+    String? contentType,
+    Uri uri
+  })>[];
+  YandexAudioSelection selection = yandexFlacSelection;
+  List<Object?> metadata = yandexDownloadTrack();
+  Future<void> Function(HttpRequest)? onFileInfo;
+  Future<void> Function(HttpRequest)? onAudio;
+  Map<String, dynamic> Function(Map<String, dynamic>)? transformInfo;
+  static Future<YandexDownloadTestServer> open(File source) async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final result = YandexDownloadTestServer._(server, source);
+    server.listen((request) {
+      Future<void>.sync(() => result._handle(request))
+          .catchError((Object _) {});
+    });
+    return result;
+  }
+
+  Future<void> _handle(HttpRequest request) async {
+    final body = await utf8.decoder.bind(request).join();
+    requests.add((
+      path: request.uri.path,
+      method: request.method,
+      body: body,
+      authorization: request.headers.value('authorization'),
+      client: request.headers.value('x-yandex-music-client'),
+      contentType: request.headers.value('content-type'),
+      uri: request.uri
+    ));
+    if (request.uri.path == '/music-v2/raw/synthetic/audio') {
+      if (onAudio != null) return onAudio!(request);
+      request.response.headers.contentType = ContentType.binary;
+      request.response.contentLength = await source.length();
+      await request.response.addStream(source.openRead());
+      await request.response.close();
+      return;
+    }
+    request.response.headers.contentType = ContentType.json;
+    Object? result;
+    switch (request.uri.path) {
+      case '/account/status':
+        result = {
+          'account': {'uid': '101'}
+        };
+      case '/tracks':
+        result = metadata;
+      case '/get-file-info':
+        await onFileInfo?.call(request);
+        final value = yandexDownloadInfo(
+            url: audioUrl, selection: selection, size: await source.length());
+        result = transformInfo?.call(value) ?? value;
+      default:
+        request.response.statusCode = 404;
+    }
+    request.response.write(jsonEncode({'result': result}));
+    await request.response.close();
+  }
+
+  Future<void> close() => server.close(force: true);
+}

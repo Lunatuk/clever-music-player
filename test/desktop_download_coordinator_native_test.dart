@@ -9,12 +9,20 @@ import 'package:clever_music_player/src/library_sync/desktop_download_coordinato
 import 'package:clever_music_player/src/library_sync/downloaded_audio_metadata.dart';
 import 'package:clever_music_player/src/library_sync/downloaded_audio_metadata_preparer.dart';
 import 'package:clever_music_player/src/library_sync/downloaded_audio_validation.dart';
+import 'package:clever_music_player/src/library_sync/yandex_audio_selection.dart';
+import 'package:clever_music_player/src/library_sync/yandex_download_protocol.dart';
+import 'package:clever_music_player/src/library_sync/yandex_http_transport.dart';
+import 'package:clever_music_player/src/library_sync/yandex_library_client.dart';
+import 'package:clever_music_player/src/library_sync/yandex_library_protocol.dart';
+import 'package:clever_music_player/src/library_sync/yandex_track_downloader.dart';
 import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 
 import 'support/download_fixture.dart';
 import 'support/binary_download_fixture.dart';
+import 'support/yandex_download_fixture.dart';
+import 'support/yandex_fixture.dart';
 
 void main() {
   final bundle = Platform.environment['CMP_TEST_MEDIA_HELPER'];
@@ -122,6 +130,105 @@ void main() {
       } finally {
         await transport.close();
         await raw?.close();
+        await server.close();
+        await close();
+      }
+    }, skip: skip);
+  }
+  for (final (format, durationMs) in [
+    ('mp3', 2000),
+    ('m4a', 2000),
+    ('flac', 2000),
+    ('flac', 180000)
+  ]) {
+    test(
+        'Yandex resolver -> leased raw $format -> real helper/cover -> ${durationMs == 2000 ? 'atomic import' : 'preview rejection'}',
+        () async {
+      final fixtureExpected = await configure(format);
+      final selection = format == 'flac'
+          ? yandexFlacSelection
+          : YandexAudioSelection.lossy(
+              quality: YandexFileQuality.hq,
+              encoding: format == 'mp3'
+                  ? YandexFileEncoding.mp3
+                  : YandexFileEncoding.aacMp4,
+              minimumDeclaredKbps: 128,
+              minimumMeasuredBitRate: 96000);
+      f.account =
+          await f.repositories.remoteLibrary.activateAccount(yandexAccount);
+      final server = await YandexDownloadTestServer.open(f.raw);
+      server.selection = selection;
+      server.metadata = yandexDownloadTrack(durationMs: durationMs);
+      final pool = RawDownloadPool(
+          parent: f.root, maxReservedBytes: fixtureExpected.fileSizeBytes);
+      final reader = YandexLibraryClient(
+          token: YandexAccessToken('synthetic-secret'),
+          transport: YandexHttpTransport.loopbackForTesting(server.origin),
+          downloadParser:
+              YandexDownloadParser.loopbackForTesting(server.origin),
+          clock: f.clock);
+      final downloader = YandexTrackDownloader(
+          reader: reader,
+          transport: BinaryHttpDownloadTransport.loopbackForTesting(
+              server.origin,
+              pool: pool),
+          jobs: f.repositories.downloadJobs,
+          accounts: f.repositories.remoteLibrary,
+          clock: f.clock);
+      YandexDownloadedTrack? downloaded;
+      try {
+        await reader.verifyAccount();
+        await f.repositories.downloadJobs.enqueue(
+            f.account,
+            [
+              DownloadJobKey(
+                  libraryFolderId: f.folderId,
+                  identity: yandexDownloadIdentity,
+                  quality: selection.resourceQuality)
+            ],
+            now: f.now);
+        final job = (await f.repositories.downloadJobs
+            .claimNext(f.account, now: f.now))!;
+        downloaded = await downloader.download(job, f.account, selection,
+            maxBytes: fixtureExpected.fileSizeBytes);
+        final expected = downloaded.variant
+            .expectation(downloaded.raw.sizeBytes, requireCover: true);
+        final result = await coordinator.processDownloadedFile(
+            downloaded.job, downloaded.raw.source, expected,
+            cover: await cover());
+        if (durationMs != 2000) {
+          // A valid, fully received short audio file is not the full song.
+          expect(result.outcome, DownloadCoordinationOutcome.failed);
+          expect(await f.count('tracks'), 0);
+          expect(await f.count('downloaded_assets'), 0);
+          expect(await f.count('external_track_refs'), 0);
+          expect((await f.repositories.downloadJobs.findByKey(job.key))!.state,
+              DownloadJobState.failed);
+          await downloaded.close();
+          expect(pool.reservedBytes, 0);
+          return;
+        }
+        expect(result.outcome, DownloadCoordinationOutcome.completed);
+        expect(result.cleanupFailed, isFalse);
+        expect(result.imported!.track.title, expected.tags['title']);
+        expect(
+            result.imported!.track.albumArtist, expected.tags['album_artist']);
+        expect(result.imported!.asset.publication.identity,
+            yandexDownloadIdentity);
+        expect(result.imported!.asset.verification.actualQuality,
+            selection.resourceQuality);
+        expect(result.imported!.track.artworkHash,
+            sha256.convert((await cover()).bytes).toString());
+        expect(await f.count('tracks'), 1);
+        expect(await f.count('external_track_refs'), 1);
+        expect(await f.count('downloaded_assets'), 1);
+        expect((await f.repositories.downloadJobs.findByKey(job.key))!.state,
+            DownloadJobState.completed);
+        await downloaded.close();
+        expect(pool.reservedBytes, 0);
+      } finally {
+        await downloader.close();
+        await downloaded?.close();
         await server.close();
         await close();
       }

@@ -120,7 +120,8 @@ final class YandexHttpTransport
       final uri = _origin.replace(
           path: relative.path,
           queryParameters: relative.hasQuery ? relative.queryParameters : null);
-      pending = await client.getUrl(uri);
+      pending =
+          await client.openUrl(request.usesFormPost ? 'POST' : 'GET', uri);
       control.throwIfCancelled();
       pending.followRedirects = false;
       pending.maxRedirects = 0;
@@ -128,11 +129,18 @@ final class YandexHttpTransport
       pending.headers.set(HttpHeaders.acceptLanguageHeader, 'ru');
       pending.headers
           .set(HttpHeaders.userAgentHeader, 'CleverMusicPlayer/0.2.1');
-      pending.headers
-          .set('X-Yandex-Music-Client', 'YandexMusicAndroid/24023621');
+      pending.headers.set('X-Yandex-Music-Client', request.clientHeader);
       token?.authorize((value) =>
           pending!.headers.set(HttpHeaders.authorizationHeader, value));
       credentialAttached = token != null;
+      if (request.formBody case final body?) {
+        final bytes = utf8.encode(body);
+        pending.headers.contentType = ContentType(
+            'application', 'x-www-form-urlencoded',
+            charset: 'utf-8');
+        pending.contentLength = bytes.length;
+        pending.add(bytes);
+      }
       stage = YandexRequestStage.waitingForResponse;
       final response = await pending.close();
       status = response.statusCode;

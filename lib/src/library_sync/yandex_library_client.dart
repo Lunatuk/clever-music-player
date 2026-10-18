@@ -4,6 +4,8 @@ import 'dart:math';
 import '../domain/models/external_track_ref.dart';
 import '../domain/models/remote_library.dart';
 import '../library/library_scan_control.dart';
+import 'yandex_audio_selection.dart';
+import 'yandex_download_protocol.dart';
 import 'yandex_http_transport.dart';
 import 'yandex_library_protocol.dart';
 
@@ -30,19 +32,23 @@ final class YandexLibraryLimits {
 
 /// One credential session, one operation at a time. No startup work or writes
 /// to Yandex. Complete lists are observed twice before declaring a snapshot.
-final class YandexLibraryClient implements YandexLibraryReader {
+final class YandexLibraryClient
+    implements YandexLibraryReader, YandexDownloadReader {
   YandexLibraryClient(
       {required YandexAccessToken token,
       YandexApiTransport? transport,
       YandexLibraryLimits? limits,
+      YandexDownloadParser downloadParser = const YandexDownloadParser(),
       DateTime Function()? clock})
       : _token = token,
         _transport = transport ?? YandexHttpTransport(),
         _limits = limits ?? YandexLibraryLimits(),
+        _downloadParser = downloadParser,
         _clock = clock ?? DateTime.now;
   final YandexAccessToken _token;
   final YandexApiTransport _transport;
   final YandexLibraryLimits _limits;
+  final YandexDownloadParser _downloadParser;
   final DateTime Function() _clock;
   YandexAccountProfile? _profile;
   LibraryScanControl? _control;
@@ -80,7 +86,10 @@ final class YandexLibraryClient implements YandexLibraryReader {
         if (control.isCancellationRequested) {
           throw const YandexLibraryException(YandexLibraryFailure.cancelled);
         }
-        if (error is YandexLibraryException) rethrow;
+        if (error is YandexLibraryException ||
+            error is YandexDownloadException) {
+          rethrow;
+        }
         throw YandexLibraryException(error is FormatException ||
                 error is TypeError ||
                 error is ArgumentError
@@ -140,6 +149,32 @@ final class YandexLibraryClient implements YandexLibraryReader {
     }
     return yandexNumericId(expected.accountId);
   }
+
+  @override
+  Future<YandexDownloadVariant> resolveDownload(RemoteAccountIdentity account,
+          ExternalTrackIdentity identity, YandexAudioSelection selection,
+          {LibraryScanControl? control}) =>
+      _run((token) async {
+        _account(account);
+        if (identity.provider != 'yandex_music') {
+          throw const YandexDownloadException(
+              YandexDownloadFailure.identityMismatch);
+        }
+        final metadata = _downloadParser.metadata(
+            await _get(
+                YandexReadRequest.track(identity.externalId,
+                    album: identity.variantKey),
+                token),
+            identity);
+        final result = await _get(
+            YandexReadRequest.fileInfo(identity.externalId,
+                album: identity.variantKey,
+                selection: selection,
+                timestamp: _clock().toUtc().millisecondsSinceEpoch ~/ 1000),
+            token);
+        _account(account);
+        return _downloadParser.variant(result, account, metadata, selection);
+      }, control);
 
   @override
   Future<List<YandexPlaylistDescriptor>> listPlaylists(
