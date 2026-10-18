@@ -8,6 +8,7 @@ import 'binary_http_download_transport.dart';
 import 'downloaded_audio_validation.dart';
 import 'yandex_audio_selection.dart';
 import 'yandex_library_protocol.dart';
+import 'yandex_cover_address.dart';
 
 enum YandexDownloadFailure {
   unavailable,
@@ -37,11 +38,12 @@ abstract interface class YandexDownloadReader {
 
 final class YandexDownloadMetadata {
   YandexDownloadMetadata._(
-      this.identity, this.duration, Map<String, String> tags)
+      this.identity, this.duration, Map<String, String> tags, this.cover)
       : tags = Map.unmodifiable(tags);
   final ExternalTrackIdentity identity;
   final Duration duration;
   final Map<String, String> tags;
+  final YandexCoverAddress? cover;
   @override
   String toString() => 'YandexDownloadMetadata(<redacted>)';
 }
@@ -161,8 +163,15 @@ final class YandexDownloadParser {
             8192) {
       _fail(YandexDownloadFailure.invalidMetadata);
     }
+    final YandexCoverAddress? cover;
+    try {
+      cover = YandexCoverAddress.fromTemplate(data['coverUri'],
+          testOrigin: _testOrigin);
+    } on BinaryDownloadException {
+      _fail(YandexDownloadFailure.invalidAddress);
+    }
     return YandexDownloadMetadata._(
-        identity, Duration(milliseconds: duration), tags);
+        identity, Duration(milliseconds: duration), tags, cover);
   }
 
   YandexDownloadVariant variant(Object? value, RemoteAccountIdentity account,

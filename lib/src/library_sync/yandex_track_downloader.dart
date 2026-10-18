@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:io';
+import 'dart:typed_data';
 
 import '../domain/models/download_job.dart';
 import '../domain/models/remote_library.dart';
@@ -8,6 +10,9 @@ import '../library/library_scan_control.dart';
 import 'binary_download.dart';
 import 'binary_http_download_transport.dart';
 import 'download_lease_owner.dart';
+import 'downloaded_audio_metadata.dart';
+import 'downloaded_audio_validation.dart';
+import 'downloaded_cover_decoder.dart';
 import 'publication_intent.dart';
 import 'raw_download_pool.dart';
 import 'yandex_audio_selection.dart';
@@ -17,10 +22,13 @@ import 'yandex_library_protocol.dart';
 /// Transfer ownership of the raw file AND latest heartbeat snapshot together.
 /// The consumer closes this after all metadata/publishing readers finish.
 final class YandexDownloadedTrack {
-  const YandexDownloadedTrack._(this.job, this.variant, this.raw);
+  const YandexDownloadedTrack._(this.job, this.variant, this.raw, this.cover);
   final DownloadJob job;
   final YandexDownloadVariant variant;
   final RawDownloadedAudio raw;
+  final EmbeddedCover? cover;
+  DownloadedAudioExpectation get expectation =>
+      variant.expectation(raw.sizeBytes, requireCover: cover != null);
   Future<void> close() => raw.close();
 }
 
@@ -135,6 +143,8 @@ final class YandexTrackDownloader {
           control: control,
           onProgress: onProgress);
       control.throwIfCancelled();
+      final cover = await _downloadCover(variant, control);
+      control.throwIfCancelled();
       // A final writer fence catches session/folder revocation even if no
       // heartbeat tick occurred during this short transfer. No file IO in SQL.
       await owner.withOwnedDestination(owner.current,
@@ -143,7 +153,7 @@ final class YandexTrackDownloader {
       ownerStopped = true;
       control.throwIfCancelled();
       delivered = true;
-      return YandexDownloadedTrack._(owner.current, variant, raw);
+      return YandexDownloadedTrack._(owner.current, variant, raw, cover);
     } on Object catch (error) {
       final lost = owner.lost ||
           (error is PublicationException &&
@@ -176,6 +186,7 @@ final class YandexTrackDownloader {
       if (error is YandexDownloadException ||
           error is YandexLibraryException ||
           error is BinaryDownloadException ||
+          error is AudioValidationException ||
           error is PublicationException) {
         rethrow;
       }
@@ -185,6 +196,38 @@ final class YandexTrackDownloader {
       owner.lossControl.removeCancellationListener(control.cancel);
       external?.removeCancellationListener(control.cancel);
       if (!delivered) await raw?.close();
+    }
+  }
+
+  Future<EmbeddedCover?> _downloadCover(
+      YandexDownloadVariant variant, LibraryScanControl control) async {
+    final address = variant.metadata.cover;
+    if (address == null) return null;
+    final raw = await _transport.download(address.address,
+        maxBytes: maximumDownloadedCoverBytes,
+        content: BinaryDownloadContent.cover,
+        control: control);
+    try {
+      final bytes = BytesBuilder(copy: false);
+      // Bounded reads even if an external actor changes an owned staging file.
+      await for (final chunk in File(raw.source.path).openRead()) {
+        control.throwIfCancelled();
+        if (bytes.length + chunk.length > maximumDownloadedCoverBytes ||
+            bytes.length + chunk.length > raw.sizeBytes) {
+          throw const AudioValidationException(
+              AudioValidationOutcome.invalidCover);
+        }
+        bytes.add(chunk);
+      }
+      control.throwIfCancelled();
+      if (bytes.length != raw.sizeBytes) {
+        throw const AudioValidationException(
+            AudioValidationOutcome.invalidCover);
+      }
+      return await const DownloadedCoverDecoder()
+          .decode(bytes.takeBytes(), control: control);
+    } finally {
+      await raw.close();
     }
   }
 
@@ -203,6 +246,7 @@ final class YandexTrackDownloader {
 }
 
 DownloadFailure _jobFailure(Object error) => switch (error) {
+      AudioValidationException() => DownloadFailure.invalidMedia,
       YandexLibraryException(:final failure) => switch (failure) {
           YandexLibraryFailure.unauthorized => DownloadFailure.authorization,
           YandexLibraryFailure.accessDenied => DownloadFailure.accessDenied,

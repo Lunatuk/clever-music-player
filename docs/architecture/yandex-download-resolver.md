@@ -114,3 +114,7 @@ publication/теги и macOS helper ещё отдельные платформ�
 Обновление пакета 44: [общий workspace budget и восстановление](download-workspace.md)
 реализованы для явно собранного desktop pipeline. До UI остаются bounded cover
 fetch, credential/session-bound runner и малая живая проверка API.
+
+Обновление пакета 45: [bounded получение/декодирование и встраивание обложки](yandex-cover-download.md)
+включены в явный network pipeline. До пользовательской кнопки остаётся runner
+с актуальным credential revision и малая живая проверка выбранной коллекции.

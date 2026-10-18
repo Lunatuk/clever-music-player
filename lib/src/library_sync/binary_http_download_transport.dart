@@ -65,6 +65,11 @@ final class BinaryDownloadAddress {
 
 enum BinaryDownloadStage { connecting, waitingForResponse, receiving, flushing }
 
+/// Separate allowlists; admitting artwork must not broaden audio responses.
+enum BinaryDownloadContent { audio, cover }
+
+const maximumDownloadedCoverBytes = 2 * 1024 * 1024;
+
 /// Streams opaque bytes with backpressure into an owned bounded raw file.
 /// It does not authenticate, decrypt, tag, verify or publish audio. Dedicated
 /// clients never share credentials/cookies with the authenticated API client.
@@ -114,6 +119,7 @@ final class BinaryHttpDownloadTransport {
 
   Future<RawDownloadedAudio> download(BinaryDownloadAddress address,
       {required int maxBytes,
+      BinaryDownloadContent content = BinaryDownloadContent.audio,
       int? expectedBytes,
       LibraryScanControl? control,
       void Function(BinaryDownloadProgress)? onProgress}) {
@@ -129,7 +135,10 @@ final class BinaryHttpDownloadTransport {
           const BinaryDownloadException(BinaryDownloadFailure.invalidAddress));
     }
     if (maxBytes <= 0 ||
-        maxBytes > maximumRawDownloadBytes ||
+        maxBytes >
+            (content == BinaryDownloadContent.cover
+                ? maximumDownloadedCoverBytes
+                : maximumRawDownloadBytes) ||
         (expectedBytes != null &&
             (expectedBytes <= 0 || expectedBytes > maxBytes))) {
       return Future.error(
@@ -140,8 +149,8 @@ final class BinaryHttpDownloadTransport {
     final operation = accepted.future.whenComplete(() => _active = null);
     operation.ignore();
     _active = operation;
-    unawaited(Future<RawDownloadedAudio>.sync(() =>
-            _download(address, maxBytes, expectedBytes, control, onProgress))
+    unawaited(Future<RawDownloadedAudio>.sync(() => _download(
+            address, maxBytes, expectedBytes, content, control, onProgress))
         .then(accepted.complete, onError: accepted.completeError));
     return operation;
   }
@@ -150,6 +159,7 @@ final class BinaryHttpDownloadTransport {
       BinaryDownloadAddress address,
       int maxBytes,
       int? expected,
+      BinaryDownloadContent content,
       LibraryScanControl? external,
       void Function(BinaryDownloadProgress)? onProgress) async {
     final watch = Stopwatch()..start();
@@ -196,8 +206,11 @@ final class BinaryHttpDownloadTransport {
       control.throwIfCancelled();
       request.followRedirects = false;
       request.maxRedirects = 0;
-      request.headers
-          .set(HttpHeaders.acceptHeader, 'application/octet-stream, audio/*');
+      request.headers.set(
+          HttpHeaders.acceptHeader,
+          content == BinaryDownloadContent.cover
+              ? 'image/jpeg, image/png, application/octet-stream'
+              : 'application/octet-stream, audio/*');
       request.headers.set(HttpHeaders.acceptEncodingHeader, 'identity');
       request.headers
           .set(HttpHeaders.userAgentHeader, 'CleverMusicPlayer/0.2.1');
@@ -217,7 +230,7 @@ final class BinaryHttpDownloadTransport {
         });
       }
       final type = response.headers.contentType?.mimeType;
-      const types = {
+      const audioTypes = {
         'application/octet-stream',
         'audio/mpeg',
         'audio/mp3',
@@ -227,6 +240,13 @@ final class BinaryHttpDownloadTransport {
         'audio/flac',
         'audio/x-flac'
       };
+      const coverTypes = {
+        'image/jpeg',
+        'image/png',
+        'application/octet-stream'
+      };
+      final types =
+          content == BinaryDownloadContent.cover ? coverTypes : audioTypes;
       if ((type != null && !types.contains(type)) ||
           response.headers[HttpHeaders.contentRangeHeader] != null ||
           (response.headers[HttpHeaders.contentEncodingHeader] != null &&

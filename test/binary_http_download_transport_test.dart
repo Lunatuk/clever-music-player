@@ -110,6 +110,33 @@ void main() {
     expect(pool.reservedBytes, 32);
     expect(raw.source.path, isNot(contains('PRIVATE_SIGNED_LINK')));
   });
+  for (final type in ['image/png', 'image/jpeg']) {
+    test('audio profile continues rejecting $type after artwork support',
+        () async {
+      handler = (request) async {
+        request.response.headers.contentType = ContentType.parse(type);
+        request.response.add([0, 128, 255]);
+        await request.response.close();
+      };
+      await expectLater(
+          download(),
+          throwsA(isA<BinaryDownloadException>().having((e) => e.failure,
+              'failure', BinaryDownloadFailure.invalidResponse)));
+      expect(pool.reservedBytes, 0);
+    });
+  }
+  test('cover profile cannot raise its byte ceiling before HTTP or admission',
+      () async {
+    await expectLater(
+        transport.download(
+            BinaryDownloadAddress.loopbackForTesting('${getOrigin()}/cover'),
+            maxBytes: maximumDownloadedCoverBytes + 1,
+            content: BinaryDownloadContent.cover),
+        throwsA(isA<BinaryDownloadException>().having(
+            (e) => e.failure, 'failure', BinaryDownloadFailure.tooLarge)));
+    expect(requests, isEmpty);
+    expect(pool.reservedBytes, 0);
+  });
   test('server cookies are never reused for another download', () async {
     handler = (request) async {
       request.response.headers.add('set-cookie', 'PRIVATE=secret; Path=/');

@@ -3259,3 +3259,51 @@ apk-*.log (с префиксом core44-), source-manifest/build-result/verify-r
 сохранён для исходного набора29; финальный набор30 включает позднюю отмену open.
 Артефакты дополнены checks/manual-checks/.sha256. Physical Android/macOS/remote CI
 и реальная авторизованная загрузка Яндекса не объявляются проверенными.
+
+
+**18 октября 2026 — пакет 45: загрузка и встраивание обложки Яндекса**
+
+В backend добавлен фиксированный CDN template -> anonymous600x600 cover fetch,
+отдельный image MIME profile до2MiB, bounded PNG/JPEG decode и immutable cover
+в handoff вместе с raw/последним job snapshot/requireCover. Оба сетевых этапа
+под общим lease; final writer fence после картинки. Отсутствующая coverUri
+явна; при существующем адресе ошибки не становятся тихим пропуском картинки.
+Shared workspace считает оба raw slot; временная картинка закрывается после
+decode, подготовка отдельно резервирует её копию. Пик RAM ограничен входом/
+размерами1024 и1048576 pixels, но дисковый бюджет не является квотой RAM.
+PNG проверяется по chunk bounds/CRC/IEND, APNG отклоняется; JPEG требует EOI,
+оба формата проходят engine decode. Native ресурсы всегда освобождаются.
+Реальный helper затем проверяет встраивание, digest cover, пакеты/PCM и аудио.
+[Контракт, источники и ограничения](architecture/yandex-cover-download.md).
+
+Автопроверки:66 новых тестов (address23/decoder16/network24/binary-profile3),
+266 профильных и1921 общий прошли.9 real-helper coordinator cases сохранены:
+PNG по HTTP -> MP3/FLAC, JPEG -> M4A с точным cover hash и Track/ref/asset;
+preview и budget rejection без импорта. Ошибки MIME/HTTP/данных/квоты, отмена,
+смена сессии/аккаунта, отключение папки, timeout и final fence проверены.
+Первый прогон выявил HTTP400 stub после добавления Flutter image binding:
+интеграционные тесты явно восстанавливают настоящий loopback HttpClient.
+Это тестовая настройка; production transport не заменён. Финальные тесты
+без skips с явным CMP_TEST_MEDIA_HELPER, анализатор чист, формат288/0.
+Native Windows player payload fixture совпал, аудиобэкенд не менялся.
+
+Release45 compatibility builds: core45-20261018,459 source SHA совпали.
+Android release/JVM15/lint0errors (6 прежних warnings),Windows release прошли.
+APK2045/target36: signer44,CRC/v2/zipalign/ELF16KiB/permissions/backup/icon проверены.
+Windows41 files: PE x64,production NativeAssetsManifest,без test-only sidecar.
+21 helper file прежний;9 checks после extraction в Unicode/spaced путь с минимальным PATH.
+Codegen/schema13/pubspec/lock/native прежние,SHA sidecars44/45 сверены.
+Backend ещё не подключён к UI; release может tree-shake неиспользуемый код.
+Пользовательские музыка/БД/токен не использовались. Новых ручных проверок нет;
+можно оставаться на подтверждённой41. Далее session/credential-bound runner,
+ручная кнопка с прогрессом/отменой и малая живая проверка. Physical Android,
+Android private lock/SAF/теги,macOS и remote CI не объявляются проверенными.
+
+- dist/clever-music-player-core-45-android-arm64.apk — 22102539 bytes,SHA-256 `8730da0a4fda949af9665a7a27ca811e79de6a4fa6a92c12360c23f493c99feb`.
+
+- dist/clever-music-player-core-45-windows-x64.zip — 31517629 bytes,SHA-256 `c26ab9aa2bf8594dc34694cc976bb18c85af616a1324c2081f0908d7f3ef6d09`.
+
+Логи .dart_tool/core45-full-tests-final.log,targeted-final.log,analyze-final.log,
+format-final.log,native-windows-protocol.log,native-extracted-final.log,apk-*.log;
+source-manifest/build-result/verify-result/package JSON. APK/ZIP сопровождаются
+checks/manual-checks/.sha256. Живая авторизованная загрузка не проверялась.

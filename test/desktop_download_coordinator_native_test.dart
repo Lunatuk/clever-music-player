@@ -26,6 +26,9 @@ import 'support/yandex_download_fixture.dart';
 import 'support/yandex_fixture.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  HttpOverrides.global =
+      null; // Real loopback IO, not the widget HTTP 400 stub.
   final bundle = Platform.environment['CMP_TEST_MEDIA_HELPER'];
   final skip = !Platform.isWindows || bundle == null
       ? 'Requires explicit qualified Windows helper via CMP_TEST_MEDIA_HELPER.'
@@ -175,10 +178,14 @@ void main() {
       final server = await YandexDownloadTestServer.open(f.raw);
       server.selection = selection;
       server.metadata = yandexDownloadTrack(durationMs: durationMs);
+      (server.metadata.single as Map)['coverUri'] = yandexCoverTemplate;
+      server.cover = File(
+          p.join(fixtureRoot, format == 'm4a' ? 'cover.jpg' : 'cover.png'));
       final pool = RawDownloadPool(
           parent: f.root,
           workspace: workingSet,
-          maxReservedBytes: fixtureExpected.fileSizeBytes);
+          maxReservedBytes:
+              fixtureExpected.fileSizeBytes + maximumDownloadedCoverBytes);
       final reader = YandexLibraryClient(
           token: YandexAccessToken('synthetic-secret'),
           transport: YandexHttpTransport.loopbackForTesting(server.origin),
@@ -209,11 +216,16 @@ void main() {
             .claimNext(f.account, now: f.now))!;
         downloaded = await downloader.download(job, f.account, selection,
             maxBytes: fixtureExpected.fileSizeBytes);
-        final expected = downloaded.variant
-            .expectation(downloaded.raw.sizeBytes, requireCover: true);
+        final expected = downloaded.expectation;
+        expect(expected.requireCover, isTrue);
+        expect(downloaded.cover, isNotNull);
+        final artworkRequest = server.requests
+            .singleWhere((r) => r.path.startsWith('/get-music-content/'));
+        expect(artworkRequest.authorization, isNull);
+        expect(artworkRequest.path, endsWith('/600x600'));
         final result = await coordinator.processDownloadedFile(
             downloaded.job, downloaded.raw.source, expected,
-            cover: await cover());
+            cover: downloaded.cover);
         if (durationMs != 2000 || growth == 0) {
           // A valid, fully received short audio file is not the full song.
           expect(result.outcome, DownloadCoordinationOutcome.failed);
@@ -237,7 +249,7 @@ void main() {
         expect(result.imported!.asset.verification.actualQuality,
             selection.resourceQuality);
         expect(result.imported!.track.artworkHash,
-            sha256.convert((await cover()).bytes).toString());
+            sha256.convert(await server.cover!.readAsBytes()).toString());
         expect(await f.count('tracks'), 1);
         expect(await f.count('external_track_refs'), 1);
         expect(await f.count('downloaded_assets'), 1);

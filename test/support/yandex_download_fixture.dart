@@ -8,6 +8,8 @@ import 'package:clever_music_player/src/library_sync/yandex_audio_selection.dart
 final yandexDownloadIdentity = ExternalTrackIdentity(
     provider: 'yandex_music', externalId: '001', variantKey: '009');
 const yandexFlacSelection = YandexAudioSelection.losslessFlac();
+const yandexCoverTemplate =
+    'avatars.yandex.net/get-music-content/28589/synthetic.album-1/%%';
 final yandexMp3Selection = YandexAudioSelection.lossy(
     quality: YandexFileQuality.hq,
     encoding: YandexFileEncoding.mp3,
@@ -82,6 +84,8 @@ final class YandexDownloadTestServer {
   List<Object?> metadata = yandexDownloadTrack();
   Future<void> Function(HttpRequest)? onFileInfo;
   Future<void> Function(HttpRequest)? onAudio;
+  File? cover;
+  Future<void> Function(HttpRequest)? onCover;
   Map<String, dynamic> Function(Map<String, dynamic>)? transformInfo;
   static Future<YandexDownloadTestServer> open(File source) async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
@@ -104,6 +108,15 @@ final class YandexDownloadTestServer {
       contentType: request.headers.value('content-type'),
       uri: request.uri
     ));
+    if (request.uri.path.startsWith('/get-music-content/')) {
+      if (onCover != null) return onCover!(request);
+      request.response.headers.contentType =
+          ContentType('image', cover!.path.endsWith('.png') ? 'png' : 'jpeg');
+      request.response.contentLength = await cover!.length();
+      await request.response.addStream(cover!.openRead());
+      await request.response.close();
+      return;
+    }
     if (request.uri.path == '/music-v2/raw/synthetic/audio') {
       if (onAudio != null) return onAudio!(request);
       request.response.headers.contentType = ContentType.binary;
