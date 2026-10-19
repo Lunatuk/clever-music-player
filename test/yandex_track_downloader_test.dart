@@ -92,8 +92,8 @@ void main() {
       expect(info.method, 'GET');
       expect(info.client, 'YandexMusicDesktopAppWindows/5.95.0');
       expect(info.authorization, 'OAuth synthetic-secret');
-      expect(info.uri.queryParameters['trackId'], '001:009');
-      expect(info.uri.queryParameters['transports'], 'raw');
+      expect(info.uri.queryParameters['trackId'], '001');
+      expect(info.uri.queryParameters['transports'], 'encraw');
       final audio = server.requests.last;
       expect(audio.path, '/music-v2/raw/synthetic/audio');
       expect(audio.authorization, isNull);

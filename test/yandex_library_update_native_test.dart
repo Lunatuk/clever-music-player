@@ -32,9 +32,11 @@ void main() {
     await x.ready();
     x.tracks = [yandexTrack('001')];
     await x.updates.configure(
-        quality: format == 'flac'
-            ? YandexUpdateQuality.flac
-            : YandexUpdateQuality.mp3);
+        quality: switch (format) {
+      'flac' => YandexUpdateQuality.flac,
+      'm4a' => YandexUpdateQuality.m4a,
+      _ => YandexUpdateQuality.mp3,
+    });
     await File('test/fixtures/media_helper/tone.$format').copy(x.f.raw.path);
     server = await YandexDownloadTestServer.open(x.f.raw);
     server.selection = x.updates.quality.selection;
@@ -82,11 +84,19 @@ void main() {
     await workspace.close();
   }
 
-  for (final format in ['mp3', 'flac']) {
+  for (final format in ['mp3', 'flac', 'm4a']) {
     test(
         'fresh selection $format -> canonical plan -> real HTTP/helper/import -> repeat hash check skips download',
         () async {
       await configure(format);
+      server.encryptedKey = '000102030405060708090a0b0c0d0e0f';
+      if (format != 'flac') {
+        server.transformInfo = (value) {
+          (value['downloadInfo'] as Map)['quality'] = 'nq';
+          (value['downloadInfo'] as Map)['bitrate'] = 192;
+          return value;
+        };
+      }
       try {
         await x.updates.start();
         expect(x.updates.failure, isNull);
@@ -117,6 +127,7 @@ void main() {
       'cancelled real download can be retried explicitly from the update action',
       () async {
     await configure('flac');
+    server.encryptedKey = '000102030405060708090a0b0c0d0e0f';
     final entered = Completer<void>(), release = Completer<void>();
     try {
       server.onAudio = (request) async {
@@ -147,12 +158,31 @@ void main() {
       await close();
     }
   }, skip: skip);
-  test('HQ variant declared128 cannot silently satisfy the selected320 profile',
+  test('wrong encrypted payload cannot publish or import an audio file',
+      () async {
+    await configure('flac');
+    server.encryptedKey = '000102030405060708090a0b0c0d0e0f';
+    server.transformInfo = (value) {
+      (value['downloadInfo'] as Map)['key'] = '00' * 16;
+      return value;
+    };
+    try {
+      await x.updates.start();
+      expect(x.updates.failure, YandexUpdateFailure.download);
+      expect(x.updates.result!.completed, 0);
+      expect(await x.f.count('tracks'), 0);
+      expect(await x.f.count('downloaded_assets'), 0);
+      await released();
+    } finally {
+      await close();
+    }
+  }, skip: skip);
+  test('variant below128 kbps cannot satisfy the best-available profile',
       () async {
     await configure('mp3');
     try {
       server.transformInfo = (value) {
-        (value['downloadInfo'] as Map)['bitrate'] = 128;
+        (value['downloadInfo'] as Map)['bitrate'] = 127;
         return value;
       };
       await x.updates.start();

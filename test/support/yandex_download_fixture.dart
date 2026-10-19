@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:clever_music_player/src/domain/models/external_track_ref.dart';
 import 'package:clever_music_player/src/library_sync/yandex_audio_selection.dart';
+import 'package:clever_music_player/src/library_sync/yandex_audio_decoder.dart';
 
 final yandexDownloadIdentity = ExternalTrackIdentity(
     provider: 'yandex_music', externalId: '001', variantKey: '009');
@@ -70,7 +71,9 @@ final class YandexDownloadTestServer {
   final HttpServer server;
   final File source;
   Uri get origin => Uri.parse('http://127.0.0.1:${server.port}');
-  String get audioUrl => '$origin/music-v2/raw/synthetic/audio';
+  String? encryptedKey;
+  String get audioUrl =>
+      '$origin/music-v2/${encryptedKey == null ? 'raw' : 'crypt'}/synthetic/audio';
   final requests = <({
     String path,
     String method,
@@ -117,11 +120,14 @@ final class YandexDownloadTestServer {
       await request.response.close();
       return;
     }
-    if (request.uri.path == '/music-v2/raw/synthetic/audio') {
+    if (request.uri.path == Uri.parse(audioUrl).path) {
       if (onAudio != null) return onAudio!(request);
       request.response.headers.contentType = ContentType.binary;
       request.response.contentLength = await source.length();
-      await request.response.addStream(source.openRead());
+      final input = source.openRead();
+      await request.response.addStream(encryptedKey == null
+          ? input
+          : YandexAudioDecoder('encraw', encryptedKey).decode(input));
       await request.response.close();
       return;
     }
@@ -138,6 +144,10 @@ final class YandexDownloadTestServer {
         await onFileInfo?.call(request);
         final value = yandexDownloadInfo(
             url: audioUrl, selection: selection, size: await source.length());
+        if (encryptedKey != null) {
+          (value['downloadInfo'] as Map)['transport'] = 'encraw';
+          (value['downloadInfo'] as Map)['key'] = encryptedKey;
+        }
         result = transformInfo?.call(value) ?? value;
       default:
         request.response.statusCode = 404;

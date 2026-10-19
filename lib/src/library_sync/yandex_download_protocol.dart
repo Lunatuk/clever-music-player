@@ -7,6 +7,7 @@ import 'binary_download.dart';
 import 'binary_http_download_transport.dart';
 import 'downloaded_audio_validation.dart';
 import 'yandex_audio_selection.dart';
+import 'yandex_audio_decoder.dart';
 import 'yandex_library_protocol.dart';
 import 'yandex_cover_address.dart';
 
@@ -58,13 +59,17 @@ final class YandexDownloadMetadata {
 /// A variant is NOT proof that downloaded bytes contain the requested music.
 final class YandexDownloadVariant {
   const YandexDownloadVariant._(this.account, this.metadata, this.selection,
-      this.address, this.expectedBytes, this.declaredKbps);
+      this.address, this.expectedBytes, this.declaredKbps, this._decoder);
   final RemoteAccountIdentity account;
   final YandexDownloadMetadata metadata;
   final YandexAudioSelection selection;
   final BinaryDownloadAddress address;
   final int? expectedBytes;
   final int declaredKbps;
+  final YandexAudioDecoder _decoder;
+  Stream<List<int>> decodeBytes(Stream<List<int>> input,
+          {LibraryScanControl? control}) =>
+      _decoder.decode(input, control: control);
 
   DownloadedAudioExpectation expectation(int receivedBytes,
       {bool requireCover = false}) {
@@ -87,7 +92,7 @@ final class YandexDownloadVariant {
   String toString() => 'YandexDownloadVariant(<redacted>)';
 }
 
-/// Bounded provider parsing. Only Yandex's raw streaming domain is supported;
+/// Bounded provider parsing. Only Yandex's full-audio streaming domain is supported;
 /// changing the CDN/transport contract requires an explicit adapter update.
 final class YandexDownloadParser {
   const YandexDownloadParser() : _testOrigin = null;
@@ -189,11 +194,16 @@ final class YandexDownloadParser {
     if (data['realId'] != null) {
       _trackIdentity(data['realId'], metadata.identity, allowBare: true);
     }
-    if (data['transport'] != 'raw' || data['key'] != null) {
+    final YandexAudioDecoder decoder;
+    try {
+      decoder = YandexAudioDecoder(data['transport'] as String, data['key']);
+    } on Object {
       _fail(YandexDownloadFailure.unsupportedTransport);
     }
-    if (data['quality'] != selection.quality.name ||
-        data['codec'] != selection.encoding.apiKey) {
+    final qualityMatches = selection.quality == YandexFileQuality.lossless
+        ? data['quality'] == 'lossless'
+        : const {'hq', 'nq'}.contains(data['quality']);
+    if (!qualityMatches || data['codec'] != selection.encoding.apiKey) {
       _fail(YandexDownloadFailure.qualityMismatch);
     }
     final bitrate = data['bitrate'];
@@ -209,30 +219,34 @@ final class YandexDownloadParser {
     }
     final urls = data['urls'];
     if (urls is! List || urls.isEmpty || urls.length > 8) _fail();
-    final addresses = urls.map(_address).toList();
+    final addresses =
+        urls.map((url) => _address(url, decoder.isEncrypted)).toList();
     // Some providers only return urls; never choose an unlisted primary URL.
     final primary = data['url'];
-    final address = primary == null ? addresses.first : _address(primary);
+    final address = primary == null
+        ? addresses.first
+        : _address(primary, decoder.isEncrypted);
     if (primary != null && !urls.contains(primary)) {
       _fail(YandexDownloadFailure.invalidAddress);
     }
     return YandexDownloadVariant._(account, metadata, selection, address,
-        size is int && size > 0 ? size : null, bitrate);
+        size is int && size > 0 ? size : null, bitrate, decoder);
   }
 
-  BinaryDownloadAddress _address(Object? value) {
+  BinaryDownloadAddress _address(Object? value, bool encrypted) {
     try {
       if (value is! String || value.length > 16384) _fail();
       final uri = Uri.parse(value);
-      // The SDK contract is raw full audio. Preview/crypt/encraw URLs cannot be
-      // promoted to a complete song even if an erroneous response says 'raw'.
-      if (!uri.path.startsWith('/music-v2/raw/') ||
+      // Encrypted delivery requires a valid key and its dedicated path. A raw
+      // response cannot silently promote encrypted or preview bytes to audio.
+      if (!uri.path
+              .startsWith(encrypted ? '/music-v2/crypt/' : '/music-v2/raw/') ||
           uri.pathSegments.any((part) => {
                 '.',
                 '..',
                 'smart_preview',
                 'preview',
-                'crypt',
+                if (!encrypted) 'crypt',
                 'encraw'
               }.contains(part))) {
         _fail();

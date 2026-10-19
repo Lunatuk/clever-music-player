@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:clever_music_player/src/library_sync/yandex_download_runner.dart';
+import 'package:clever_music_player/src/app/clever_music_player_app.dart';
 import 'package:clever_music_player/src/library_sync/yandex_library_update_controller.dart';
 import 'package:clever_music_player/src/ui/yandex_settings.dart';
 import 'package:flutter/material.dart';
@@ -13,6 +14,25 @@ import 'package:flutter_test/flutter_test.dart';
 import 'support/library_update_fixture.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  setUpAll(() async {
+    if (Platform.environment['CMP_EXPORT_UI_QA'] == null ||
+        !Platform.isWindows) {
+      return;
+    }
+    final font = FontLoader('UIQA');
+    for (final file in ['segoeui.ttf', 'segoeuib.ttf']) {
+      font.addFont(File('C:/Windows/Fonts/$file')
+          .readAsBytes()
+          .then((v) => ByteData.sublistView(v)));
+    }
+    await font.load();
+    final icons = FontLoader('MaterialIcons')
+      ..addFont(File('build/unit_test_assets/fonts/MaterialIcons-Regular.otf')
+          .readAsBytes()
+          .then((v) => ByteData.sublistView(v)));
+    await icons.load();
+  });
   late LibraryUpdateFixture x;
   setUp(() async {
     x = await LibraryUpdateFixture.open();
@@ -45,10 +65,7 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     await tester.pumpWidget(MaterialApp(
-        theme: ThemeData(
-            brightness: Brightness.dark,
-            useMaterial3: true,
-            fontFamily: 'UIQA'),
+        theme: CleverMusicPlayerApp.createDarkTheme(fontFamily: 'UIQA'),
         home: Scaffold(
             body: MediaQuery(
                 data: MediaQueryData(
@@ -66,6 +83,22 @@ void main() {
   }
 
   Finder field(String id) => find.byKey(ValueKey('yandex-update-$id'));
+  Future<void> export(
+      WidgetTester tester, GlobalKey boundary, String name) async {
+    final directory = Platform.environment['CMP_EXPORT_UI_QA'];
+    if (directory == null) return;
+    await tester.runAsync(() async {
+      final render =
+          boundary.currentContext!.findRenderObject()! as RenderRepaintBoundary;
+      final image = await render.toImage(pixelRatio: 1);
+      final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+      image.dispose();
+      await Directory(directory).create(recursive: true);
+      await File('$directory/$name.png')
+          .writeAsBytes(bytes!.buffer.asUint8List());
+    });
+  }
+
   Future<void> tap(WidgetTester tester, Finder finder) async {
     await tester.ensureVisible(finder);
     await tester.pump();
@@ -95,11 +128,57 @@ void main() {
       (tester) async {
     await pump(tester);
     expect(field('folder'), findsOneWidget);
-    expect(find.text('MP3 · 320 кбит/с'), findsOneWidget);
+    expect(find.text('MP3 · до 320 кбит/с'), findsOneWidget);
     expect(find.text('3 трека'), findsOneWidget);
     expect(tester.widget<FilledButton>(field('start')).onPressed, isNotNull);
     expect(x.fakeRunner.calls, 0);
     expect(x.transport.requests, isEmpty);
+  });
+  testWidgets('empty folder label stays above its hint in the production theme',
+      (tester) async {
+    await tester.runAsync(() async {
+      await x.updates.close();
+      await x.f.repositories.settings.writeString(
+          YandexLibraryUpdateController.optionsKey,
+          '{"version":1,"folder":null,"quality":"mp3","limit":3}');
+      x.updates = x.newController();
+    });
+    final boundary = GlobalKey();
+    await pump(tester, boundary: boundary);
+    await tester.ensureVisible(field('folder'));
+    await tester.pumpAndSettle();
+    final label = tester.getRect(find.text('Папка для загрузок'));
+    final hint = tester.getRect(find.text('Выбрать'));
+    expect(label.bottom, lessThanOrEqualTo(hint.top));
+    final decoration = tester.widget<InputDecorator>(find.descendant(
+        of: field('folder'), matching: find.byType(InputDecorator)));
+    expect(decoration.decoration.floatingLabelBehavior,
+        FloatingLabelBehavior.always);
+    expect(tester.takeException(), isNull);
+    await export(tester, boundary, 'empty-folder');
+  });
+  testWidgets('M4A selection survives recreation and reaches the runner',
+      (tester) async {
+    await pump(tester);
+    await tap(
+        tester,
+        find.descendant(
+            of: field('quality'),
+            matching: find.byType(DropdownButton<YandexUpdateQuality>)));
+    await tester.pumpAndSettle();
+    await tester
+        .runAsync(() => tester.tap(find.text('M4A · AAC до 256 кбит/с').last));
+    await until(tester, () => x.updates.quality == YandexUpdateQuality.m4a);
+    await settle(tester);
+    await tester.runAsync(() async {
+      await x.updates.close();
+      x.updates = x.newController();
+    });
+    await pump(tester);
+    expect(x.updates.quality, YandexUpdateQuality.m4a);
+    await tap(tester, field('start'));
+    await settle(tester);
+    expect(x.fakeRunner.selection, YandexUpdateQuality.m4a.selection);
   });
   testWidgets(
       'quality and all-jobs selection persist through controller recreation',
@@ -134,7 +213,7 @@ void main() {
     await pump(tester);
     await chooseQuality(tester);
     expect(x.updates.quality, YandexUpdateQuality.mp3);
-    expect(find.text('MP3 · 320 кбит/с'), findsOneWidget);
+    expect(find.text('MP3 · до 320 кбит/с'), findsOneWidget);
     expect(find.text('FLAC · без потерь'), findsNothing);
     expect(field('error'), findsOneWidget);
   });
@@ -231,41 +310,13 @@ void main() {
     testWidgets(
         'options layout at $width pixels and text scale $scale has no overflow',
         (tester) async {
-      final export = Platform.environment['CMP_EXPORT_UI_QA'];
-      if (export != null && Platform.isWindows) {
-        await tester.runAsync(() async {
-          final loader = FontLoader('UIQA')
-            ..addFont(File('C:/Windows/Fonts/segoeui.ttf')
-                .readAsBytes()
-                .then((v) => ByteData.sublistView(v)));
-          await loader.load();
-          final icons = FontLoader('MaterialIcons')
-            ..addFont(
-                File('build/unit_test_assets/fonts/MaterialIcons-Regular.otf')
-                    .readAsBytes()
-                    .then((v) => ByteData.sublistView(v)));
-          await icons.load();
-        });
-      }
       final boundary = GlobalKey();
       await pump(tester, width: width, scale: scale, boundary: boundary);
       expect(tester.takeException(), isNull);
       await tester.ensureVisible(field('start'));
       await tester.pump();
       expect(tester.takeException(), isNull);
-      if (export != null) {
-        await tester.runAsync(() async {
-          final render = boundary.currentContext!.findRenderObject()!
-              as RenderRepaintBoundary;
-          final image = await render.toImage(pixelRatio: 1);
-          final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
-          image.dispose();
-          final directory = Directory(export);
-          await directory.create(recursive: true);
-          await File('${directory.path}/update-${width.toInt()}-$scale.png')
-              .writeAsBytes(bytes!.buffer.asUint8List());
-        });
-      }
+      await export(tester, boundary, 'update-${width.toInt()}-$scale');
     });
   }
 }

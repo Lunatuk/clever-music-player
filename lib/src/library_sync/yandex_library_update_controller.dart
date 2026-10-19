@@ -16,16 +16,21 @@ import 'yandex_audio_selection.dart';
 import 'yandex_connection_controller.dart';
 import 'yandex_download_runner.dart';
 
-enum YandexUpdateQuality { mp3, flac }
+enum YandexUpdateQuality { mp3, flac, m4a }
 
 extension YandexUpdateQualitySelection on YandexUpdateQuality {
   YandexAudioSelection get selection => switch (this) {
         YandexUpdateQuality.mp3 => YandexAudioSelection.lossy(
             quality: YandexFileQuality.hq,
             encoding: YandexFileEncoding.mp3,
-            minimumDeclaredKbps: 320,
-            minimumMeasuredBitRate: 256000),
+            minimumDeclaredKbps: 128,
+            minimumMeasuredBitRate: 96000),
         YandexUpdateQuality.flac => const YandexAudioSelection.losslessFlac(),
+        YandexUpdateQuality.m4a => YandexAudioSelection.lossy(
+            quality: YandexFileQuality.hq,
+            encoding: YandexFileEncoding.aacMp4,
+            minimumDeclaredKbps: 128,
+            minimumMeasuredBitRate: 96000),
       };
 }
 

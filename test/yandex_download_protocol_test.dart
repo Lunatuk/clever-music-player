@@ -20,18 +20,18 @@ void main() {
           (e) => e.failure, 'failure', reason ?? isA<YandexDownloadFailure>()));
 
   test(
-      'file-info signature matches independent Python HMAC vectors including album and zeroes',
+      'file-info signature matches independent Python HMAC vectors using bare ID and preserving zeroes',
       () {
     final cases = [
-      (yandexFlacSelection, 'VoUcRL1ZrwsO72Z8xd8RvRf8OTnoPNwQ2xQ8FV5L+bQ'),
-      (yandexMp3Selection, '7zjfCGEE5oNJYbIxrfvd+Mpi49phzk713ipOL51N1Ec'),
+      (yandexFlacSelection, 'aQt4SBTJesbqr9qeVLu/OHXg54xxyiqbT/2FdCh2TIw'),
+      (yandexMp3Selection, 'aHFHvL84oWq8Lv5Yc8YyI8AeaKNac4ctjcCaCdNpE+M'),
       (
         YandexAudioSelection.lossy(
             quality: YandexFileQuality.nq,
             encoding: YandexFileEncoding.aacMp4,
             minimumDeclaredKbps: 96,
             minimumMeasuredBitRate: 64000),
-        'UNTBMj5BZYxolm4T6bd+sL3T3UsbYKrJb2RydQruUNI'
+        'U8lbEl0tN6MgFHFRDpqeqsimPL8LEJE0YeZ8DeJOMV4'
       ),
     ];
     for (final (selection, expected) in cases) {
@@ -40,10 +40,10 @@ void main() {
       expect(request.relativeUri.path, '/get-file-info');
       expect(request.relativeUri.queryParameters, {
         'ts': '1700000000',
-        'trackId': '001:009',
+        'trackId': '001',
         'quality': selection.quality.name,
         'codecs': selection.encoding.apiKey,
-        'transports': 'raw',
+        'transports': 'encraw',
         'sign': expected,
       });
       expect(request.usesFormPost, isFalse);
@@ -187,6 +187,32 @@ void main() {
     (value['downloadInfo'] as Map)['bitrate'] = 127;
     expect(() => parse(value, selection: yandexMp3Selection),
         rejected(YandexDownloadFailure.qualityMismatch));
+  });
+  test('best available lossy profile accepts nq192 without claiming HQ320', () {
+    final value = yandexDownloadInfo(selection: yandexMp3Selection);
+    (value['downloadInfo'] as Map)['quality'] = 'nq';
+    (value['downloadInfo'] as Map)['bitrate'] = 192;
+    final variant = parse(value, selection: yandexMp3Selection);
+    expect(variant.declaredKbps, 192);
+    expect(variant.expectation(100).minimumBitRate, 96000);
+    expect(() => parse(value), rejected(YandexDownloadFailure.qualityMismatch));
+  });
+  test('raw delivery permits an empty optional key', () {
+    final value = yandexDownloadInfo();
+    (value['downloadInfo'] as Map)['key'] = '';
+    expect(parse(value), isA<YandexDownloadVariant>());
+  });
+  test('encraw requires a valid key and crypt path from the trusted CDN', () {
+    final value = yandexDownloadInfo(
+        url: 'https://media.strm.yandex.net/music-v2/crypt/synthetic/flac');
+    final info = value['downloadInfo'] as Map;
+    info['transport'] = 'encraw';
+    info['key'] = '000102030405060708090a0b0c0d0e0f';
+    final variant = parse(value);
+    expect(variant.toString(), isNot(contains(info['key'])));
+    info['url'] = 'https://media.strm.yandex.net/music-v2/raw/synthetic/flac';
+    info['urls'] = [info['url']];
+    expect(() => parse(value), rejected(YandexDownloadFailure.invalidAddress));
   });
   final variantMutations = <String, void Function(Map<String, dynamic>)>{
     'different track': (v) => v['trackId'] = '002',

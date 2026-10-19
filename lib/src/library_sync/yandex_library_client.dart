@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 
 import '../domain/models/external_track_ref.dart';
+import '../diagnostics/diagnostics_service.dart';
 import '../domain/models/remote_library.dart';
 import '../library/library_scan_control.dart';
 import 'yandex_audio_selection.dart';
@@ -39,6 +40,7 @@ final class YandexLibraryClient
       YandexApiTransport? transport,
       YandexLibraryLimits? limits,
       YandexDownloadParser downloadParser = const YandexDownloadParser(),
+      this.diagnostics = const NoopDiagnosticsService(),
       DateTime Function()? clock})
       : _token = token,
         _transport = transport ?? YandexHttpTransport(),
@@ -46,6 +48,7 @@ final class YandexLibraryClient
         _downloadParser = downloadParser,
         _clock = clock ?? DateTime.now;
   final YandexAccessToken _token;
+  final DiagnosticsService diagnostics;
   final YandexApiTransport _transport;
   final YandexLibraryLimits _limits;
   final YandexDownloadParser _downloadParser;
@@ -173,8 +176,52 @@ final class YandexLibraryClient
                 timestamp: _clock().toUtc().millisecondsSinceEpoch ~/ 1000),
             token);
         _account(account);
-        return _downloadParser.variant(result, account, metadata, selection);
+        final info = result is Map ? result['downloadInfo'] : null;
+        int known(List<String> choices, Object? value) =>
+            value is String ? choices.indexOf(value) : -1;
+        final fields = <DiagnosticField, Object?>{
+          DiagnosticField.requestedQuality: selection.quality.index,
+          DiagnosticField.requestedEncoding: selection.encoding.index,
+          if (info is Map) ...{
+            DiagnosticField.returnedQuality:
+                known(const ['lossless', 'hq', 'nq'], info['quality']),
+            DiagnosticField.returnedEncoding: known(const [
+              'flac',
+              'mp3',
+              'aac-mp4',
+              'flac-mp4',
+              'he-aac-mp4',
+              'aac',
+              'he-aac'
+            ], info['codec']),
+            DiagnosticField.returnedTransport:
+                known(const ['raw', 'encraw'], info['transport']),
+            if (info['bitrate'] is int &&
+                info['bitrate'] >= 0 &&
+                info['bitrate'] <= 10000)
+              DiagnosticField.returnedBitrate: info['bitrate'],
+          },
+        };
+        try {
+          final variant =
+              _downloadParser.variant(result, account, metadata, selection);
+          _recordDownload(DiagnosticEvent.yandexDownloadResolved, fields);
+          return variant;
+        } on YandexDownloadException catch (error) {
+          _recordDownload(DiagnosticEvent.yandexDownloadRejected, {
+            ...fields,
+            DiagnosticField.downloadFailure: error.failure.index
+          });
+          rethrow;
+        }
       }, control);
+
+  void _recordDownload(
+      DiagnosticEvent event, Map<DiagnosticField, Object?> fields) {
+    try {
+      diagnostics.record(event, fields: fields);
+    } on Object {/* Diagnostics cannot change download ownership or outcome. */}
+  }
 
   @override
   Future<List<YandexPlaylistDescriptor>> listPlaylists(

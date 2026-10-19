@@ -143,6 +143,7 @@ final class YandexTrackDownloader {
             YandexDownloadFailure.identityMismatch);
       }
       raw = await _transport.download(variant.address,
+          decodeBytes: (input) => variant.decodeBytes(input, control: control),
           maxBytes: maxBytes,
           expectedBytes: variant.expectedBytes,
           control: control,

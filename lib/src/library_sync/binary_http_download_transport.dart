@@ -122,6 +122,7 @@ final class BinaryHttpDownloadTransport {
       BinaryDownloadContent content = BinaryDownloadContent.audio,
       int? expectedBytes,
       LibraryScanControl? control,
+      Stream<List<int>> Function(Stream<List<int>>)? decodeBytes,
       void Function(BinaryDownloadProgress)? onProgress}) {
     if (_closed || _active != null) {
       return Future.error(BinaryDownloadException(
@@ -150,8 +151,13 @@ final class BinaryHttpDownloadTransport {
     operation.ignore();
     _active = operation;
     unawaited(Future<RawDownloadedAudio>.sync(() => _download(
-            address, maxBytes, expectedBytes, content, control, onProgress))
-        .then(accepted.complete, onError: accepted.completeError));
+        address,
+        maxBytes,
+        expectedBytes,
+        content,
+        control,
+        onProgress,
+        decodeBytes)).then(accepted.complete, onError: accepted.completeError));
     return operation;
   }
 
@@ -161,7 +167,8 @@ final class BinaryHttpDownloadTransport {
       int? expected,
       BinaryDownloadContent content,
       LibraryScanControl? external,
-      void Function(BinaryDownloadProgress)? onProgress) async {
+      void Function(BinaryDownloadProgress)? onProgress,
+      Stream<List<int>> Function(Stream<List<int>>)? decodeBytes) async {
     final watch = Stopwatch()..start();
     var stage = BinaryDownloadStage.connecting;
     int? status;
@@ -266,7 +273,9 @@ final class BinaryHttpDownloadTransport {
         throw const BinaryDownloadException(BinaryDownloadFailure.incomplete);
       }
       stage = BinaryDownloadStage.receiving;
-      final result = await reservation.write(response.timeout(idleTimeout),
+      final incoming = response.timeout(idleTimeout);
+      final result = await reservation.write(
+          decodeBytes?.call(incoming) ?? incoming,
           expectedBytes: expected ?? (length >= 0 ? length : null),
           control: control,
           onProgress: onProgress,

@@ -7,7 +7,16 @@ final class CleverMusicPlayerApp extends StatelessWidget {
   const CleverMusicPlayerApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => MaterialApp(
+        title: 'Умный музыкальный плеер',
+        debugShowCheckedModeBanner: false,
+        themeMode: ThemeMode.dark,
+        scrollBehavior: const _DesktopScrollBehavior(),
+        darkTheme: createDarkTheme(),
+        home: const HomeScreen(),
+      );
+
+  static ThemeData createDarkTheme({String? fontFamily}) {
     final colorScheme = ColorScheme.fromSeed(
       seedColor: const Color(0xff7c5cff),
       brightness: Brightness.dark,
@@ -31,121 +40,116 @@ final class CleverMusicPlayerApp extends StatelessWidget {
       borderRadius: BorderRadius.circular(18),
     );
 
-    return MaterialApp(
-      title: 'Умный музыкальный плеер',
-      debugShowCheckedModeBanner: false,
-      themeMode: ThemeMode.dark,
-      scrollBehavior: const _DesktopScrollBehavior(),
-      darkTheme: ThemeData(
-        colorScheme: colorScheme,
-        scaffoldBackgroundColor: colorScheme.surfaceContainerLowest,
-        useMaterial3: true,
-        appBarTheme: AppBarTheme(
-          backgroundColor: colorScheme.surfaceContainerLowest,
-          foregroundColor: colorScheme.onSurface,
-          elevation: 0,
-          centerTitle: false,
-          titleTextStyle: const TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.w700,
-          ),
+    return ThemeData(
+      fontFamily: fontFamily,
+      colorScheme: colorScheme,
+      scaffoldBackgroundColor: colorScheme.surfaceContainerLowest,
+      useMaterial3: true,
+      appBarTheme: AppBarTheme(
+        backgroundColor: colorScheme.surfaceContainerLowest,
+        foregroundColor: colorScheme.onSurface,
+        elevation: 0,
+        centerTitle: false,
+        titleTextStyle: const TextStyle(
+          fontSize: 18,
+          fontWeight: FontWeight.w700,
         ),
-        cardTheme: CardThemeData(
-          color: colorScheme.surfaceContainerLow,
-          elevation: 0,
-          margin: EdgeInsets.zero,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(24),
-            side: BorderSide(
-              color: colorScheme.outlineVariant.withValues(alpha: 0.35),
-            ),
-          ),
-        ),
-        dividerTheme: DividerThemeData(
-          color: colorScheme.outlineVariant.withValues(alpha: 0.45),
-          thickness: 1,
-          space: 1,
-        ),
-        filledButtonTheme: FilledButtonThemeData(
-          style: FilledButton.styleFrom(
-            shape: roundedRectangle,
-            textStyle: const TextStyle(fontWeight: FontWeight.w700),
-          ),
-        ),
-        outlinedButtonTheme: OutlinedButtonThemeData(
-          style: OutlinedButton.styleFrom(
-            foregroundColor: colorScheme.onSurface,
-            side: BorderSide(
-              color: colorScheme.outlineVariant.withValues(alpha: 0.7),
-            ),
-            shape: roundedRectangle,
-          ),
-        ),
-        textButtonTheme: TextButtonThemeData(
-          style: TextButton.styleFrom(
-            foregroundColor: colorScheme.tertiary,
-            shape: roundedRectangle,
-          ),
-        ),
-        chipTheme: ChipThemeData(
-          backgroundColor: colorScheme.surfaceContainerHigh,
-          selectedColor: colorScheme.primaryContainer,
-          disabledColor: colorScheme.surfaceContainer,
-          labelStyle: TextStyle(color: colorScheme.onSurface),
-          secondaryLabelStyle: TextStyle(color: colorScheme.onPrimaryContainer),
+      ),
+      cardTheme: CardThemeData(
+        color: colorScheme.surfaceContainerLow,
+        elevation: 0,
+        margin: EdgeInsets.zero,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(24),
           side: BorderSide(
-            color: colorScheme.outlineVariant.withValues(alpha: 0.45),
-          ),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(999),
-          ),
-        ),
-        iconButtonTheme: IconButtonThemeData(
-          style: IconButton.styleFrom(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-            ),
-          ),
-        ),
-        inputDecorationTheme: InputDecorationTheme(
-          filled: true,
-          fillColor: colorScheme.surfaceContainerHigh,
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(18),
-            borderSide: BorderSide.none,
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(18),
-            borderSide: BorderSide(
-              color: colorScheme.outlineVariant.withValues(alpha: 0.35),
-            ),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(18),
-            borderSide: BorderSide(color: colorScheme.primary, width: 1.4),
-          ),
-          isDense: true,
-        ),
-        sliderTheme: SliderThemeData(
-          activeTrackColor: colorScheme.primary,
-          inactiveTrackColor: colorScheme.outlineVariant,
-          thumbColor: colorScheme.primary,
-          overlayColor: colorScheme.primary.withValues(alpha: 0.15),
-        ),
-        switchTheme: SwitchThemeData(
-          thumbColor: WidgetStateProperty.resolveWith(
-            (states) => states.contains(WidgetState.selected)
-                ? colorScheme.onPrimary
-                : colorScheme.outline,
-          ),
-          trackColor: WidgetStateProperty.resolveWith(
-            (states) => states.contains(WidgetState.selected)
-                ? colorScheme.primary
-                : colorScheme.surfaceContainerHighest,
+            color: colorScheme.outlineVariant.withValues(alpha: 0.35),
           ),
         ),
       ),
-      home: const HomeScreen(),
+      dividerTheme: DividerThemeData(
+        color: colorScheme.outlineVariant.withValues(alpha: 0.45),
+        thickness: 1,
+        space: 1,
+      ),
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          shape: roundedRectangle,
+          textStyle:
+              TextStyle(fontFamily: fontFamily, fontWeight: FontWeight.w700),
+        ),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          foregroundColor: colorScheme.onSurface,
+          side: BorderSide(
+            color: colorScheme.outlineVariant.withValues(alpha: 0.7),
+          ),
+          shape: roundedRectangle,
+        ),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          foregroundColor: colorScheme.tertiary,
+          shape: roundedRectangle,
+        ),
+      ),
+      chipTheme: ChipThemeData(
+        backgroundColor: colorScheme.surfaceContainerHigh,
+        selectedColor: colorScheme.primaryContainer,
+        disabledColor: colorScheme.surfaceContainer,
+        labelStyle: TextStyle(color: colorScheme.onSurface),
+        secondaryLabelStyle: TextStyle(color: colorScheme.onPrimaryContainer),
+        side: BorderSide(
+          color: colorScheme.outlineVariant.withValues(alpha: 0.45),
+        ),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(999),
+        ),
+      ),
+      iconButtonTheme: IconButtonThemeData(
+        style: IconButton.styleFrom(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+        ),
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: colorScheme.surfaceContainerHigh,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(18),
+          borderSide: BorderSide.none,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(18),
+          borderSide: BorderSide(
+            color: colorScheme.outlineVariant.withValues(alpha: 0.35),
+          ),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(18),
+          borderSide: BorderSide(color: colorScheme.primary, width: 1.4),
+        ),
+        isDense: true,
+      ),
+      sliderTheme: SliderThemeData(
+        activeTrackColor: colorScheme.primary,
+        inactiveTrackColor: colorScheme.outlineVariant,
+        thumbColor: colorScheme.primary,
+        overlayColor: colorScheme.primary.withValues(alpha: 0.15),
+      ),
+      switchTheme: SwitchThemeData(
+        thumbColor: WidgetStateProperty.resolveWith(
+          (states) => states.contains(WidgetState.selected)
+              ? colorScheme.onPrimary
+              : colorScheme.outline,
+        ),
+        trackColor: WidgetStateProperty.resolveWith(
+          (states) => states.contains(WidgetState.selected)
+              ? colorScheme.primary
+              : colorScheme.surfaceContainerHighest,
+        ),
+      ),
     );
   }
 }

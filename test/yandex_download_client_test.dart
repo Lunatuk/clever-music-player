@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:clever_music_player/src/diagnostics/diagnostics_service.dart';
 
 import 'package:clever_music_player/src/domain/models/remote_library.dart';
 import 'package:clever_music_player/src/library/library_scan_control.dart';
@@ -35,6 +36,45 @@ void main() {
   Matcher failure(YandexLibraryFailure code) => throwsA(
       isA<YandexLibraryException>().having((e) => e.failure, 'failure', code));
 
+  test(
+      'resolved and rejected delivery diagnostics contain only fixed numeric fields',
+      () async {
+    await client.close();
+    final diagnostics = _DownloadDiagnostics();
+    client = YandexLibraryClient(
+        token: YandexAccessToken('synthetic-secret'),
+        transport: transport,
+        diagnostics: diagnostics);
+    await client.verifyAccount();
+    await resolve();
+    expect(diagnostics.events.last, DiagnosticEvent.yandexDownloadResolved);
+    expect(diagnostics.fields.last[DiagnosticField.returnedEncoding], 0);
+    transport.onGet =
+        (request, _) async => request.endpoint == YandexReadEndpoint.track
+            ? yandexDownloadTrack()
+            : {
+                'downloadInfo': {'quality': [], 'codec': 'PRIVATE_SECRET'}
+              };
+    await expectLater(resolve(), throwsA(isA<YandexDownloadException>()));
+    expect(diagnostics.events.last, DiagnosticEvent.yandexDownloadRejected);
+    expect(
+        diagnostics.fields
+            .every((entry) => entry.values.every((v) => v is num || v is bool)),
+        isTrue);
+    expect(diagnostics.fields.last[DiagnosticField.returnedEncoding], -1);
+  });
+  test('diagnostics failure cannot change a successful download capability',
+      () async {
+    await client.close();
+    final diagnostics = _DownloadDiagnostics()..fail = true;
+    client = YandexLibraryClient(
+        token: YandexAccessToken('synthetic-secret'),
+        transport: transport,
+        diagnostics: diagnostics);
+    await client.verifyAccount();
+    expect(await resolve(), isA<YandexDownloadVariant>());
+  });
+
   test('requires verified credential identity before requesting metadata',
       () async {
     await expectLater(resolve(), failure(YandexLibraryFailure.accountMismatch));
@@ -49,7 +89,7 @@ void main() {
       YandexReadEndpoint.fileInfo
     ]);
     final request = transport.requests.last;
-    expect(request.trackKey, '001:009');
+    expect(request.trackKey, '001');
     expect(request.relativeUri.queryParameters['ts'], '1700000000');
   });
   test('different expected account refuses before track request', () async {
@@ -158,4 +198,21 @@ void main() {
     await expectLater(resolve(), failure(YandexLibraryFailure.timeout));
     expect(drained, isTrue);
   });
+}
+
+class _DownloadDiagnostics implements DiagnosticsService {
+  bool fail = false;
+  final events = <DiagnosticEvent>[];
+  final fields = <Map<DiagnosticField, Object?>>[];
+  @override
+  void record(DiagnosticEvent event,
+      {Map<DiagnosticField, Object?> fields = const {}, Object? error}) {
+    if (fail) throw StateError('synthetic diagnostics failure');
+    events.add(event);
+    this.fields.add(Map.of(fields));
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw StateError('Unused diagnostic IO');
 }

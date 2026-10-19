@@ -76,6 +76,7 @@ final class YandexConnectionController extends ChangeNotifier {
         _readerFactory = readerFactory ??
             ((token) => YandexLibraryClient(
                 token: token,
+                diagnostics: diagnostics,
                 transport: YandexHttpTransport(diagnostics: diagnostics))),
         _probeFactory = probeFactory ??
             (() => YandexHttpTransport(diagnostics: diagnostics));

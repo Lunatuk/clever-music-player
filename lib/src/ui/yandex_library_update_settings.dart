@@ -74,10 +74,13 @@ class _YandexLibraryUpdateSettingsState
                     items: const [
                       DropdownMenuItem(
                           value: YandexUpdateQuality.mp3,
-                          child: Text('MP3 · 320 кбит/с')),
+                          child: Text('MP3 · до 320 кбит/с')),
                       DropdownMenuItem(
                           value: YandexUpdateQuality.flac,
-                          child: Text('FLAC · без потерь'))
+                          child: Text('FLAC · без потерь')),
+                      DropdownMenuItem(
+                          value: YandexUpdateQuality.m4a,
+                          child: Text('M4A · AAC до 256 кбит/с'))
                     ],
                     onChanged: busy
                         ? null
@@ -120,7 +123,7 @@ class _YandexLibraryUpdateSettingsState
               }),
               const SizedBox(height: 8),
               const Text(
-                  'Загрузятся новые треки из «Мне нравится» и выбранных плейлистов. Доступность качества зависит от трека и подписки.'),
+                  'Загрузятся новые треки из «Мне нравится» и выбранных плейлистов. MP3 и M4A — в лучшем доступном качестве; битрейт может быть ниже указанного максимума. FLAC — только без потерь. Доступность зависит от трека и подписки.'),
               CheckboxListTile(
                   key: const ValueKey('yandex-update-retry'),
                   contentPadding: EdgeInsets.zero,
@@ -197,6 +200,7 @@ class _Option<T> extends StatelessWidget {
       isEmpty: value == null,
       decoration: InputDecoration(
           labelText: label,
+          floatingLabelBehavior: FloatingLabelBehavior.always,
           border: const OutlineInputBorder(),
           enabled: onChanged != null),
       child: DropdownButtonHideUnderline(
@@ -251,7 +255,7 @@ String _failure(YandexLibraryUpdateController c) => switch (c.failure) {
           ? 'Обновление остановлено: не удалось очистить временные файлы. Проверь доступ к диску и повтори действие.'
           : switch (c.result?.jobFailure) {
               DownloadFailure.unavailable =>
-                'Трек недоступен в выбранном качестве. Можно выбрать другое качество и повторить обновление.',
+                'Яндекс не выдал трек в выбранном формате или качестве. Для FLAC попробуй MP3 или M4A; конвертация в FLAC не улучшит исходное качество.',
               DownloadFailure.noSpace =>
                 'Недостаточно места или рабочего резерва для загрузки. Освободи место и повтори действие.',
               DownloadFailure.authorization ||

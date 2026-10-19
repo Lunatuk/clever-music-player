@@ -98,6 +98,7 @@ final class AppDependencies {
                 jobs: repositories.downloadJobs,
                 readerFactory: (token) => YandexLibraryClient(
                     token: token,
+                    diagnostics: diagnostics,
                     transport: YandexHttpTransport(diagnostics: diagnostics)),
                 pipelineFactory: (reader, control) async {
                   control.throwIfCancelled();

@@ -3409,3 +3409,65 @@ architecture/yandex-library-update-ui.md; чек-лист: MANUAL_CHECKS.md.
 format-final.log,native-windows-protocol.log,native-extracted-final.log,apk-*.log;
 source-manifest/build-result/verify-result/package JSON,ui-qa PNG. Артефакты
 сопровождаются checks/manual-checks/.sha256. Живая авторизованная загрузка не проверялась.
+
+
+**19 октября 2026 — пакет 48: доступное качество, encraw, M4A и подпись папки**
+
+По отчёту пользователя HTTP200 на метаданные/get-file-info завершался
+DownloadFailure.unavailable до binary HTTP. Живая ограниченная проверка
+одного уже выбранного задания подтвердила NQ192 вместо HQ320/lossless;
+saved account совпадает, hasPlus положителен. MP3/M4A теперь явно используют
+лучшее доступное HQ/NQ с declared floor128/measured96000 и честными максимумами.
+FLAC остаётся только lossless. Добавлен M4A; error UI различает недоступный
+формат, вместо обещания исправить его VPN или перекодированием.
+
+Поддержана encraw-доставка как в SDK/YaDown: bare file ID, прежний desktop
+header/sign key, новая подпись encraw. YandexAudioDecoder (PointyCastle4.0.0)
+выполняет AES-CTR counter0/zero IV блоками16KiB с отменой/event-loop yield.
+Состояние сохраняется между неполными HTTP-чанками и сбрасывается для нового
+потока. Байты входят в прежнюю reservation без второй копии/целой песни
+в памяти; длина, quota/deadline/backpressure/ownership и helper verification
+сохранены. Encraw допускается только с валидным hex key и crypt path на
+проверенном CDN. Raw с пустым key поддержан; неизвестные варианты отклоняются.
+Ключи/подписанные URL не записываются в SQLite/settings/диагностику.
+Новые resolved/rejected events сохраняют только числовые параметры/коды.
+
+Label пустой папки всегда плавающий. Production theme вынесена в общий
+factory для UI-тестов, без смены дизайна. Геометрический тест исключает
+пересечение label/hint; осмотрены пустая папка,360/1200 и text scale2.
+
+24 новые проверки: decoder15,protocol3,diagnostics2,widgets2,native2.
+Профильные258 и полный2041 прошли без skips с настоящим Windows helper;
+analyzer чист, формат339/0. Независимые OpenSSL vectors128/192/256 проверяют
+CTR/фрагментацию/reset/cancel. Настоящие synthetic encraw MP3/M4A/FLAC pipelines
+проверяют теги/обложку/импорт, NQ192, повтор, отмену/повтор и wrong-key отказ.
+Windows native audio protocol fixture совпал.
+
+Выполнены две живые загрузки одного выбранного трека: MP3 2813074 bytes,
+192000 bit/s, и M4A 2910188 bytes,AAC195489 bit/s. Qualified FFprobe и полный
+FFmpeg decode прошли; временные папки удалены. Saved credential читался через
+штатный DPAPI backend без legacy migration, выбранный ID — из read-only SQLite.
+Библиотека/выбор/защищённое подключение не изменялись. Токены, ключи, URL,
+тела ответов и названия не выводились/не сохранялись; только числовые флаги.
+Эти приватные probes находятся в ignored .dart_tool и не попадают в git/сборки.
+Для проверенного трека FLAC сервер не выдал. Живой UI-импорт ещё подтверждает
+пользователь; нельзя объявлять весь private API/каталог проверенным.
+
+Release48:473 source SHA совпали в workspace/build, codegen/schema13/native
+прежние; pubspec/lock намеренно добавляют PointyCastle4.0.0. Android release,
+JVM15/lint0errors/6прежних warnings; APK2048/target36/signer47/v2/CRC/zipalign/
+ELF16KiB/permissions/media service/icon проверены. Windows41 files,PE x64,
+production NativeAssetsManifest,без test-only sidecar; helper21 files прежние,
+9 checks после Unicode/spaced extraction/minimal PATH. Android download/SAF,
+macOS/physical devices/remote CI остаются неквалифицированными.
+Контракт:architecture/yandex-download-delivery.md; точечный чек-лист:MANUAL_CHECKS.md.
+
+- dist/clever-music-player-core-48-android-arm64.apk — 22823691 bytes, SHA-256 `f72c8d9e498f57e3a98a13bb1253265e1b444d4e8409fdcf0f3bfe08e55f3f27`.
+
+- dist/clever-music-player-core-48-windows-x64.zip — 31766561 bytes, SHA-256 `f1b5b4bdb9c9688d2d1d948262add807a7a6fea5e7ff5a76d21006f448f55790`.
+
+Логи .dart_tool/core48-full-tests-final.log,targeted-final.log,analyze-final.log,
+format-final.log,native-windows-protocol.log,native-extracted-final.log,apk-*.log;
+source-manifest/build-result/verify-result/package JSON,ui-qa PNG. Живые проверки:
+core48-live-probe*.log,core48-live-shape.json,core48-live-download.json,core48-live-m4a.json.
+Артефакты сопровождаются checks/manual-checks/.sha256.

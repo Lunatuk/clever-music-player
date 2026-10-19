@@ -143,8 +143,9 @@ final class YandexReadRequest {
     if (timestamp <= 0 || timestamp > 9999999999) {
       throw const YandexLibraryException(YandexLibraryFailure.invalidResponse);
     }
+    yandexTrackKey(id, album); // Validate optional album context separately.
     return YandexReadRequest._(YandexReadEndpoint.fileInfo,
-        trackKey: yandexTrackKey(id, album),
+        trackKey: yandexNumericId(id),
         selection: selection,
         timestamp: timestamp);
   }
@@ -186,7 +187,7 @@ final class YandexReadRequest {
             'trackId': trackKey!,
             'quality': selection!.quality.name,
             'codecs': selection!.encoding.apiKey,
-            'transports': 'raw',
+            'transports': 'encraw',
             'sign': _fileSignature(),
           }),
       };
@@ -195,7 +196,7 @@ final class YandexReadRequest {
     // Public desktop protocol constant, not the user's OAuth credential.
     // Pinned upstream sign_request.py: base64 SHA-256, drop ONE '=' padding.
     final message = '$timestamp$trackKey${selection!.quality.name}'
-        '${selection!.encoding.apiKey}raw';
+        '${selection!.encoding.apiKey}encraw';
     final digest = Hmac(sha256, utf8.encode('kzqU4XhfCaY6B6JTHODeq5'))
         .convert(utf8.encode(message));
     final encoded = base64.encode(digest.bytes);
