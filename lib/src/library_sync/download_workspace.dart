@@ -51,7 +51,7 @@ final class DownloadPublicationReference {
   String toString() => 'DownloadPublicationReference(<redacted>)';
 }
 
-/// One explicitly opened desktop workspace. Exclusive OS ownership outlives
+/// One explicitly opened app-private workspace. Exclusive OS ownership outlives
 /// every accepted reader; no age/PID guesses and no automatic startup IO.
 /// Data admission is shared by raw/prepared/publication; journal count is bounded
 /// separately. This is a reservation budget, not an OS disk quota.
@@ -83,7 +83,7 @@ final class DownloadWorkspace {
   bool get admissionBlocked => _blocked;
 
   /// Caller supplies an app-private existing parent, never the music directory.
-  /// Native lock adapter currently qualifies the desktop download pipeline.
+  /// Android uses ordinary private paths here, never a SAF content URI.
   static Future<DownloadWorkspace> open(
       {required Directory parent,
       int maxReservedBytes = 2 * 1024 * 1024 * 1024,

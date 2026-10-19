@@ -82,7 +82,12 @@ Never _fail(int code, {bool locking = false}) {
 }
 
 void _supported() {
-  if (!Platform.isWindows && !Platform.isMacOS && !Platform.isLinux) {
+  // Android support is for app-private ordinary paths. SAF content URIs need
+  // their own provider adapter and must never be passed to these POSIX calls.
+  if (!Platform.isWindows &&
+      !Platform.isMacOS &&
+      !Platform.isLinux &&
+      !Platform.isAndroid) {
     throw const PublicationFileException(PublicationFileFailure.unsupported);
   }
 }

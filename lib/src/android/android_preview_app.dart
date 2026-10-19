@@ -13,6 +13,8 @@ import '../player/player_service.dart';
 import '../player/player_state.dart';
 import '../ui/yandex_settings.dart';
 import 'android_import_controller.dart';
+import 'android_download_storage_controller.dart';
+import 'android_download_storage_settings.dart';
 import 'audio_documents.dart';
 import 'android_media_controls.dart';
 import 'android_folder_bookmarks.dart';
@@ -33,9 +35,13 @@ final class AndroidPreviewApp extends StatefulWidget {
 final class _AndroidPreviewAppState extends State<AndroidPreviewApp> {
   late final AndroidImportController _importer;
   late final AndroidFolderBookmarks _bookmarks;
+  late final AndroidDownloadStorageController _downloadStorage;
   @override
   void initState() {
     super.initState();
+    _downloadStorage = AndroidDownloadStorageController(
+        settings: widget.dependencies.repositories.settings);
+    unawaited(_downloadStorage.initialize());
     _bookmarks = widget.bookmarks ??
         AndroidFolderBookmarks(
             settings: widget.dependencies.repositories.settings,
@@ -59,8 +65,10 @@ final class _AndroidPreviewAppState extends State<AndroidPreviewApp> {
     unawaited(finishCleanup([
       _importer.close,
       _bookmarks.close,
+      _downloadStorage.close,
       () async => _importer.dispose(),
       () async => _bookmarks.dispose(),
+      () async => _downloadStorage.dispose(),
       widget.dependencies.dispose,
     ]).catchError((Object error, StackTrace stack) {
       widget.dependencies.diagnostics
@@ -92,9 +100,16 @@ final class _AndroidPreviewAppState extends State<AndroidPreviewApp> {
                 appBar: AppBar(title: const Text('Яндекс Музыка')),
                 body: SingleChildScrollView(
                     padding: const EdgeInsets.all(16),
-                    child: YandexSettings(
-                        controller: widget.dependencies.yandexConnection,
-                        updates: widget.dependencies.yandexUpdate))),
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          YandexSettings(
+                              controller: widget.dependencies.yandexConnection,
+                              updates: widget.dependencies.yandexUpdate),
+                          const SizedBox(height: 16),
+                          AndroidDownloadStorageSettings(
+                              controller: _downloadStorage),
+                        ]))),
             stop:
                 (widget.dependencies.smtcService as AndroidMediaControlsService)
                     .stop),

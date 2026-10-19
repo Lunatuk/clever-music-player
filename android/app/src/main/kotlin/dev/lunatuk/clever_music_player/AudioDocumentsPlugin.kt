@@ -22,7 +22,7 @@ import java.io.ByteArrayOutputStream
 import java.util.concurrent.Executors
 import java.util.concurrent.ConcurrentHashMap
 
-/** Read-only SAF boundary. Music is opened by URI, never copied into app storage. */
+/** SAF boundary. Library imports stay read-only; download grants are explicit. */
 class AudioDocumentsPlugin : FlutterPlugin, ActivityAware, PluginRegistry.ActivityResultListener {
     private val worker = Executors.newSingleThreadExecutor()
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -44,6 +44,29 @@ class AudioDocumentsPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activi
                 when (call.method) {
                     "pickAudio" -> pickAudio(result)
                     "pickAudioFolder" -> pickAudioFolder(result)
+                    "pickDownloadFolder" -> pickAudioFolder(result, forDownload = true)
+                    "inspectDownloadFolder" -> onWorker(result) {
+                        val uri = call.argument<String>("uri")?.let(Uri::parse) ?: error("invalid_tree")
+                        check(uri.scheme == "content" && DocumentsContract.isTreeUri(uri) && uri.pathSegments.size == 2)
+                        val grant = contentResolver.persistedUriPermissions.firstOrNull { it.uri == uri }
+                        val readable = grant?.isReadPermission == true
+                        val writable = grant?.isWritePermission == true
+                        if (!readable) {
+                            mapOf("readable" to false, "writable" to writable, "canCreate" to false)
+                        } else {
+                            val root = DocumentsContract.buildDocumentUriUsingTree(uri, DocumentsContract.getTreeDocumentId(uri))
+                            contentResolver.query(root, arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                                DocumentsContract.Document.COLUMN_MIME_TYPE, DocumentsContract.Document.COLUMN_FLAGS),
+                                null, null, null).use { cursor ->
+                                check(cursor != null && cursor.moveToFirst())
+                                val directory = cursor.getString(1) == DocumentsContract.Document.MIME_TYPE_DIR
+                                val canCreate = directory && !cursor.isNull(2) &&
+                                    (cursor.getLong(2) and DocumentsContract.Document.FLAG_DIR_SUPPORTS_CREATE.toLong()) != 0L
+                                mapOf("readable" to directory, "writable" to writable,
+                                    "canCreate" to canCreate, "name" to cursor.getString(0)?.take(256))
+                            }
+                        }
+                    }
                     "listAudioFolderGrants" -> onWorker(result) {
                         contentResolver.persistedUriPermissions.filter {
                             it.isReadPermission && DocumentsContract.isTreeUri(it.uri) && it.uri.pathSegments.size == 2
@@ -140,7 +163,7 @@ class AudioDocumentsPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activi
         }
     }
 
-    private fun pickAudioFolder(result: MethodChannel.Result) {
+    private fun pickAudioFolder(result: MethodChannel.Result, forDownload: Boolean = false) {
         if (pickerResult != null) {
             result.error("busy", "Выбор музыки уже открыт.", null)
             return
@@ -148,10 +171,11 @@ class AudioDocumentsPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activi
         pickerResult = result
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+            if (forDownload) addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_PREFIX_URI_PERMISSION)
         }
         try {
             val activity = activityBinding?.activity ?: throw IllegalStateException()
-            activity.startActivityForResult(intent, PICK_FOLDER)
+            activity.startActivityForResult(intent, if (forDownload) PICK_DOWNLOAD_FOLDER else PICK_FOLDER)
         } catch (_: Exception) {
             pickerResult = null
             result.error("picker_unavailable", "Системный выбор папок недоступен.", null)
@@ -180,18 +204,28 @@ class AudioDocumentsPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activi
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?): Boolean {
-        if (requestCode != PICK_AUDIO && requestCode != PICK_FOLDER) return false
+        if (requestCode != PICK_AUDIO && requestCode != PICK_FOLDER && requestCode != PICK_DOWNLOAD_FOLDER) return false
         val result = pickerResult ?: return true
         pickerResult = null
         if (resultCode != Activity.RESULT_OK || data == null) {
             result.success(null)
             return true
         }
-        if (requestCode == PICK_FOLDER) {
+        if (requestCode == PICK_FOLDER || requestCode == PICK_DOWNLOAD_FOLDER) {
             try {
                 val uri = data.data ?: error("no_tree")
-                check(uri.scheme == "content" && DocumentsContract.isTreeUri(uri))
-                contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                check(uri.scheme == "content" && DocumentsContract.isTreeUri(uri) && uri.pathSegments.size == 2)
+                val requested = Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                    (if (requestCode == PICK_DOWNLOAD_FOLDER) Intent.FLAG_GRANT_WRITE_URI_PERMISSION else 0)
+                // Require every requested flag to have been returned. Persist
+                // these explicit allowed constants, never arbitrary Intent flags.
+                check((data.flags and requested) == requested)
+                if (requestCode == PICK_DOWNLOAD_FOLDER) {
+                    contentResolver.takePersistableUriPermission(uri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                } else {
+                    contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
                 result.success(mapOf("uri" to uri.toString()))
             } catch (_: Exception) {
                 result.error("folder_unavailable", "Не удалось сохранить доступ к папке.", null)
@@ -321,6 +355,7 @@ class AudioDocumentsPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activi
     private companion object {
         const val PICK_AUDIO = 417
         const val PICK_FOLDER = 418
+        const val PICK_DOWNLOAD_FOLDER = 419
         const val MAX_SELECTION = 64
     }
 }
