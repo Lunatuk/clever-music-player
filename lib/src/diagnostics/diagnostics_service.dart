@@ -61,6 +61,9 @@ enum DiagnosticEvent {
   yandexUpdateFailed,
   yandexDownloadResolved,
   yandexDownloadRejected,
+  audioLoadAttemptFailed,
+  windowsPlaybackObserved,
+  windowsPlaybackObservationFailed,
 }
 
 enum DiagnosticField {
@@ -131,6 +134,14 @@ enum DiagnosticField {
   returnedEncoding,
   returnedBitrate,
   returnedTransport,
+  nativePlayerSlot,
+  nativePlaybackState,
+  nativePositionMs,
+  nativeDurationMs,
+  nativeSourcePresent,
+  playerPositionMs,
+  opening,
+  nativePlayerCount,
 }
 
 /// Only fixed event/field names and numeric/boolean values enter the journal.

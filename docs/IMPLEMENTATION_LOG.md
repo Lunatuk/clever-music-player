@@ -3510,3 +3510,68 @@ validation backend и подключение общего runner. Реально
 публикации, а не объявляются закрытыми тестом reservation. API/токены/библиотека
 пользователя при этой квалификации не использовались.
 [Контракт и границы](architecture/android-download-storage.md).
+
+
+**20 октября 2026 — пакет 50: Windows-открытие файлов и ошибки декодера**
+
+Работа Android49 приостановлена на время диагностики невоспроизведения всех
+форматов на другом Windows11-PC с пакетом48. Те же файлы работают там в
+штатном проигрывателе и VLC. Три исходных JSON (два из ZIP, история частично
+перекрывается) показывают незавершённые открытия после cacheResolved; один
+отчёт создан примерно через25с. Системный mute/отсутствие кодеков не считаются
+установленной причиной. Движение UI-позиции не доказывает декодирование.
+
+На настоящем AudioPlayer/WinRT воспроизведён отдельный дефект: MP3/M4A/FLAC
+играют из ASCII/space folders, но те же байты из «Музыка тест» возвращают
+-2147024893 (0x80070003). Причина — percent-encoded Unicode в file URI.
+Перед CreateFromUri теперь декодируется только корректный не-ASCII UTF8;
+ASCII escapes/HTTP не меняются. Буквальные %, # и percent-подобные имена
+сохраняются; невалидные UTF8/overlong/surrogates/out-of-range не декодируются.
+Преобразование проверено на идемпотентность. Это может затрагивать и кэш,
+когда кириллица присутствует в родительском пути профиля.
+
+Также воспроизведена потеря native ошибок в установленном just_audio0.10.5:
+старый EventSink::Error игнорируется, errorStream пуст, load остаётся pending.
+Ошибки MediaFailed/ItemFailed теперь обычные playback events с числовым
+HRESULT; синхронный отказ возвращает тот же code. Произвольные строки Windows
+не выводятся. Windows engine ловит ранние/поздние ошибки, ограничивает open20с,
+освобождает platform, дренирует ответ не более1с и позволяет повтор. Revision
+и обработчики поздних ответов защищают смену/stop/dispose. Через прямой путь
+и кэш в итоговый отчёт сохраняется исходная причина, а не только wrapper.
+
+Через3с после открытия/Play release-диагностика читает реальные WinRT state,
+Position, NaturalDuration и Source для живых декодеров (до8), отдельно от
+UI-позиции. Пустой список, timeout/ошибка, смена сессии и закрытие проверены;
+пробное чтение не останавливает музыку. Пути, названия и player IDs отсутствуют.
+
+Проверки:19 новых Flutter тестов,482 целевых/2085 полных без skips/errors;
+анализ чистый, формат348/0. MSVC сверил три native protocol fixtures и32 URI
+регрессии. Настоящий production AudioPlayer/WinRT прошёл26 проверок:24 Play
+с реальным движением Position (3формата×ASCII/пробелы/кириллица/emoji/# и %/
+буквальные percent sequences/CJK/комбинируемые знаки),2 повреждённых файла
+вернули обычные events с HRESULT. Probe использует только временные копии
+синтетических fixtures, звук отключён; исходники и команда сохранены в tool/.
+
+487 source SHA совпали в workspace и ASCII-копии сборки. Android JVM15,
+lint0errors/6прежних warnings; APK2050/target36/signer49/v2/CRC/zipalign/
+ELF16KiB/manifest/media service/icon/file-ops asset проверены. Windows41files,
+PE x64/production NativeAssetsManifest/без test-only sidecar; helper21files
+неизменны49,9 проверок после Unicode/spaced extraction/minimal PATH прошли.
+Codegen/schema13/dependencies/native C/hook прежние. API/учётные данные/
+библиотека пользователя при квалификации не использовались.
+
+Причина именно на PC друга ещё не подтверждена: старые отчёты скрывают пути
+и исходные HRESULT. Требуется один прежний проблемный файл в полном свежем
+ZIP50; при отказе новый отчёт через45с. Android50 — сборка совместимости,
+Android49 всё ещё ожидает ручной проверки; SAF publisher остаётся следующим
+этапом. Границы и повторение native-проверок: architecture/windows-audio-load-errors.md.
+
+- dist/clever-music-player-core-50-android-arm64.apk — 22889291 bytes, SHA-256 `c4378e9051a76cdf6ff25b73c7317badeadbfff88c5c0b2e5ca47a242444c0b5`.
+
+- dist/clever-music-player-core-50-windows-x64.zip — 31773922 bytes, SHA-256 `153fefe7080a6eb332076cdf7479edda4b45b45f960bdeede4b372ef4b16227e`.
+
+Логи .dart_tool/core50-full-tests-final.log,targeted-final.log,new-targets-final.log,
+analyze-final.log,format-final.log,native-windows-protocol.log,native-extracted-final.log;
+source-manifest/build-result/verify-result/package JSON;
+windows-audio-contract/native_playback_results.json. Артефакты сопровождаются
+checks/manual-checks/.sha256. Физические устройства и remote CI не квалифицированы.

@@ -13,6 +13,7 @@ import '../domain/repositories/repositories.dart';
 import 'player_service.dart';
 import 'player_state.dart';
 import 'windows_playback_cache.dart';
+import 'windows_playback_snapshot.dart';
 
 enum AudioEngineProcessingState {
   idle,
@@ -65,13 +66,22 @@ final class JustAudioEngine implements LocalAudioEngine {
   JustAudioEngine(
       {just_audio.AudioPlayer? player,
       bool? isAndroid,
+      bool? isWindows,
+      Duration windowsLoadTimeout = const Duration(seconds: 20),
       bool handleInterruptions = true})
-      : _player = player ??
+      : assert(windowsLoadTimeout > Duration.zero),
+        _player = player ??
             just_audio.AudioPlayer(handleInterruptions: handleInterruptions),
-        _isAndroid = isAndroid ?? Platform.isAndroid;
+        _isAndroid = isAndroid ?? Platform.isAndroid,
+        _isWindows = (isWindows ?? Platform.isWindows) &&
+            !(isAndroid ?? Platform.isAndroid),
+        _windowsLoadTimeout = windowsLoadTimeout;
 
   final just_audio.AudioPlayer _player;
   final bool _isAndroid;
+  final bool _isWindows;
+  final Duration _windowsLoadTimeout;
+  int _loadRevision = 0;
 
   @override
   Stream<AudioEngineState> get stateStream {
@@ -103,13 +113,49 @@ final class JustAudioEngine implements LocalAudioEngine {
       {bool preload = true}) {
     switch (source) {
       case FileAudioSource(:final path):
-        return _player.setFilePath(path, preload: preload);
+        return _isWindows
+            ? _loadWindows(() => _player.setFilePath(path, preload: preload))
+            : _player.setFilePath(path, preload: preload);
       case ContentUriAudioSource(:final uri):
         if (!_isAndroid) {
           return Future.error(UnsupportedError('Content URI требует Android.'));
         }
         return _player.setAudioSource(just_audio.ProgressiveAudioSource(uri),
             preload: preload);
+    }
+  }
+
+  Future<Duration?> _loadWindows(Future<Duration?> Function() load) async {
+    final revision = ++_loadRevision;
+    final result = Completer<Duration?>();
+    just_audio.PlayerException? nativeFailure;
+    // Install before load: an error can precede the first Opening event.
+    final subscription = _player.errorStream.listen((error) {
+      if (revision != _loadRevision) return;
+      nativeFailure ??= error;
+      if (!result.isCompleted) result.completeError(error);
+    });
+    final loading = Future<Duration?>.sync(load);
+    unawaited(loading.then<void>((duration) {
+      if (!result.isCompleted) result.complete(duration);
+    }, onError: (Object error, StackTrace stack) {
+      if (!result.isCompleted) result.completeError(error, stack);
+    }));
+    try {
+      return await result.future.timeout(_windowsLoadTimeout);
+    } on Object catch (error, stack) {
+      // stop() interrupts just_audio's pending load and releases its platform.
+      // Drain it before allowing the service's next command/cache attempt.
+      if (revision == _loadRevision) await _player.stop();
+      try {
+        await loading.timeout(const Duration(seconds: 1));
+      } on Object {
+        // The platform is disposed. A lost old method response must not block
+        // a new decoder; the handlers above still consume any late result.
+      }
+      Error.throwWithStackTrace(nativeFailure ?? error, stack);
+    } finally {
+      await subscription.cancel();
     }
   }
 
@@ -130,6 +176,7 @@ final class JustAudioEngine implements LocalAudioEngine {
 
   @override
   Future<void> stop() {
+    _loadRevision++;
     return _player.stop();
   }
 
@@ -145,6 +192,7 @@ final class JustAudioEngine implements LocalAudioEngine {
 
   @override
   Future<void> dispose() {
+    _loadRevision++;
     return _player.dispose();
   }
 
@@ -183,17 +231,26 @@ final class JustAudioPlayerService implements PlayerService {
     bool Function(String filePath)? fileExists,
     bool? isWindows,
     PlaybackCache? playbackCache,
+    WindowsPlaybackProbe? windowsPlaybackProbe,
+    @visibleForTesting
+    Duration windowsDiagnosticsDelay = const Duration(seconds: 3),
     @visibleForTesting Duration windowsProgressRecoveryInterval =
         _defaultWindowsProgressRecoveryInterval,
     @visibleForTesting Duration windowsSyntheticProgressGrace =
         _defaultWindowsSyntheticProgressGrace,
   })  : assert(windowsProgressRecoveryInterval > Duration.zero),
+        assert(windowsDiagnosticsDelay > Duration.zero),
         assert(windowsSyntheticProgressGrace >= Duration.zero),
         _playbackEvents = playbackEvents,
         _settings = settings,
         _audioEngine = audioEngine ?? JustAudioEngine(),
         _isWindows = isWindows ?? Platform.isWindows,
         _playbackCache = playbackCache ?? WindowsPlaybackCache(),
+        _windowsPlaybackProbe = windowsPlaybackProbe ??
+            ((audioEngine == null || audioEngine is JustAudioEngine)
+                ? readWindowsPlaybackSnapshots
+                : null),
+        _windowsDiagnosticsDelay = windowsDiagnosticsDelay,
         _windowsProgressRecoveryInterval = windowsProgressRecoveryInterval,
         _windowsSyntheticProgressGrace = windowsSyntheticProgressGrace,
         _fileExists =
@@ -211,6 +268,8 @@ final class JustAudioPlayerService implements PlayerService {
   final LocalAudioEngine _audioEngine;
   final bool _isWindows;
   final PlaybackCache _playbackCache;
+  final WindowsPlaybackProbe? _windowsPlaybackProbe;
+  final Duration _windowsDiagnosticsDelay;
   final Duration _windowsProgressRecoveryInterval;
   final Duration _windowsSyntheticProgressGrace;
   final bool Function(String filePath) _fileExists;
@@ -368,6 +427,8 @@ final class JustAudioPlayerService implements PlayerService {
           errorMessage: null,
         ));
 
+        _scheduleWindowsPositionDiagnostics(track, opening: true);
+
         try {
           final source = track.source;
           final AudioSourceReference resolved;
@@ -431,13 +492,14 @@ final class JustAudioPlayerService implements PlayerService {
           });
         } on Object catch (error) {
           if (!_isCurrentSession(generation)) return;
-          diagnostics
-              .record(DiagnosticEvent.audioLoadFailed, error: error, fields: {
-            DiagnosticField.trackId: track.id,
-            DiagnosticField.elapsedMs: timer.elapsedMilliseconds,
-            if (error is just_audio.PlayerException)
-              DiagnosticField.nativeCode: error.code,
-          });
+          diagnostics.record(DiagnosticEvent.audioLoadFailed,
+              error: _playbackLoadCause(error),
+              fields: {
+                DiagnosticField.trackId: track.id,
+                DiagnosticField.elapsedMs: timer.elapsedMilliseconds,
+                if (_playbackLoadCause(error) case just_audio.PlayerException e)
+                  DiagnosticField.nativeCode: e.code,
+              });
           if (normalizedPath != null) {
             _debugLogPlaybackDiagnostics(
               originalPath: track.filePath,
@@ -871,6 +933,7 @@ final class JustAudioPlayerService implements PlayerService {
       return _LoadedAudio(duration: duration);
     } on Object catch (directError) {
       _checkSession(generation);
+      _recordLoadAttemptFailure(track, directError, cached: false);
       _debugLogPlaybackDiagnostics(
         originalPath: track.filePath,
         sourcePath: normalizedPath,
@@ -928,6 +991,7 @@ final class JustAudioPlayerService implements PlayerService {
       return _LoadedAudio(duration: duration);
     } on Object catch (cacheError) {
       _checkSession(generation);
+      _recordLoadAttemptFailure(track, cacheError, cached: true);
       _debugLogPlaybackDiagnostics(
         originalPath: track.filePath,
         sourcePath: normalizedPath,
@@ -936,8 +1000,21 @@ final class JustAudioPlayerService implements PlayerService {
         cacheEntry: cached,
         error: cacheError,
       );
-      throw PlaybackLoadException(_playbackLoadFailureMessage);
+      throw PlaybackLoadException(_playbackLoadFailureMessage,
+          cause: cacheError);
     }
+  }
+
+  void _recordLoadAttemptFailure(Track track, Object error,
+      {required bool cached}) {
+    diagnostics.record(DiagnosticEvent.audioLoadAttemptFailed,
+        error: _playbackLoadCause(error),
+        fields: {
+          DiagnosticField.trackId: track.id,
+          DiagnosticField.cached: cached,
+          if (_playbackLoadCause(error) case just_audio.PlayerException e)
+            DiagnosticField.nativeCode: e.code,
+        });
   }
 
   Future<void> _stopEngine() async {
@@ -1323,23 +1400,70 @@ final class JustAudioPlayerService implements PlayerService {
     _positionDiagnosticsTimer = null;
   }
 
-  void _scheduleWindowsPositionDiagnostics(Track track) {
-    if (!kDebugMode || !_isWindows) {
+  void _scheduleWindowsPositionDiagnostics(Track track,
+      {bool opening = false}) {
+    if (!_isWindows) {
       return;
     }
 
+    final generation = _sessionGeneration;
     _positionDiagnosticsTimer?.cancel();
-    _positionDiagnosticsTimer = Timer(const Duration(seconds: 3), () {
-      if (_isDisposed || _state.currentTrack != track) {
+    _positionDiagnosticsTimer = Timer(_windowsDiagnosticsDelay, () {
+      if (!_isCurrentSession(generation) || _state.currentTrack != track) {
         return;
       }
-      debugPrint(
-        'JustAudioPlayerService Windows position diagnostics: '
-        'positionStreamEvents=$_positionEventsSinceLoad, '
-        'durationStreamEvents=$_durationEventsSinceLoad, '
-        'position=${_state.position}, duration=${_state.duration}, '
-        'status=${_state.status}',
-      );
+      if (kDebugMode) {
+        debugPrint(
+          'JustAudioPlayerService Windows position diagnostics: '
+          'positionStreamEvents=$_positionEventsSinceLoad, '
+          'durationStreamEvents=$_durationEventsSinceLoad, '
+          'position=${_state.position}, duration=${_state.duration}, '
+          'status=${_state.status}',
+        );
+      }
+      final probe = _windowsPlaybackProbe;
+      if (probe == null) return;
+      unawaited(_operations.run(() async {
+        try {
+          final snapshots = await probe().timeout(const Duration(seconds: 2));
+          if (!_isCurrentSession(generation)) return;
+          if (snapshots.isEmpty) {
+            diagnostics
+                .record(DiagnosticEvent.windowsPlaybackObserved, fields: {
+              DiagnosticField.trackId: track.id,
+              DiagnosticField.opening: opening,
+              DiagnosticField.playerPositionMs: _state.position.inMilliseconds,
+              DiagnosticField.nativePlayerCount: 0,
+            });
+          }
+          for (var i = 0; i < snapshots.length; i++) {
+            final snapshot = snapshots[i];
+            diagnostics
+                .record(DiagnosticEvent.windowsPlaybackObserved, fields: {
+              DiagnosticField.trackId: track.id,
+              DiagnosticField.opening: opening,
+              DiagnosticField.playerPositionMs: _state.position.inMilliseconds,
+              DiagnosticField.nativePlayerSlot: i,
+              DiagnosticField.nativePlayerCount: snapshots.length,
+              DiagnosticField.nativePlaybackState: snapshot.state,
+              DiagnosticField.nativePositionMs: snapshot.positionMs,
+              DiagnosticField.nativeDurationMs: snapshot.durationMs,
+              DiagnosticField.nativeSourcePresent: snapshot.sourcePresent,
+            });
+          }
+        } on Object catch (error) {
+          if (!_isCurrentSession(generation)) return;
+          diagnostics.record(DiagnosticEvent.windowsPlaybackObservationFailed,
+              error: error,
+              fields: {
+                DiagnosticField.trackId: track.id,
+                DiagnosticField.opening: opening,
+                if (error is PlatformException &&
+                    int.tryParse(error.code) != null)
+                  DiagnosticField.nativeCode: int.parse(error.code),
+              });
+        }
+      }));
     });
   }
 
@@ -1457,10 +1581,14 @@ final class _LoadedAudio {
 }
 
 final class PlaybackLoadException implements Exception {
-  const PlaybackLoadException(this.message);
+  const PlaybackLoadException(this.message, {this.cause});
 
   final String message;
+  final Object? cause;
 
   @override
   String toString() => message;
 }
+
+Object _playbackLoadCause(Object error) =>
+    error is PlaybackLoadException ? error.cause ?? error : error;

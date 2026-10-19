@@ -73,6 +73,20 @@ void JustAudioWindowsPlugin::HandleMethodCall(
     flutter::BinaryMessenger* messenger) {
   const auto* args =std::get_if<flutter::EncodableMap>(method_call.arguments());
   if (args) {
+    if (method_call.method_name() == "getPlaybackDiagnostics") {
+      try {
+        flutter::EncodableList snapshots;
+        for (const auto& player : players_) {
+          if (!player->IsDisposed() && snapshots.size() < 8) {
+            snapshots.emplace_back(player->PlaybackSnapshot());
+          }
+        }
+        return result->Success(EncodableValue(snapshots));
+      } catch (winrt::hresult_error const& error) {
+        return result->Error(std::to_string(static_cast<int32_t>(error.code())),
+            "Windows playback diagnostics unavailable");
+      }
+    }
     if (method_call.method_name().compare("init") == 0) {
       const auto* id = std::get_if<std::string>(ValueOrNull(*args, "id"));
       if (!id) {

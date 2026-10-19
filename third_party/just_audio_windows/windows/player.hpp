@@ -189,30 +189,7 @@ public:
     // Player error event
     media_failed_token_ = mediaPlayer.MediaFailed([this](auto, const Playback::MediaPlayerFailedEventArgs& args) -> void {
       if (disposed_) return;
-      std::string errorMessage = winrt::to_string(args.ErrorMessage());
-
-      std::cerr << "[just_audio_windows] Media error: " << errorMessage << std::endl;
-
-      auto code = "unknown";
-
-      switch (args.Error()) {
-      case Playback::MediaPlayerError::Unknown:
-        break;
-      case Playback::MediaPlayerError::Aborted:
-        code = "aborted";
-        break;
-      case Playback::MediaPlayerError::NetworkError:
-        code = "networkError";
-        break;
-      case Playback::MediaPlayerError::DecodingError:
-        code = "decodingError";
-        break;
-      case Playback::MediaPlayerError::SourceNotSupported:
-        code = "sourceNotSupported";
-        break;
-      }
-
-      event_sink_->Error(code, errorMessage);
+      broadcastFailure(static_cast<int32_t>(args.ExtendedErrorCode()));
     });
 
     mediaPlaybackList.MaxPlayedItemsToKeepOpen(2);
@@ -222,33 +199,7 @@ public:
     });
     item_failed_token_ = mediaPlaybackList.ItemFailed([this](auto, const Playback::MediaPlaybackItemFailedEventArgs& args) -> void {
       if (disposed_) return;
-      auto error = winrt::hresult_error(args.Error().ExtendedError());
-
-      auto message = winrt::to_string(error.message());
-
-      std::cerr << "[just_audio_windows] Item error: " << message << std::endl;
-
-      auto code = "unknown";
-
-      switch (args.Error().ErrorCode()) {
-      case Playback::MediaPlaybackItemErrorCode::Aborted:
-        code = "aborted";
-        break;
-      case Playback::MediaPlaybackItemErrorCode::NetworkError:
-        code = "networkError";
-        break;
-      case Playback::MediaPlaybackItemErrorCode::DecodeError:
-        code = "decodeError";
-        break;
-      case Playback::MediaPlaybackItemErrorCode::SourceNotSupportedError:
-        code = "sourceNotSupportedError";
-        break;
-      case Playback::MediaPlaybackItemErrorCode::EncryptionError:
-        code = "encryptionError";
-        break;
-      }
-
-      event_sink_->Error(code, message);
+      broadcastFailure(static_cast<int32_t>(args.Error().ExtendedError()));
     });
   }
 
@@ -258,6 +209,17 @@ public:
 
   bool HasPlayerId(std::string playerId) {
     return id == playerId;
+  }
+
+  bool IsDisposed() const { return disposed_; }
+
+  flutter::EncodableMap PlaybackSnapshot() const {
+    const auto session = mediaPlayer.PlaybackSession();
+    return just_audio_windows::BuildPlaybackSnapshot(
+        static_cast<int32_t>(session.PlaybackState()),
+        TO_MILLISECONDS(session.Position()),
+        TO_MILLISECONDS(session.NaturalDuration()),
+        mediaPlayer.Source() != nullptr);
   }
 
   void AudioPlayer::HandleMethodCall(
@@ -275,8 +237,11 @@ public:
 
       try {
         loadSource(*audioSourceData);
-      } catch (char* error) {
-        return result->Error("load_error", error);
+      } catch (winrt::hresult_error const& error) {
+        return result->Error(std::to_string(static_cast<int32_t>(error.code())),
+            "Windows media source failed");
+      } catch (std::exception const&) {
+        return result->Error("-2147467259", "Windows media source failed");
       }
 
       if (initialIndex != nullptr) {
@@ -534,7 +499,7 @@ public:
       if (type->compare("progressive") == 0 || type->compare("dash") == 0 || type->compare("hls") == 0) {
           const auto* uri = std::get_if<std::string>(ValueOrNull(source, "uri"));
           return MediaSource::CreateFromUri(
-              Uri(TO_WIDESTRING(EncodeSpacesInUri(*uri)))
+              Uri(TO_WIDESTRING(EncodeSpacesInUri(DecodeFileUriUnicode(*uri))))
           );
       }
       else {
@@ -555,6 +520,13 @@ public:
     } catch (winrt::hresult_error const& ex) {
       std::cerr << "[just_audio_windows] Broadcast data error: " << winrt::to_string(ex.message()) << std::endl;
     }
+  }
+
+  void broadcastFailure(int32_t nativeCode) {
+    if (disposed_) return;
+    const auto now = std::chrono::system_clock::now();
+    event_sink_->Success(just_audio_windows::BuildPlaybackErrorEvent(
+        nativeCode, TO_MILLISECONDS(now.time_since_epoch())));
   }
 
   void AudioPlayer::broadcastPlaybackEvent() {

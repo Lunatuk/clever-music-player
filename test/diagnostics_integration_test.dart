@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -251,6 +252,57 @@ void main() {
     expect(prepared.isPlaying, false);
     await prepared.dispose();
   });
+
+  for (final timeout in [false, true]) {
+    test(
+        'Windows cache failure retains ${timeout ? 'timeout' : 'HRESULT'} and permits retry',
+        () async {
+      final source = await File(p.join(temporary.path, 'PRIVATE source.mp3'))
+          .writeAsBytes([1, 2, 3]);
+      final track = Track(
+          filePath: source.path,
+          addedAt: DateTime(2026),
+          updatedAt: DateTime(2026));
+      final engine = TestAudioEngine()
+        ..setFilePathError = timeout
+            ? TimeoutException('PRIVATE decoder timeout')
+            : just_audio.PlayerException(
+                -1072875836, 'PRIVATE native path', null);
+      final player = JustAudioPlayerService(
+          playbackEvents: repositories.playbackEvents,
+          diagnostics: diagnostics,
+          audioEngine: engine,
+          isWindows: true,
+          fileExists: (_) => true,
+          playbackCache: WindowsPlaybackCache(
+              appSupportDirectoryProvider: () async => temporary));
+      try {
+        await player.playTrack(track);
+        expect(player.state.status, PlayerPlaybackStatus.error);
+        expect(engine.playCalls, 0);
+        final recorded = await events();
+        final attempts = recorded
+            .where((e) => e['event'] == 'audioLoadAttemptFailed')
+            .toList();
+        expect(attempts.map((e) => e['cached']), [false, true]);
+        final failed =
+            recorded.lastWhere((e) => e['event'] == 'audioLoadFailed');
+        if (timeout) {
+          expect(failed['errorKind'], 'timeout');
+          expect(attempts.every((e) => e['errorKind'] == 'timeout'), isTrue);
+        } else {
+          expect(failed['nativeCode'], -1072875836);
+          expect(attempts.every((e) => e['nativeCode'] == -1072875836), isTrue);
+        }
+        engine.setFilePathError = null;
+        await player.playTrack(track);
+        expect(engine.playCalls, 1);
+        expect(await source.readAsBytes(), [1, 2, 3]);
+      } finally {
+        await player.dispose();
+      }
+    });
+  }
 
   test('play and pause requests are distinguishable from successful loading',
       () async {
