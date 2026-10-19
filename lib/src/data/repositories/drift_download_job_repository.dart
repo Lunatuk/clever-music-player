@@ -139,14 +139,22 @@ final class DriftDownloadJobRepository implements DownloadJobRepository {
   @override
   Future<DownloadJob?> claimNext(RemoteLibraryAccount account,
       {required DateTime now,
-      Duration leaseFor = const Duration(seconds: 30)}) {
+      Duration leaseFor = const Duration(seconds: 30),
+      int? libraryFolderId,
+      String? quality}) {
     _lease(leaseFor);
+    if (libraryFolderId != null && libraryFolderId <= 0) {
+      throw ArgumentError('Требуется папка назначения.');
+    }
+    if (quality != null) validateAssetQuality(quality);
     return database.transaction(() async {
       if (!await _currentAccount(account)) return null;
       await _recover(now);
       final rows = await database.customSelect(
           'SELECT j.* FROM download_jobs j JOIN library_folders f ON f.id = j.library_folder_id '
           "WHERE j.account_id = ? AND j.account_revision = ? AND j.state IN ('queued', 'needsReconciliation') "
+          '${libraryFolderId == null ? '' : 'AND j.library_folder_id = ? '}'
+          '${quality == null ? '' : 'AND j.quality = ? '}'
           'AND j.remaining_attempts > 0 AND f.is_enabled = 1 AND j.updated_at_micros <= ? '
           'AND (j.retry_at_micros IS NULL OR j.retry_at_micros <= ?) '
           'AND NOT EXISTS (SELECT 1 FROM download_jobs busy WHERE busy.library_folder_id = j.library_folder_id '
@@ -155,6 +163,8 @@ final class DriftDownloadJobRepository implements DownloadJobRepository {
           variables: [
             Variable.withInt(account.id),
             Variable.withInt(account.revision),
+            if (libraryFolderId != null) Variable.withInt(libraryFolderId),
+            if (quality != null) Variable.withString(quality),
             for (var i = 0; i < 3; i++)
               Variable.withInt(now.microsecondsSinceEpoch)
           ],

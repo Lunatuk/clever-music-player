@@ -32,7 +32,8 @@ final class YandexDownloadedTrack {
   Future<void> close() => raw.close();
 }
 
-/// Owns a dedicated credential reader and binary transport. No automatic claim,
+/// Owns binary transport and, by default, its dedicated credential reader.
+/// A composed runner may explicitly retain reader ownership. No automatic claim,
 /// retry, UI, publication or startup work; accepts one already claimed attempt.
 final class YandexTrackDownloader {
   YandexTrackDownloader(
@@ -40,6 +41,7 @@ final class YandexTrackDownloader {
       required BinaryHttpDownloadTransport transport,
       required DownloadJobRepository jobs,
       required RemoteLibraryRepository accounts,
+      this.ownsReader = true,
       DateTime Function()? clock,
       this.leaseFor = const Duration(seconds: 60),
       this.heartbeatEvery = const Duration(seconds: 20)})
@@ -61,6 +63,9 @@ final class YandexTrackDownloader {
   final RemoteLibraryRepository _accounts;
   final DateTime Function() _clock;
   final Duration leaseFor, heartbeatEvery;
+
+  /// A composed runner owns its credential reader past pipeline shutdown.
+  final bool ownsReader;
   bool _closed = false;
   LibraryScanControl? _control;
   Future<YandexDownloadedTrack>? _active;
@@ -241,7 +246,7 @@ final class YandexTrackDownloader {
     try {
       await active;
     } on Object {/* Accepted work is fully drained. */}
-    await Future.wait([_reader.close(), _transport.close()]);
+    await Future.wait([if (ownsReader) _reader.close(), _transport.close()]);
   }
 }
 

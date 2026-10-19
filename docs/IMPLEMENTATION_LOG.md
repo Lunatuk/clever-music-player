@@ -3307,3 +3307,55 @@ Android private lock/SAF/теги,macOS и remote CI не объявляются
 format-final.log,native-windows-protocol.log,native-extracted-final.log,apk-*.log;
 source-manifest/build-result/verify-result/package JSON. APK/ZIP сопровождаются
 checks/manual-checks/.sha256. Живая авторизованная загрузка не проверялась.
+
+
+**19 октября 2026 — пакет 46: управление заданиями загрузки**
+
+Добавлены YandexDownloadRunner и DesktopYandexDownloadPipeline: saved credential
+связан с текущими account ID/UID/revision до dedicated reader/API verify, сессия
+проверяется на границах и сериализованным poller. Нет startup работы или OS read
+в constructor. Exact optional folder/quality scope добавлен в claimNext с bound
+SQL values; без фильтров прежний FIFO. Schema13/g.dart/зависимости прежние.
+Последовательный запуск ограничен количеством попыток; первый отказ/busy/
+reconciliation/cleanup прекращает новые claims, auto retry отсутствует.
+Восстановление published файла предшествует повторной загрузке; отсутствие
+готового файла безопасно возвращает текущую попытку на download. Cleanup
+использует последний CAS snapshot и не прерывает новый конкурентный token.
+Pipeline до claim квалифицирует helper/открывает workspace, заимствует reader,
+закрывает raw только после всех читателей. Ошибка очистки после commit сохраняет
+успех и сообщается отдельно. Все component close выполняются, reader последним.
+Typed numeric progress/result не передают URL/путь/токен/название/raw exception.
+[Контракт и ограничения](architecture/yandex-download-runner.md).
+
+52 новых теста:11 scoped claim/32 runner unit/9 native runner. Профильные104
+и полный1973 прошли, без skips с настоящим Windows helper. Native runner:
+MP3/M4A/FLAC+обложка через HTTP->helper->Track/ref/asset, квалификация до claim,
+cancel/session replacement/folder disable, unpublished checkpoint rewind,
+published import rollback recovery без повторного скачивания. Сохранены прежние
+9 native coordinator cases и9 packaged-helper checks. При гонках исправлена
+классификация ошибки session capture: storage failure не затирается отменой
+poller. Поздняя test-only правка счётчика capture усилила проверку отсутствия
+idle IO; полный прогон повторён, обе release-сборки обновлены с финальным снимком.
+Анализатор чист, формат293/0, native Windows payload fixture совпал.
+
+Release46 compatibility builds: core46-20261019,464 source SHA совпали.
+Android release/JVM15/lint0errors (6 прежних warnings),Windows release прошли.
+APK2046/target36: signer45,CRC/v2/zipalign/ELF16KiB/permissions/backup/icon проверены.
+Windows41 files: PE x64,production NativeAssetsManifest,без test-only sidecar.
+21 helper file прежний;9 checks после extraction в Unicode/spaced путь с minimal PATH.
+Schema13/pubspec/lock/native прежние,SHA sidecars45/46 сверены. Профиль пользователя,
+его музыка и токен не использовались. Pipeline ещё не подключён к UI; release
+может tree-shake неиспользуемый код. Новых ручных проверок нет, можно оставаться
+на подтверждённой41. Далее controller/UI с папкой/качеством/свежим планом,
+ручной кнопкой, прогрессом и отменой; затем малая живая проверка Windows аккаунта.
+Android private lock/SAF/теги,physical Android,macOS и remote CI не объявляются
+проверенными. Автообновление/дизайн/рекомендации остаются далее по плану.
+
+- dist/clever-music-player-core-46-android-arm64.apk — 22102539 bytes,SHA-256 `cf8c274d849fe36db8ce8aa36093e94f8704b3e2e47a8c5a9f75bcda4480fd2d`.
+
+- dist/clever-music-player-core-46-windows-x64.zip — 31520219 bytes,SHA-256 `bb0ee451116e7f57a32aa9122f534bb00fe4515cc35cf6f174dcb3ad6baea4a4`.
+
+Логи .dart_tool/core46-full-tests-final.log,targeted-final.log,analyze-final.log,
+format-final.log,native-windows-protocol.log,native-extracted-final.log,apk-*.log;
+source-manifest/build-result/verify-result/package JSON. Артефакты сопровождаются
+checks/manual-checks/.sha256. Живая авторизованная загрузка не проверялась.

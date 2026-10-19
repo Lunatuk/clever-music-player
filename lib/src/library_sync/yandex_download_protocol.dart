@@ -36,6 +36,12 @@ abstract interface class YandexDownloadReader {
   Future<void> close();
 }
 
+/// Dedicated credential-bound client, independent of the settings reader.
+abstract interface class YandexDownloadSessionReader
+    implements YandexDownloadReader {
+  Future<YandexAccountProfile> verifyAccount({LibraryScanControl? control});
+}
+
 final class YandexDownloadMetadata {
   YandexDownloadMetadata._(
       this.identity, this.duration, Map<String, String> tags, this.cover)

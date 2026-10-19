@@ -19,8 +19,13 @@ abstract interface class DownloadJobRepository implements PublicationJobAccess {
       {DownloadJobState? state, int limit = 100});
   @override
   Future<List<DownloadAttempt>> listAttempts(int jobId, {int limit = 50});
+
+  /// Optional exact scope; no match returns null, never another folder/profile.
   Future<DownloadJob?> claimNext(RemoteLibraryAccount account,
-      {required DateTime now, Duration leaseFor = const Duration(seconds: 30)});
+      {required DateTime now,
+      Duration leaseFor = const Duration(seconds: 30),
+      int? libraryFolderId,
+      String? quality});
   Future<DownloadJob?> renewLease(DownloadJob expected,
       {required DateTime now, Duration leaseFor = const Duration(seconds: 30)});
   Future<DownloadJob?> advance(DownloadJob expected, DownloadJobStage next,

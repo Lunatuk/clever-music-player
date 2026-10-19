@@ -33,7 +33,7 @@ final class YandexLibraryLimits {
 /// One credential session, one operation at a time. No startup work or writes
 /// to Yandex. Complete lists are observed twice before declaring a snapshot.
 final class YandexLibraryClient
-    implements YandexLibraryReader, YandexDownloadReader {
+    implements YandexLibraryReader, YandexDownloadSessionReader {
   YandexLibraryClient(
       {required YandexAccessToken token,
       YandexApiTransport? transport,
