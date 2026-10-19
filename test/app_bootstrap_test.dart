@@ -113,6 +113,24 @@ void main() {
     await dependencies.dispose();
     expect(created, 0);
     expect(() => dependencies.assetChecker, throwsStateError);
+    expect(() => dependencies.yandexUpdate, throwsStateError);
+    expect(() => dependencies.yandexConnection, throwsStateError);
+  });
+
+  test(
+      'update owner is shared and local initialization drains before SQLite closes',
+      () async {
+    final dependencies = await bootstrapApplication(adapters: adapters);
+    final updates = dependencies.yandexUpdate;
+    expect(identical(updates, dependencies.yandexUpdate), isTrue);
+    expect(
+        identical(updates.connection, dependencies.yandexConnection), isTrue);
+    final initializing = updates.initialize();
+    await dependencies.dispose();
+    await initializing;
+    expect(updates.isBusy, isFalse);
+    expect(adapters.database.closeCalls, 1);
+    expect(() => dependencies.yandexUpdate, throwsStateError);
   });
 
   test('shutdown drains cancelled asset read before closing SQLite', () async {

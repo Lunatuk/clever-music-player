@@ -6,6 +6,7 @@ import 'package:clever_music_player/src/app/dependency_scope.dart';
 import 'package:clever_music_player/src/data/drift/app_database.dart';
 import 'package:clever_music_player/src/data/repositories/drift_repositories.dart';
 import 'package:clever_music_player/src/library_sync/yandex_connection_controller.dart';
+import 'package:clever_music_player/src/library_sync/yandex_library_update_controller.dart';
 import 'package:clever_music_player/src/domain/models/models.dart';
 import 'package:clever_music_player/src/domain/repositories/repositories.dart';
 import 'package:clever_music_player/src/library/artwork_cache_service.dart';
@@ -1571,7 +1572,8 @@ final class _HomeScreenFixture {
         controlledScanFolder: controlledScanFolder,
       ),
     );
-    final dependencies = AppDependencies(
+    late final AppDependencies dependencies;
+    dependencies = AppDependencies(
       database: database,
       repositories: repositories,
       recommendationService: recommendationService,
@@ -1586,6 +1588,14 @@ final class _HomeScreenFixture {
           repository: DriftRepositories(database).remoteLibrary,
           sessions: DriftRepositories(database).yandexSessions,
           credentials: MemoryYandexCredentials()),
+      yandexUpdateFactory: () => YandexLibraryUpdateController(
+          connection: dependencies.yandexConnection,
+          library: repositories.libraryFolders,
+          plans: DriftRepositories(database).librarySync,
+          settings: repositories.settings,
+          checkerFactory: () => throw StateError('Unused in player UI fixture'),
+          runnerFactory: () => throw StateError('Unused in player UI fixture'),
+          supported: false),
     );
     return _HomeScreenFixture._(
       dependencies: dependencies,

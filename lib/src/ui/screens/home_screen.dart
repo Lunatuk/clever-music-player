@@ -10,6 +10,7 @@ import '../../domain/repositories/repositories.dart';
 import '../../library/library_controller.dart';
 import '../../library/library_track_list.dart';
 import '../../library_sync/yandex_connection_controller.dart';
+import '../../library_sync/yandex_library_update_controller.dart';
 import '../../player/playback_transitions.dart';
 import '../../player/player_service.dart';
 import '../../player/player_state.dart';
@@ -388,6 +389,7 @@ final class _HomeScreenState extends State<HomeScreen> {
           },
           diagnostics: dependencies.diagnostics,
           yandexConnection: () => dependencies.yandexConnection,
+          yandexUpdate: () => dependencies.yandexUpdate,
         );
     }
   }
@@ -1356,6 +1358,7 @@ final class _SettingsPage extends StatelessWidget {
     required this.onResetLearningState,
     required this.diagnostics,
     required this.yandexConnection,
+    required this.yandexUpdate,
   });
 
   final List<LibraryFolder> folders;
@@ -1374,6 +1377,7 @@ final class _SettingsPage extends StatelessWidget {
   final VoidCallback onResetLearningState;
   final DiagnosticsService diagnostics;
   final YandexConnectionController Function() yandexConnection;
+  final YandexLibraryUpdateController Function() yandexUpdate;
 
   @override
   Widget build(BuildContext context) {
@@ -1458,7 +1462,9 @@ final class _SettingsPage extends StatelessWidget {
                 const SizedBox(height: 16),
                 _SettingsSection(
                     title: 'Яндекс Музыка',
-                    child: YandexSettings(controller: yandexConnection())),
+                    child: YandexSettings(
+                        controller: yandexConnection(),
+                        updates: yandexUpdate())),
               ],
             ),
           ),

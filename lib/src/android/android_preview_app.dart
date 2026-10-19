@@ -93,7 +93,8 @@ final class _AndroidPreviewAppState extends State<AndroidPreviewApp> {
                 body: SingleChildScrollView(
                     padding: const EdgeInsets.all(16),
                     child: YandexSettings(
-                        controller: widget.dependencies.yandexConnection))),
+                        controller: widget.dependencies.yandexConnection,
+                        updates: widget.dependencies.yandexUpdate))),
             stop:
                 (widget.dependencies.smtcService as AndroidMediaControlsService)
                     .stop),

@@ -363,7 +363,7 @@ void main() {
     expect(current.attemptCount, 2);
     expect(current.attemptToken, isNotNull);
   });
-  for (final limit in [0, -1, 1001]) {
+  for (final limit in [0, -1, 100001]) {
     test('invalid batch limit $limit rejected before storage or authentication',
         () async {
       await expectLater(run(maxJobs: limit), throwsArgumentError);

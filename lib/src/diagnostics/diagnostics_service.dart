@@ -56,6 +56,9 @@ enum DiagnosticEvent {
   downloadTransferCompleted,
   downloadTransferFailed,
   downloadTransferCleanupFailed,
+  yandexUpdateStarted,
+  yandexUpdateCompleted,
+  yandexUpdateFailed,
 }
 
 enum DiagnosticField {
@@ -113,6 +116,12 @@ enum DiagnosticField {
   outputGain,
   transferStage,
   transferFailure,
+  syncStage,
+  syncFailure,
+  syncRunOutcome,
+  syncRunFailure,
+  syncJobFailure,
+  plannedTracks,
 }
 
 /// Only fixed event/field names and numeric/boolean values enter the journal.

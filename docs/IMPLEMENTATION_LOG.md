@@ -3359,3 +3359,53 @@ Android private lock/SAF/теги,physical Android,macOS и remote CI не об�
 format-final.log,native-windows-protocol.log,native-extracted-final.log,apk-*.log;
 source-manifest/build-result/verify-result/package JSON. Артефакты сопровождаются
 checks/manual-checks/.sha256. Живая авторизованная загрузка не проверялась.
+
+
+**19 октября 2026 — пакет 47: ручное обновление библиотеки в Windows UI**
+
+App-owned YandexLibraryUpdateController объединяет свежий состав выбранных
+коллекций, полную SHA-сверку кандидатов, повторный канонический план/apply и
+session-bound runner. Интерфейс: папка назначения из включённых источников,
+MP3 HQ320/FLAC, сохраняемый лимит 3/10/50/все, прогресс, остановка и явный повтор
+failed/cancelled. При отсутствии работы helper/runner не открываются.
+Настройки сохраняют только ID/профиль/лимит; ошибка записи откатывает UI.
+Уход со страницы сохраняет операцию, app shutdown отменяет/drain до SQLite.
+Смена account/selection и отключение назначения отменяют текущий запуск.
+Добавлены числовые diagnostic events/stages/failures/counts без секретов.
+Runner допускает явный максимум100000 и сохраняет тип terminal jobFailure.
+Android UI показывает прежние коллекции и пояснение о Windows download.
+
+44 новые проверки: controller28, widgets11, native update4, lifecycle1.
+Профильные153 и полный2017 прошли без skips с настоящим Windows helper.
+Нативные синтетические HTTP->MP3/FLAC->теги/обложка->SQLite/import, повторная
+SHA-сверка без повторного скачивания, отмена held-body и явный повтор,
+отказ при недостаточном declared bitrate. Проверены controls/settings rollback,
+навигация, отмена; рендер360/1200 и text scale2 осмотрен. Analyzer чист,
+формат337/0; native Windows audio protocol fixture совпал.
+В первом полном прогоне параллельно со сборкой завис прежний cover timeout
+test; отдельно24/24 прошли. Финальный полный2017 повторён после сборки с
+concurrency2, без skips/ошибок. Изменений приложения для этого не потребовалось.
+
+Release47: исходники470 SHA совпали в workspace/build; codegen/schema13,
+pubspec/lock/native прежние. Android release/JVM15/lint0errors/6старых warnings,
+APK2047/target36/signer46/v2/CRC/zipalign/ELF16KiB/permissions/media service/icon.
+Windows release41 files: PE x64, production NativeAssetsManifest, без test-only
+sidecar; helper21 files прежние,9 checks после Unicode/spaced extraction/minimal PATH.
+
+Теперь нужна малая живая Windows-проверка: отдельная пустая папка, выбранный
+плейлист1–3, временно без likes/других списков; загрузка/теги/обложка/повтор,
+остановка и сохранение настроек. Пользовательские credential/DB/музыка не
+использовались; живая авторизованная загрузка не объявляется проверенной.
+Старые файлы без registered external ID не сопоставляются по названию.
+Android private lock/SAF/теги, macOS и физические устройства, расписание и дизайн
+остаются далее; алгоритм рекомендаций отложен. Контракт:
+architecture/yandex-library-update-ui.md; чек-лист: MANUAL_CHECKS.md.
+
+- dist/clever-music-player-core-47-android-arm64.apk — 22823579 bytes, SHA-256 `bf2deb21bcc087b6167e569abe14159cfca333cdfc0d8865d9ca7e06fa11c6d2`.
+
+- dist/clever-music-player-core-47-windows-x64.zip — 31745826 bytes, SHA-256 `fa748baaaec5bd2370fb447f18903a6ed68a8ad95f18f7c9fff8642b0c09687b`.
+
+Логи .dart_tool/core47-full-tests-final.log,targeted-final.log,analyze-final.log,
+format-final.log,native-windows-protocol.log,native-extracted-final.log,apk-*.log;
+source-manifest/build-result/verify-result/package JSON,ui-qa PNG. Артефакты
+сопровождаются checks/manual-checks/.sha256. Живая авторизованная загрузка не проверялась.

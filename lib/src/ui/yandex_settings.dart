@@ -5,10 +5,14 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../library_sync/yandex_connection_controller.dart';
 import '../library_sync/yandex_library_protocol.dart';
+import '../library_sync/yandex_library_update_controller.dart';
+import 'yandex_library_update_settings.dart';
 
 class YandexSettings extends StatefulWidget {
-  const YandexSettings({super.key, required this.controller, this.openHelp});
+  const YandexSettings(
+      {super.key, required this.controller, this.updates, this.openHelp});
   final YandexConnectionController controller;
+  final YandexLibraryUpdateController? updates;
   final Future<void> Function()? openHelp;
   @override
   State<YandexSettings> createState() => _YandexSettingsState();
@@ -21,15 +25,19 @@ class _YandexSettingsState extends State<YandexSettings> {
   void initState() {
     super.initState();
     unawaited(widget.controller.initialize());
+    unawaited(widget.updates?.initialize() ?? Future.value());
   }
 
   @override
   void didUpdateWidget(covariant YandexSettings oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.controller != widget.controller) {
-      oldWidget.controller.cancel();
+      if (oldWidget.updates?.isBusy != true) oldWidget.controller.cancel();
       _token.clear();
       unawaited(widget.controller.initialize());
+    }
+    if (oldWidget.updates != widget.updates) {
+      unawaited(widget.updates?.initialize() ?? Future.value());
     }
   }
 
@@ -54,21 +62,22 @@ class _YandexSettingsState extends State<YandexSettings> {
 
   @override
   void dispose() {
-    widget.controller.cancel();
+    if (widget.updates?.isBusy != true) widget.controller.cancel();
     _token.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
-      listenable: widget.controller,
+      listenable: Listenable.merge([widget.controller, widget.updates]),
       builder: (context, _) {
         final connection = widget.controller;
         final account = connection.account;
-        final busy = connection.isBusy;
+        final busy = connection.isBusy || (widget.updates?.isBusy ?? false);
         return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text('Подключи аккаунт, выбери «Мне нравится» и плейлисты. '
-              'Сейчас доступна проверка их состава; скачивание появится следующим шагом.'),
+          Text(widget.updates == null
+              ? 'Подключи аккаунт, выбери «Мне нравится» и плейлисты. Сейчас доступна проверка их состава; скачивание появится следующим шагом.'
+              : 'Подключи аккаунт, выбери «Мне нравится» и плейлисты для обновления библиотеки.'),
           const SizedBox(height: 12),
           if (account == null) ...[
             ConstrainedBox(
@@ -169,6 +178,8 @@ class _YandexSettingsState extends State<YandexSettings> {
                   },
                 )),
           ],
+          if (widget.updates != null)
+            YandexLibraryUpdateSettings(controller: widget.updates!),
           const SizedBox(height: 12),
           OutlinedButton.icon(
               key: const ValueKey('yandex-probe'),
@@ -176,7 +187,7 @@ class _YandexSettingsState extends State<YandexSettings> {
               icon: const Icon(Icons.network_check),
               label: const Text('Проверить соединение')),
           const Text('Проверка доступности API выполняется без токена.'),
-          if (busy) ...[
+          if (connection.isBusy && widget.updates?.isBusy != true) ...[
             const SizedBox(height: 12),
             const LinearProgressIndicator(),
             const SizedBox(height: 8),

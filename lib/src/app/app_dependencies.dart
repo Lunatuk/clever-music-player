@@ -1,7 +1,14 @@
+import 'dart:ffi';
+import 'dart:io';
+
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
+
 import '../data/drift/app_database.dart';
 import '../diagnostics/diagnostics_service.dart';
 import '../domain/repositories/repositories.dart';
 import '../library/custom_artwork_service.dart';
+import '../library/artwork_cache_service.dart';
 import '../library/directory_picker_service.dart';
 import '../library/library_scanner_service.dart';
 import '../library/library_controller.dart';
@@ -10,6 +17,11 @@ import '../library_sync/downloaded_asset_checker.dart';
 import '../library_sync/source_fingerprint_probe.dart';
 import '../library_sync/yandex_connection_controller.dart';
 import '../library_sync/yandex_credential_store.dart';
+import '../library_sync/yandex_download_runner.dart';
+import '../library_sync/yandex_library_client.dart';
+import '../library_sync/yandex_http_transport.dart';
+import '../library_sync/yandex_library_update_controller.dart';
+import '../library_sync/desktop_yandex_download_pipeline.dart';
 import '../player/player_service.dart';
 import '../queue/playback_queue_service.dart';
 import '../recommendation/recommendation_service.dart';
@@ -32,9 +44,11 @@ final class AppDependencies {
     LibraryController? libraryController,
     SourceFingerprintProbe Function()? sourceFingerprintProbeFactory,
     YandexConnectionController Function()? yandexConnectionFactory,
+    YandexLibraryUpdateController Function()? yandexUpdateFactory,
   })  : _sourceFingerprintProbeFactory =
             sourceFingerprintProbeFactory ?? FileSourceFingerprintProbe.new,
         _yandexConnectionFactory = yandexConnectionFactory,
+        _yandexUpdateFactory = yandexUpdateFactory,
         libraryController = libraryController ??
             LibraryController(
               directoryPicker: directoryPicker,
@@ -63,6 +77,49 @@ final class AppDependencies {
   DownloadedAssetChecker? _assetChecker;
   final YandexConnectionController Function()? _yandexConnectionFactory;
   YandexConnectionController? _yandexConnection;
+  final YandexLibraryUpdateController Function()? _yandexUpdateFactory;
+  YandexLibraryUpdateController? _yandexUpdate;
+  YandexLibraryUpdateController get yandexUpdate {
+    if (_closing != null) throw StateError('Приложение закрывается.');
+    return _yandexUpdate ??= _yandexUpdateFactory?.call() ??
+        YandexLibraryUpdateController(
+            connection: yandexConnection,
+            library: repositories.libraryFolders,
+            plans: repositories.librarySync,
+            settings: repositories.settings,
+            supported: Abi.current() == Abi.windowsX64,
+            diagnostics: diagnostics,
+            checkerFactory: () => DownloadedAssetChecker(
+                repository: repositories.downloadedAssets,
+                probe: _sourceFingerprintProbeFactory()),
+            runnerFactory: () => YandexDownloadRunner(
+                sessions: repositories.yandexSessions,
+                credentials: const SecureYandexCredentialStore(),
+                jobs: repositories.downloadJobs,
+                readerFactory: (token) => YandexLibraryClient(
+                    token: token,
+                    transport: YandexHttpTransport(diagnostics: diagnostics)),
+                pipelineFactory: (reader, control) async {
+                  control.throwIfCancelled();
+                  final support = await getApplicationSupportDirectory();
+                  control.throwIfCancelled();
+                  final parent = Directory(
+                      p.join(support.path, 'CleverMusicPlayer', 'downloads'));
+                  await parent.create(recursive: true);
+                  control.throwIfCancelled();
+                  return DesktopYandexDownloadPipeline.open(
+                      reader: reader,
+                      temporaryParent: parent,
+                      jobs: repositories.downloadJobs,
+                      accounts: repositories.remoteLibrary,
+                      imports: repositories.downloadImports,
+                      retention: repositories.publicationRetention,
+                      artworkCache: AppSupportArtworkCacheService(),
+                      control: control,
+                      diagnostics: diagnostics);
+                }));
+  }
+
   YandexConnectionController get yandexConnection {
     if (_closing != null) throw StateError('Приложение закрывается.');
     return _yandexConnection ??= _yandexConnectionFactory?.call() ??
@@ -86,6 +143,8 @@ final class AppDependencies {
   Future<void> dispose() => _closing ??= _dispose();
 
   Future<void> _dispose() async {
+    final updateClosing = _yandexUpdate?.close();
+    updateClosing?.ignore();
     final yandexClosing = _yandexConnection?.close();
     yandexClosing?.ignore();
     final assetClosing = _assetChecker?.close();
@@ -110,6 +169,8 @@ final class AppDependencies {
         AppCleanupAction(AppResource.assetVerification, () => assetClosing),
       if (yandexClosing != null)
         AppCleanupAction(AppResource.remoteLibrary, () => yandexClosing),
+      if (updateClosing != null)
+        AppCleanupAction(AppResource.libraryUpdate, () => updateClosing),
       AppCleanupAction(AppResource.database, database.close),
       AppCleanupAction(AppResource.diagnostics, diagnostics.flush),
     ], diagnostics);

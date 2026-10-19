@@ -78,7 +78,20 @@ abstract interface class YandexDownloadPipeline {
 
 /// Explicit bounded run of already queued jobs. Never plans, enqueues, retries
 /// terminal jobs, switches credentials mid-run or starts work at application boot.
-final class YandexDownloadRunner {
+abstract interface class YandexDownloadRunService {
+  bool get isBusy;
+  Future<YandexDownloadRunResult> run(
+      {required RemoteLibraryAccount account,
+      required int libraryFolderId,
+      required YandexAudioSelection selection,
+      int maxJobs = 3,
+      LibraryScanControl? control,
+      void Function(YandexDownloadRunProgress)? onProgress});
+  void cancel();
+  Future<void> close();
+}
+
+final class YandexDownloadRunner implements YandexDownloadRunService {
   YandexDownloadRunner(
       {required YandexSessionRepository sessions,
       required YandexCredentialStore credentials,
@@ -113,8 +126,10 @@ final class YandexDownloadRunner {
   Future<YandexDownloadRunResult>? _active;
   Future<void>? _closing;
   bool _closed = false;
+  @override
   bool get isBusy => _active != null;
 
+  @override
   Future<YandexDownloadRunResult> run(
       {required RemoteLibraryAccount account,
       required int libraryFolderId,
@@ -128,7 +143,7 @@ final class YandexDownloadRunner {
     }
     if (libraryFolderId <= 0 ||
         maxJobs <= 0 ||
-        maxJobs > 1000 ||
+        maxJobs > LibrarySyncSnapshot.maxEntries ||
         !account.isActive ||
         account.identity.provider != 'yandex_music') {
       return Future.error(ArgumentError('Некорректные границы запуска.'));
@@ -296,6 +311,7 @@ final class YandexDownloadRunner {
       if (claimed != null) {
         try {
           final current = await _jobs.findByKey(claimed.key);
+          jobFailure ??= current?.failure;
           if (current != null &&
               current.isExecuting &&
               current.attemptToken == claimed.attemptToken &&
@@ -338,7 +354,9 @@ final class YandexDownloadRunner {
         failure: failure, jobFailure: jobFailure, cleanupFailed: cleanupFailed);
   }
 
+  @override
   void cancel() => _control?.cancel();
+  @override
   Future<void> close() {
     _closed = true;
     cancel();
