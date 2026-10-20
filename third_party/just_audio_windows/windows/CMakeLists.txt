@@ -8,6 +8,27 @@ set(CMAKE_CXX_STANDARD 17)
 # not be changed
 set(PLUGIN_NAME "just_audio_windows_plugin")
 
+# MSBuild's tracked includes can omit headers below Flutter's plugin symlink.
+# Reconfigure on header edits and change the compiler command as well. The
+# resulting DLL exposes this digest so packaging can reject a stale binary.
+set(CMP_AUDIO_FINGERPRINT_INPUTS
+  CMakeLists.txt
+  include/just_audio_windows/just_audio_windows_plugin.h
+  just_audio_windows_plugin.cpp
+  player.hpp
+  player_data.hpp
+  uri_utils.hpp
+)
+set(CMP_AUDIO_SOURCE_MANIFEST "")
+foreach(CMP_AUDIO_INPUT IN LISTS CMP_AUDIO_FINGERPRINT_INPUTS)
+  set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/${CMP_AUDIO_INPUT}")
+  file(SHA256 "${CMAKE_CURRENT_SOURCE_DIR}/${CMP_AUDIO_INPUT}" CMP_AUDIO_INPUT_SHA)
+  string(APPEND CMP_AUDIO_SOURCE_MANIFEST
+    "${CMP_AUDIO_INPUT}:${CMP_AUDIO_INPUT_SHA}\n")
+endforeach()
+string(SHA256 CMP_AUDIO_SOURCE_SHA256 "${CMP_AUDIO_SOURCE_MANIFEST}")
+
 add_library(${PLUGIN_NAME} SHARED
   "just_audio_windows_plugin.cpp"
   "player.hpp"
@@ -16,7 +37,8 @@ add_library(${PLUGIN_NAME} SHARED
 apply_standard_settings(${PLUGIN_NAME})
 set_target_properties(${PLUGIN_NAME} PROPERTIES
   CXX_VISIBILITY_PRESET hidden)
-target_compile_definitions(${PLUGIN_NAME} PRIVATE FLUTTER_PLUGIN_IMPL)
+target_compile_definitions(${PLUGIN_NAME} PRIVATE FLUTTER_PLUGIN_IMPL
+  CMP_AUDIO_SOURCE_SHA256="${CMP_AUDIO_SOURCE_SHA256}")
 target_include_directories(${PLUGIN_NAME} INTERFACE
   "${CMAKE_CURRENT_SOURCE_DIR}/include")
 target_link_libraries(${PLUGIN_NAME} PRIVATE flutter flutter_wrapper_plugin)

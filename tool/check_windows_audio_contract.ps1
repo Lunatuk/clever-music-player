@@ -69,6 +69,8 @@ if ($LASTEXITCODE -ne 0) { throw 'Native Windows URI test compilation failed.' }
 if ($LASTEXITCODE -ne 0) { throw 'Native Windows URI tests failed.' }
 if ($NativeReleaseDirectory) {
     $release = (Resolve-Path -LiteralPath $NativeReleaseDirectory).Path
+    & python (Join-Path $PSScriptRoot 'verify_windows_audio_plugin.py') "$release/just_audio_windows_plugin.dll" --source-root $projectRoot
+    if ($LASTEXITCODE -ne 0) { throw 'The packaged Windows audio DLL does not match these sources.' }
     $wrapper = Join-Path $release '../../flutter/Release/flutter_wrapper_plugin.lib'
     if (-not (Test-Path -LiteralPath $wrapper)) {
         throw 'Build a Windows release first; its Flutter wrapper library is required.'

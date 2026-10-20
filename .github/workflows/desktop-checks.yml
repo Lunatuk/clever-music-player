@@ -76,6 +76,10 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: '& "$env:FLUTTER_ROOT/bin/cache/dart-sdk/bin/dart.exe" --packages=.dart_tool/package_config.json tool/check_bundled_media_helper.dart build/windows/x64/runner/Release/tools/media-helper test/fixtures/media_helper'
+      - name: Verify compiled Windows audio plugin matches sources
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: python tool/verify_windows_audio_plugin.py build/windows/x64/runner/Release/just_audio_windows_plugin.dll
       - name: Build macOS release
         if: runner.os == 'macOS'
         run: flutter build macos --release --no-pub

@@ -3514,6 +3514,13 @@ validation backend и подключение общего runner. Реально
 
 **20 октября 2026 — пакет 50: Windows-открытие файлов и ошибки декодера**
 
+Уточнение из пакета51: исходники ниже действительно исправлены и отдельный
+AudioPlayer проходил проверки, но incremental build пропустил изменённые
+заголовки. В ZIP50 Unicode-исправления не было. Проверка SHA исходников
+workspace/build не установила состав DLL. Выпуск исправлен пакетом51;
+новая проверка сверяет fingerprint самого скомпилированного плагина.
+
+
 Работа Android49 приостановлена на время диагностики невоспроизведения всех
 форматов на другом Windows11-PC с пакетом48. Те же файлы работают там в
 штатном проигрывателе и VLC. Три исходных JSON (два из ZIP, история частично
@@ -3575,3 +3582,52 @@ analyze-final.log,format-final.log,native-windows-protocol.log,native-extracted-
 source-manifest/build-result/verify-result/package JSON;
 windows-audio-contract/native_playback_results.json. Артефакты сопровождаются
 checks/manual-checks/.sha256. Физические устройства и remote CI не квалифицированы.
+
+
+**20 октября 2026 — пакет 51: исправленный Windows-выпуск и проверка DLL**
+
+Новый отчёт друга содержит девять отказов cached open с -2147024893
+(0x80070003); исходники читаются и свежие копии создаются. Проверка архива50
+обнаружила DLL со временем сборки до URI-правки. Повторная команда Flutter
+завершилась успешно, но native plugin не перекомпилировался. CL.read tracker
+не содержит player.hpp/uri_utils.hpp. Предыдущая квалификация исходников
+и отдельного настоящего AudioPlayer была недостаточной для проверки ZIP.
+Ошибка подготовки пакета признана; фактический отказ у друга ещё требует
+повторной проверки после доставки исправленного бинарного файла.
+
+CMake теперь отслеживает шесть fingerprint inputs, считает SHA-256 манифеста
+и включает digest в compiler definitions. При правке заголовка меняется
+команда компиляции. Экспорт CmpWindowsAudioBuildStamp возвращает фиксированный
+source stamp, без пользовательских данных. Новый verifier независимо
+считает digest, проверяет PE x64/stamp/export и отвергает устаревшую DLL.
+Он включён в Windows CI и обязателен перед native playback probe.
+
+Windows51 собран из свежей ASCII-копии. Проверка изменений только заголовка
+во временной build-копии прошла: старая DLL отвергнута, повторная сборка
+с неизменным cpp создаёт новый fingerprint, verifier другого source tree
+отвергает его; после восстановления заголовка и повторной сборки fingerprint
+снова совпадает с workspace. Реальный DLL export вызван и проверен; весь
+source manifest после восстановления совпадает. Временные метки не заменяют
+эту проверку. CI YAML проверен локально, remote workflow не квалифицирован.
+
+Повторно прошли2085 Flutter tests без skips/errors, анализ чистый, формат348/0;
+три native event fixtures,32 URI-регрессии и26 настоящих WinRT проверок
+(24 Play с native Position по3форматам/8типам пути,2 повреждённых файла).
+488 source SHA совпадают в workspace/build. Dart-приложение/тесты, зависимости,
+codegen/schema13/native file-ops неизменны50. EXE имеет FileVersion0.2.1+51.
+41 Windows file/production native assets/без test-only sidecar; helper21files
+прежние50. После распаковки в Unicode/spaced path проверены fingerprint
+самой DLL и её runtime export;9 helper checks с minimal PATH прошли.
+API/учётные данные/библиотека пользователя не использовались. Android APK
+не выпускался; ручная проверка Android49 и SAF-публикация остаются впереди.
+
+Отдельный exploratory probe подтвердил ограничение CreateFromUri на прямом
+пути длиной366 символов. Приложение использует кэш для длинных путей;
+поддержка произвольной длины native URI этим выпуском не заявляется.
+
+- dist/clever-music-player-core-51-windows-x64.zip — 31774519 bytes, SHA-256 `e4ff5212cd7bada76d214e9cd9e757cea1157f54ec24e76bc76f0b10fd200c20`.
+
+Логи .dart_tool/core51-full-tests-final.log,analyze-final.log,format-all-final.log,
+native-windows-protocol.log,native-extracted-final.log; source-manifest,
+build-result,incremental-result,extracted-plugin,package JSON. Чек-лист и checks
+прилагаются к ZIP; успех на компьютере друга ещё ожидает подтверждения.

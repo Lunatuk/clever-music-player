@@ -18,6 +18,10 @@
 using flutter::EncodableMap;
 using flutter::EncodableValue;
 
+const char* CmpWindowsAudioBuildStamp(void) {
+  return "CMP_WINDOWS_AUDIO_SOURCE_SHA256:" CMP_AUDIO_SOURCE_SHA256;
+}
+
 namespace {
 
 // static std::unordered_map<std::string, AudioPlayer> players;

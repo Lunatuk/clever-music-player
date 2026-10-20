@@ -16,6 +16,9 @@ extern "C" {
 FLUTTER_PLUGIN_EXPORT void JustAudioWindowsPluginRegisterWithRegistrar(
     FlutterDesktopPluginRegistrarRef registrar);
 
+// Build verification only; no player, path, or user data is exposed.
+FLUTTER_PLUGIN_EXPORT const char* CmpWindowsAudioBuildStamp(void);
+
 #if defined(__cplusplus)
 }  // extern "C"
 #endif
