@@ -64,6 +64,11 @@ enum DiagnosticEvent {
   audioLoadAttemptFailed,
   windowsPlaybackObserved,
   windowsPlaybackObservationFailed,
+  androidWorkspaceCheckStarted,
+  androidWorkspaceCheckCompleted,
+  androidWorkspaceCheckCancelled,
+  androidWorkspaceCheckFailed,
+  androidWorkspaceFileOperationFailed,
 }
 
 enum DiagnosticField {
@@ -142,6 +147,9 @@ enum DiagnosticField {
   playerPositionMs,
   opening,
   nativePlayerCount,
+  workspaceStage,
+  workspaceFileOperation,
+  workspaceFailure,
 }
 
 /// Only fixed event/field names and numeric/boolean values enter the journal.

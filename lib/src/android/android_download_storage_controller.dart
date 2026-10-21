@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import '../diagnostics/diagnostics_service.dart';
 
 import '../domain/models/audio_source_reference.dart';
 import '../domain/repositories/settings_repository.dart';
@@ -11,10 +12,25 @@ import 'android_download_workspace.dart';
 
 typedef DownloadWorkspaceCheck = Future<void> Function(LibraryScanControl);
 
-Future<void> _checkPrivateStorage(LibraryScanControl control) async {
+Future<void> _checkPrivateStorage(
+    LibraryScanControl control, DiagnosticsService diagnostics) async {
   control.throwIfCancelled();
-  final parent = await androidDownloadWorkspaceParent();
-  await checkAndroidDownloadWorkspace(parent: parent, control: control);
+  final Directory parent;
+  try {
+    parent = await androidDownloadWorkspaceParent();
+  } on Object catch (error) {
+    diagnostics.record(DiagnosticEvent.androidWorkspaceCheckFailed,
+        error: error,
+        fields: {
+          DiagnosticField.workspaceStage:
+              AndroidWorkspaceCheckStage.parent.index,
+          if (error is FileSystemException && error.osError != null)
+            DiagnosticField.nativeCode: error.osError!.errorCode,
+        });
+    rethrow;
+  }
+  await checkAndroidDownloadWorkspace(
+      parent: parent, control: control, diagnostics: diagnostics);
 }
 
 /// App-owned: accepted persistence and private IO drain before SQLite closes.
@@ -22,9 +38,11 @@ Future<void> _checkPrivateStorage(LibraryScanControl control) async {
 final class AndroidDownloadStorageController extends ChangeNotifier {
   AndroidDownloadStorageController(
       {required this.settings,
+      DiagnosticsService diagnostics = const NoopDiagnosticsService(),
       this.documents = const AndroidDownloadFolders(),
       DownloadWorkspaceCheck? checkWorkspace})
-      : _checkWorkspace = checkWorkspace ?? _checkPrivateStorage;
+      : _checkWorkspace = checkWorkspace ??
+            ((control) => _checkPrivateStorage(control, diagnostics));
 
   static const settingKey = 'android.download_destination.v1';
   final SettingsRepository settings;
@@ -68,8 +86,11 @@ final class AndroidDownloadStorageController extends ChangeNotifier {
             : 'Хранилище недоступно. Проверь свободное место и доступ.';
       } on Object {
         // Never put platform exception text, document URIs or paths in the UI.
-        _message = 'Не удалось выполнить проверку. Проверь доступ к папке '
-            'и свободное место, затем повтори действие.';
+        _message = _control != null
+            ? 'Не удалось проверить внутреннее хранилище. Создай диагностический '
+                'отчёт в настройках и передай его для проверки.'
+            : 'Не удалось выполнить проверку. Проверь доступ к папке '
+                'и свободное место, затем повтори действие.';
       } finally {
         _control = null;
         _busy = false;

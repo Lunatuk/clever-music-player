@@ -226,6 +226,19 @@ void main() {
     expect(controller.message, contains('Недостаточно свободного места'));
     expect(controller.message, isNot(contains('private')));
   });
+  test('private-check failure requests a report rather than folder permissions',
+      () async {
+    await controller.close();
+    controller.dispose();
+    controller = AndroidDownloadStorageController(
+        settings: settings,
+        checkWorkspace: (_) async => throw StateError('PRIVATE_INTERNAL_PATH'));
+    await controller.checkWorkspace();
+    expect(controller.message, contains('внутреннее хранилище'));
+    expect(controller.message, contains('диагностический'));
+    expect(controller.message, isNot(contains('PRIVATE_INTERNAL_PATH')));
+    expect(controller.message, isNot(contains('доступ к папке')));
+  });
 }
 
 final class _Documents implements DownloadFolderDocuments {

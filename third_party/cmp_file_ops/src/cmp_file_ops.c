@@ -35,6 +35,10 @@ CMP_EXPORT int32_t cmp_move(const void* source, const void* target) {
 #include <sys/file.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#if defined(__ANDROID__)
+#include <linux/fs.h>
+#include <sys/syscall.h>
+#endif
 #define CMP_EXPORT __attribute__((visibility("default")))
 static int32_t cmp_error(void) { return -(errno ? errno : EIO); }
 CMP_EXPORT int32_t cmp_mkdir(const void* path) {
@@ -58,8 +62,16 @@ CMP_EXPORT int32_t cmp_close(intptr_t handle) {
   return close((int)handle) == 0 ? 0 : cmp_error();
 }
 CMP_EXPORT int32_t cmp_move(const void* source, const void* target) {
+#if defined(__ANDROID__)
+  /* Android SELinux forbids hard links even within the app's private files.
+     Use the kernel operation directly (the libc wrapper needs API 30).
+     Never fall back to overwrite, copy, or an exists-then-rename race. */
+  return syscall(__NR_renameat2, AT_FDCWD, (const char*)source,
+    AT_FDCWD, (const char*)target, RENAME_NOREPLACE) == 0 ? 0 : cmp_error();
+#else
   if (link((const char*)source, (const char*)target) != 0) return cmp_error();
   /* Crash here leaves two names for one inode; reconciliation checks identical. */
   return unlink((const char*)source) == 0 ? 0 : cmp_error();
+#endif
 }
 #endif

@@ -40,6 +40,7 @@ final class _AndroidPreviewAppState extends State<AndroidPreviewApp> {
   void initState() {
     super.initState();
     _downloadStorage = AndroidDownloadStorageController(
+        diagnostics: widget.dependencies.diagnostics,
         settings: widget.dependencies.repositories.settings);
     unawaited(_downloadStorage.initialize());
     _bookmarks = widget.bookmarks ??

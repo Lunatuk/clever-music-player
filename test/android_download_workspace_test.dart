@@ -4,8 +4,10 @@ import 'package:clever_music_player/src/android/android_download_workspace.dart'
 import 'package:clever_music_player/src/library/library_scan_control.dart';
 import 'package:clever_music_player/src/library_sync/download_workspace.dart';
 import 'package:clever_music_player/src/library_sync/native_publication_files.dart';
+import 'package:clever_music_player/src/diagnostics/diagnostics_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
+import 'support/recording_diagnostics.dart';
 
 void main() {
   late Directory root;
@@ -73,11 +75,13 @@ void main() {
   });
   test('damaged journal retains probe but releases the OS owner lock',
       () async {
+    final diagnostics = RecordingDiagnostics();
     await expectLater(
         checkAndroidDownloadWorkspace(
             parent: root,
             control: LibraryScanControl(),
-            files: _Files(corruptOwner: true)),
+            files: _Files(corruptOwner: true),
+            diagnostics: diagnostics),
         throwsA(isA<DownloadWorkspaceException>().having(
             (e) => e.failure, 'failure', DownloadWorkspaceFailure.unsafePath)));
     expect(await sentinel.readAsString(), 'user data');
@@ -86,6 +90,81 @@ void main() {
     final lock = await const NativePublicationFiles()
         .lock(p.join(probe.path, '.cmp-download-workspace-v1', 'owner.lock'));
     await lock.close();
+    expect(diagnostics.entries.last.event,
+        DiagnosticEvent.androidWorkspaceCheckFailed);
+    expect(diagnostics.entries.last.fields[DiagnosticField.workspaceStage],
+        AndroidWorkspaceCheckStage.cleanup.index);
+  });
+
+  test('successful native check reports completion without expected refusals',
+      () async {
+    final diagnostics = RecordingDiagnostics();
+    await checkAndroidDownloadWorkspace(
+        parent: root, control: LibraryScanControl(), diagnostics: diagnostics);
+    expect(diagnostics.entries.map((e) => e.event), [
+      DiagnosticEvent.androidWorkspaceCheckStarted,
+      DiagnosticEvent.androidWorkspaceCheckCompleted,
+    ]);
+    await expectClean();
+  });
+  test('native errno and failing stage survive workspace error masking',
+      () async {
+    final diagnostics = RecordingDiagnostics();
+    await expectLater(
+        checkAndroidDownloadWorkspace(
+            parent: root,
+            control: LibraryScanControl(),
+            files: _Files(failMove: true),
+            diagnostics: diagnostics),
+        throwsA(isA<DownloadWorkspaceException>()));
+    final native = diagnostics.entries.singleWhere(
+        (e) => e.event == DiagnosticEvent.androidWorkspaceFileOperationFailed);
+    expect(native.fields[DiagnosticField.nativeCode], 28);
+    expect(native.fields[DiagnosticField.workspaceFileOperation], 2);
+    expect(native.fields[DiagnosticField.workspaceStage],
+        AndroidWorkspaceCheckStage.reservation.index);
+    expect(diagnostics.entries.last.event,
+        DiagnosticEvent.androidWorkspaceCheckFailed);
+    expect(diagnostics.entries.last.fields[DiagnosticField.workspaceStage],
+        AndroidWorkspaceCheckStage.reservation.index);
+    await expectClean();
+  });
+  test('cancelled native check reports cancellation after draining cleanup',
+      () async {
+    final diagnostics = RecordingDiagnostics(), control = LibraryScanControl();
+    await expectLater(
+        checkAndroidDownloadWorkspace(
+            parent: root,
+            control: control,
+            files: _Files(onMove: control.cancel),
+            diagnostics: diagnostics),
+        throwsA(isA<LibraryScanCancelled>()));
+    expect(diagnostics.entries.map((e) => e.event), [
+      DiagnosticEvent.androidWorkspaceCheckStarted,
+      DiagnosticEvent.androidWorkspaceCheckCancelled,
+    ]);
+    await expectClean();
+  });
+  test(
+      'exported failed-check diagnostics contain no private path or error text',
+      () async {
+    final log = await Directory.systemTemp.createTemp('cmp_probe_log_');
+    addTearDown(() => log.delete(recursive: true));
+    final diagnostics =
+        LocalDiagnosticsService(directoryProvider: () async => log);
+    final missing = Directory(p.join(root.path, 'PRIVATE_PATH_DO_NOT_EXPORT'));
+    await expectLater(
+        checkAndroidDownloadWorkspace(
+            parent: missing,
+            control: LibraryScanControl(),
+            diagnostics: diagnostics),
+        throwsA(isA<FileSystemException>()));
+    final report = await (await diagnostics.exportReport()).readAsString();
+    expect(report, contains('androidWorkspaceCheckFailed'));
+    expect(report, contains('"workspaceStage": 0'));
+    expect(report, isNot(contains('PRIVATE_PATH_DO_NOT_EXPORT')));
+    expect(report, isNot(contains(root.path)));
+    await expectClean();
   });
 }
 
@@ -111,7 +190,8 @@ final class _Files implements PublicationFiles {
   @override
   Future<void> moveNoReplace(String source, String target) async {
     if (failMove) {
-      throw const PublicationFileException(PublicationFileFailure.noSpace);
+      throw const PublicationFileException(PublicationFileFailure.noSpace,
+          osCode: 28);
     }
     await _native.moveNoReplace(source, target);
     if (corruptOwner && p.basename(source) == 'reservation.part') {

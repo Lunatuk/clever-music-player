@@ -10,9 +10,50 @@
 
 `getApplicationSupportDirectory()/android-downloads` — внутренняя область
 приложения. Это обычные пути, не `content://` и не cache. Существующий native
-asset `cmp_file_ops` использует POSIX `flock`, `O_NOFOLLOW`, `link/unlink`;
+asset `cmp_file_ops` использует POSIX `flock`, `O_NOFOLLOW`, а начиная с пакета52
+на Android — `renameat2(RENAME_NOREPLACE)` вместо desktop `link/unlink`;
 Dart-проверка платформы теперь разрешает Android. Ограничение 16 KiB ELF
 сохраняется. SAF-папки этим адаптером не обслуживаются.
+
+### Исправление проверки в пакете 52
+
+На видео с Redmi/Android16 выбор SAF-папки и проверка её доступа успешны,
+но private check завершается общей ошибкой. Найден подтверждённый дефект
+Android-адаптера: запись reservation.json делалась через link/unlink.
+[SELinux AOSP Android16 запрещает hard links обычным приложениям](https://android.googlesource.com/platform/system/sepolicy/+/android16-release/private/app_neverallows.te#113),
+включая собственные app-private файлы. Выбор другой SAF-папки не исправляет
+отказ внутри private workspace. Видео не содержит errno; исходный код,
+политика ОС и воспроизведение под запретом link устанавливают дефект,
+а результат на конкретном телефоне ещё требует повторного нажатия.
+
+Только Android-ветка cmp_move заменена на syscall renameat2 с RENAME_NOREPLACE.
+Используется kernel syscall, чтобы не зависеть от libc wrapper API30.
+Существующий target не заменяется, конфликт возвращает EEXIST; отсутствующий
+syscall/поддержка FS возвращают отказ. Нет exists-then-rename, overwrite или
+copy fallback. ENOSYS38 на Android классифицируется как unsupported. Журналы
+и их восстановление совместимы; Windows/macOS/Linux алгоритмы прежние.
+
+tool/android_file_ops_probe.c собирается Android NDK как static x86_64
+исполняемый файл API23. В WSL/Linux seccomp запрещает link/linkat с EPERM:
+прежний C-код падает, новый проходит. Проверяются эксклюзивная блокировка,
+конфликт обычного и symlink target, сохранность байтов/inode, отсутствующий
+источник, два конкурирующих переноса и ENOSYS/EPERM/EINVAL без fallback.
+Это настоящий Android/Bionic C-код и kernel syscalls, но не Android-приложение
+под SELinux. Физическая квалификация Redmi остаётся ручной.
+
+```powershell
+.\tool\check_android_file_ops.ps1 -NdkRoot 'C:\Android\sdk\ndk\28.2.13676358'
+```
+
+Проверка временного хранилища теперь пишет started/completed/cancelled/failed
+и неожиданные native отказы в существующую локальную диагностику. Поля только
+числовые: workspaceStage (parent0,open1,exclusiveOwner2,reservation3,write4,
+read5,release6,collision7,move8,cleanup9), workspaceFileOperation (mkdir0,lock1,
+move2), workspaceFailure (PublicationFileFailure.index) и errno/nativeCode.
+Ожидаемые busy/collision не считаются неожиданными отказами. Cleanup проходит
+до completed; при его ошибке фиксируется stage9, а не ложный успех. Пути,
+content URI и тексты исключений не сохраняются. При неизвестной private
+ошибке UI просит отчёт, не предлагает заново выдавать доступ к внешней папке.
 
 Кнопка проверки создаёт отдельный свежий `probe-*`, открывает существующий
 DownloadWorkspace, проверяет исключение второго владельца, лимит reservation,

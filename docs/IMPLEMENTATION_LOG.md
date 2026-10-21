@@ -3631,3 +3631,60 @@ API/учётные данные/библиотека пользователя н
 native-windows-protocol.log,native-extracted-final.log; source-manifest,
 build-result,incremental-result,extracted-plugin,package JSON. Чек-лист и checks
 прилагаются к ZIP; успех на компьютере друга ещё ожидает подтверждения.
+
+
+**22 октября 2026 — пакет 52: Android private storage без hard links**
+
+Пользователь подтвердил успешное воспроизведение у друга на Windows51.
+Возврат к Android49: просмотрено видео26с, SAF-папка выбирается и проверка
+доступа успешна, private check завершается общей ошибкой. Найден дефект
+cmp_move: POSIX link/unlink недопустим для обычного Android-приложения даже
+в app-private files (AOSP android16 app_neverallows запрещает hard links).
+Видео не содержит errno, поэтому результат на конкретном Redmi ещё требует
+повторной проверки; системный дефект установлен кодом/политикой/native probe.
+
+Только Android C-ветка использует syscall renameat2(RENAME_NOREPLACE), без
+libc wrapper API30, exists-then-rename, overwrite или copy fallback. Target
+при конфликте сохраняется; ENOSYS/unsupported FS остаётся отказом. Android
+ENOSYS38 классифицируется unsupported. Desktop-ветки, ABI4functions, журналы
+и schema13 прежние. Внешняя SAF-папка этим адаптером не обслуживается.
+
+Native regression собрана NDK как static Android/Bionic x86_64 API23 и
+выполнена в WSL/Linux с seccomp запретом link/linkat: старый C-код падает,
+новый проходит. Проверены блокировка второго владельца, EEXIST без изменения
+обоих файлов, symlink target, ENOENT, сохранность inode/байтов, два конкурирующих
+писателя (один успех/один конфликт), ENOSYS/EPERM/EINVAL без fallback.
+Это настоящий Android C-код/kernel syscalls, но не приложение под Android
+SELinux; физическая проверка телефона не объявляется выполненной.
+Повторение: tool/check_android_file_ops.ps1 и tool/android_file_ops_probe.c.
+
+Private check добавляет в локальную диагностику started/completed/cancelled/
+failed, этап, native operation/reason и errno до скрытия причины workspace.
+Ожидаемые busy/collision не логируются как неожиданные отказы. Успех записан
+после cleanup; его отказ получает stage cleanup. Экспорт не содержит путей,
+URI и текста ошибок. Контроллер получает app-owned diagnostics; private
+ошибка предлагает отчёт вместо повторной выдачи доступа к внешней папке.
+
+Пять новых Flutter tests (плюс усилена прежняя cleanup-регрессия):30 целевых,
+2090 полных без skips/errors; анализ чистый, формат348/0. JVM15passed,
+lint0errors/6прежних warnings. 490 source SHA совпали workspace/build;
+codegen/schema13/pubspec/lock/native hook прежние. Android C-source изменён
+намеренно. APK2052/target36/signer49/v2/CRC/zipalign+ELF16KiB/permissions/
+media service/icon/native assets проверены. Отдельно проверена actual ARM64
+библиотека ИЗ APK: syscall импортируется, link/linkat/unlink и небезопасные
+rename fallback отсутствуют;4cmp exports на месте. APK49 действительно
+импортирует link/unlink, без syscall. Новый AOT содержит поля диагностики.
+Это проверяет поставленный бинарный файл, а не только исходники/отдельный probe.
+
+Песни на Android ещё не скачиваются. Физическая проверка: APK52 поверх49,
+два запуска private check, сохранённая папка и один Play; при отказе новый
+отчёт. SAF publisher остаётся следующим этапом. API/учётные данные/библиотека
+пользователя при квалификации не использовались. Windows52 не выпускался;
+рабочая Windows51 остаётся актуальной. Контракт: architecture/android-download-storage.md.
+
+- dist/clever-music-player-core-52-android-arm64.apk — 22889291 bytes, SHA-256 `6c5cc22e64018e260dde7a1495c2def661a8da346a6adb63490983713ae51450`.
+
+Логи .dart_tool/core52-new-tests-final.log,full-tests-final.log,analyze-final.log,
+format-final.log,native-android-final.log,native-apk-symbols.log,apk-*.log;
+source-manifest/build-result/verify-result/package JSON и before-symbols JSON.
+Чек-лист/checks/.sha256 прилагаются; remote CI/physical devices не квалифицированы.

@@ -76,6 +76,7 @@ Never _fail(int code, {bool locking = false}) {
           1 || 13 => PublicationFileFailure.accessDenied,
           28 || 122 || 69 => PublicationFileFailure.noSpace,
           18 || 45 || 95 => PublicationFileFailure.unsupported,
+          38 when Platform.isAndroid => PublicationFileFailure.unsupported,
           _ => PublicationFileFailure.io,
         };
   throw PublicationFileException(reason, osCode: code);
