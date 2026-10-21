@@ -69,6 +69,9 @@ enum DiagnosticEvent {
   androidWorkspaceCheckCancelled,
   androidWorkspaceCheckFailed,
   androidWorkspaceFileOperationFailed,
+  androidDestinationCheckStarted,
+  androidDestinationCheckFinished,
+  androidDestinationCheckFailed,
 }
 
 enum DiagnosticField {
@@ -150,6 +153,10 @@ enum DiagnosticField {
   workspaceStage,
   workspaceFileOperation,
   workspaceFailure,
+  destinationStage,
+  destinationStatus,
+  recoveredProbes,
+  retainedProbes,
 }
 
 /// Only fixed event/field names and numeric/boolean values enter the journal.

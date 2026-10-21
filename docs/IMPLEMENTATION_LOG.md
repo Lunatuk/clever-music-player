@@ -3688,3 +3688,71 @@ rename fallback отсутствуют;4cmp exports на месте. APK49 де�
 format-final.log,native-android-final.log,native-apk-symbols.log,apk-*.log;
 source-manifest/build-result/verify-result/package JSON и before-symbols JSON.
 Чек-лист/checks/.sha256 прилагаются; remote CI/physical devices не квалифицированы.
+
+**22 октября 2026 — пакет 53: Android SAF-проверка записи и журнал**
+
+Пользователь подтвердил исправление временного хранилища в пакете52.
+Следующий платформенный шаг доступен отдельной кнопкой «Проверить запись
+в папку». Выбор/inspect остаются без записи. Проверка создаёт nonce-marked
+документ4096байт через ContentResolver, закрывает output, заново читает весь
+файл и сверяет размер/SHA-256, затем удаляет документ и запись журнала.
+Полные загрузки музыки на Android по-прежнему не включены.
+
+Отдельные worker/channel, одна принятая операция, Cancel через signal/PFD
+в отдельном bounded executor. Отмена не освобождает UI/владение до drain;
+контроллер ожидает IO перед закрытием SQLite. Grants/root/create flag
+проверяются заново. Перед открытием и удалением проверяются tree/authority,
+прямое членство, имя/тип; create не может открыть старый ID/переименованный
+результат для записи. Ограничение10000дочерних документов. SAF rename и
+перезапись существующей музыки не используются.
+
+Приватный AtomicFile journal под OS lock: intent до create, URI до открытия
+output, до64операций/32768байт на запись, явный fd.sync и проверка сохранённой
+записи. Unknown/corrupt данные сохраняются и блокируют новую запись.
+Восстановление по следующей явной проверке удаляет только известный URI с
+полностью совпавшим тестовым payload; отсутствие подтверждается при доступном
+корне/grants. Частичный/изменённый/недоступный документ сохраняется. После
+crash между create и сохранением URI остаётся неоднозначный intent, без
+поиска/удаления по одному имени. Это намеренная граница восстановления;
+сохранённый результат не выдаётся за готовую музыкальную публикацию.
+
+Reusable transfer: буфер64КиБ, ожидаемый размер/полныйSHA-256, предел8ГиБ,
+16нулевых чтений максимум. Streams закрываются до readback/cleanup. В рамках
+живой операции cleanup допускает только точный префикс собственного payload;
+если provider вернул посторонние байты, документ и журнал сохраняются.
+Диагностика — fixed events, stage/status/bytes/recovered/retained; URI,
+nonce/имена и исключения не экспортируются. Статусы валидируются в Dart,
+поздняя отмена не скрывает оставшиеся данные и не возвращает ложный успех.
+
+22 новых JVM fault tests: запись и повтор, cancel до IO/после write, частичный
+write, short/long/hash/no-progress, close/delete/save/remove failures,
+create/readback crash, точное восстановление, missing/revocation,
+неизвестный codec/unsafeID/quotas/другая папка, streaming512КиБ малыми порциями.
+29 новых Flutter tests: строгий протокол, cancel/close/drain, повторный допуск,
+readiness/grants/сохранение выбора, retained/error privacy. 43 целевых и
+2119 полных тестов прошли без skips/errors. Analyze clean, format350/0;
+JVM37/0failures, lint0errors/6прежних warnings.
+
+Свежий ASCII build:495source SHA совпали root/build; codegen/schema13,
+pubspec/lock/native hook/C-fileops и Windows audio source прежние.
+APK2053/target36/signer52/v2/CRC/zipalign+ELF16КиБ/permissions/media service/
+notification icon/native assets проверены. Новый канал/методы/privatejournal
+проверены в DEX самого APK, новые события — в AOT. Native cmp.so hash совпал
+с52; syscall есть, hardlinks/небезопасные rename fallback отсутствуют.
+
+Физического телефона/emulator для квалификации нет; JVM tests проверяют ядро,
+а не настоящий ContentResolver/AtomicFile. APK53 требует короткой проверки
+на Redmi: два запуска новой кнопки, отсутствие тестовых файлов, один Play.
+Ошибку/retained достаточно подтвердить одним диагностическим отчётом.
+Yandex API/учётные данные/медиатека пользователя при квалификации не использовались.
+Windows51 остаётся актуальной, нового Windows-выпуска нет.
+
+- dist/clever-music-player-core-53-android-arm64.apk — 22971295bytes,
+  SHA-256 `ad04f6584c22865c039e5be8468a8747faa8cfccb2ddd48a15d2b987aa115b38`.
+
+Следом: квалификация SAF, media receipts/fencing/квоты/общий импорт,
+Android-теги/обложки/аудиопроверка, затем общий runner/ручное скачивание;
+расписание/дизайн позднее, рекомендации отложены. Контракт и реальные границы:
+architecture/android-download-storage.md. Логи .dart_tool/core53-full-tests-final,
+targeted-final,analyze-final,format-final,apk-*,native-apk-symbols; source-manifest/
+build-result/verify-result/package JSON. Чек-лист/checks/.sha256 рядом с APK.

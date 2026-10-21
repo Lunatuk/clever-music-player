@@ -8,6 +8,7 @@ import '../domain/models/audio_source_reference.dart';
 import '../domain/repositories/settings_repository.dart';
 import '../library/library_scan_control.dart';
 import 'android_download_folders.dart';
+import 'android_download_destination_check.dart';
 import 'android_download_workspace.dart';
 
 typedef DownloadWorkspaceCheck = Future<void> Function(LibraryScanControl);
@@ -40,14 +41,21 @@ final class AndroidDownloadStorageController extends ChangeNotifier {
       {required this.settings,
       DiagnosticsService diagnostics = const NoopDiagnosticsService(),
       this.documents = const AndroidDownloadFolders(),
+      DownloadDestinationChecker? destinationChecker,
       DownloadWorkspaceCheck? checkWorkspace})
-      : _checkWorkspace = checkWorkspace ??
+      : _diagnostics = diagnostics,
+        _destinationChecker =
+            destinationChecker ?? AndroidDownloadDestinationCheck(),
+        _checkWorkspace = checkWorkspace ??
             ((control) => _checkPrivateStorage(control, diagnostics));
 
   static const settingKey = 'android.download_destination.v1';
   final SettingsRepository settings;
   final DownloadFolderDocuments documents;
   final DownloadWorkspaceCheck _checkWorkspace;
+  final DownloadDestinationChecker _destinationChecker;
+  final DiagnosticsService _diagnostics;
+  bool _destinationCheck = false;
   ContentUriAudioSource? _folder;
   DownloadFolderAccess? _access;
   String? _message;
@@ -60,7 +68,8 @@ final class AndroidDownloadStorageController extends ChangeNotifier {
   String? get message => _message;
   bool get loaded => _loaded;
   bool get busy => _busy;
-  bool get checkingWorkspace => _control != null;
+  bool get checkingWorkspace => _control != null && !_destinationCheck;
+  bool get checkingDestination => _control != null && _destinationCheck;
   String get folderName => _access?.name ?? 'Выбранная папка';
 
   void _changed() {
@@ -93,6 +102,7 @@ final class AndroidDownloadStorageController extends ChangeNotifier {
                 'и свободное место, затем повтори действие.';
       } finally {
         _control = null;
+        _destinationCheck = false;
         _busy = false;
         _pending = null;
         done.complete();
@@ -167,10 +177,67 @@ final class AndroidDownloadStorageController extends ChangeNotifier {
 
   void cancelCheck() => _control?.cancel();
 
+  Future<void> checkDestination() => _run(() async {
+        final folder = _folder;
+        if (folder == null || _access?.usable != true) return;
+        _destinationCheck = true;
+        final control = _control = LibraryScanControl();
+        _changed();
+        _diagnostics.record(DiagnosticEvent.androidDestinationCheckStarted);
+        final DownloadDestinationResult result;
+        try {
+          result = await _destinationChecker.check(folder, control);
+        } on Object catch (error) {
+          _diagnostics.record(DiagnosticEvent.androidDestinationCheckFailed,
+              error: error);
+          _message =
+              'Не удалось проверить запись. Создай диагностический отчёт '
+              'в настройках и передай его для проверки.';
+          return;
+        }
+        _diagnostics
+            .record(DiagnosticEvent.androidDestinationCheckFinished, fields: {
+          DiagnosticField.destinationStage: result.stage,
+          DiagnosticField.destinationStatus: result.status.index,
+          DiagnosticField.sourceBytes: result.verifiedBytes,
+          DiagnosticField.recoveredProbes: result.recovered,
+          DiagnosticField.retainedProbes: result.retained,
+        });
+        if (result.status == DownloadDestinationStatus.accessDenied) {
+          _access = null;
+        }
+        _message = switch (result.status) {
+          DownloadDestinationStatus.ready =>
+            'Запись в папку проверена. Содержимое совпадает, тестовый файл удалён.'
+                '${result.recovered > 0 ? ' Удалены тестовые файлы предыдущей проверки: ${result.recovered}.' : ''}',
+          DownloadDestinationStatus.cancelled =>
+            'Проверка остановлена. Можно запустить её снова.',
+          DownloadDestinationStatus.accessDenied =>
+            'Доступ к папке потерян. Выбери её заново.',
+          DownloadDestinationStatus.unsupported =>
+            'Эта папка не поддерживает проверку записи. Попробуй другую папку.',
+          DownloadDestinationStatus.busy =>
+            'Папка уже проверяется. Повтори позже.',
+          DownloadDestinationStatus.retained =>
+            'Остались данные незавершённой проверки. Следующая проверка '
+                'сначала попробует восстановить её результат. Верни доступ '
+                'к папке и повтори проверку. Если сообщение остаётся, создай '
+                'диагностический отчёт.',
+          DownloadDestinationStatus.io =>
+            'Не удалось проверить запись. Проверь доступ и свободное место. '
+                'Если ошибка повторяется, создай диагностический отчёт.',
+        };
+      });
+
   Future<void> close() {
     if (_closing != null) return _closing!;
     _closed = true;
     _control?.cancel();
-    return _closing = _pending ?? Future.value();
+    return _closing = _closeAfter(_pending);
+  }
+
+  Future<void> _closeAfter(Future<void>? pending) async {
+    await pending;
+    await _destinationChecker.close();
   }
 }

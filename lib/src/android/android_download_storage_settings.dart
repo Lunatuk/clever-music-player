@@ -19,8 +19,9 @@ final class AndroidDownloadStorageSettings extends StatelessWidget {
                         style: Theme.of(context).textTheme.titleMedium),
                     const SizedBox(height: 8),
                     const Text('Подготовка загрузки музыки на Android. '
-                        'Сейчас можно проверить временное хранилище и выбрать '
-                        'папку назначения; скачивание появится следующим шагом.'),
+                        'Сейчас можно проверить временное хранилище, выбрать '
+                        'и проверить папку назначения; скачивание появится '
+                        'следующим шагом.'),
                     const SizedBox(height: 12),
                     OutlinedButton.icon(
                         onPressed:
@@ -57,8 +58,20 @@ final class AndroidDownloadStorageSettings extends StatelessWidget {
                     ]),
                     const SizedBox(height: 8),
                     const Text('Выбор папки не запускает сканирование. '
-                        'Системный доступ нужен для будущего сохранения файлов; '
-                        'эта проверка ничего в выбранную папку не записывает.'),
+                        'Проверка записи создаёт небольшой тестовый файл, '
+                        'проверяет содержимое и удаляет его.'),
+                    const SizedBox(height: 8),
+                    OutlinedButton.icon(
+                        onPressed:
+                            controller.busy || controller.access?.usable != true
+                                ? null
+                                : controller.checkDestination,
+                        icon: const Icon(Icons.fact_check_outlined),
+                        label: const Text('Проверить запись в папку')),
+                    if (controller.checkingDestination)
+                      TextButton(
+                          onPressed: controller.cancelCheck,
+                          child: const Text('Остановить проверку')),
                     if (controller.busy) ...[
                       const SizedBox(height: 12),
                       const LinearProgressIndicator(),

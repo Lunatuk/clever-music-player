@@ -13,5 +13,8 @@ class MainActivity : AudioServiceActivity() {
         if (!flutterEngine.plugins.has(AudioFingerprintPlugin::class.java)) {
             flutterEngine.plugins.add(AudioFingerprintPlugin())
         }
+        if (!flutterEngine.plugins.has(DownloadPublicationPlugin::class.java)) {
+            flutterEngine.plugins.add(DownloadPublicationPlugin())
+        }
     }
 }

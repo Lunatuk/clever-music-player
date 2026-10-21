@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:clever_music_player/src/android/android_download_folders.dart';
+import 'package:clever_music_player/src/android/android_download_destination_check.dart';
 import 'package:clever_music_player/src/android/android_download_storage_controller.dart';
 import 'package:clever_music_player/src/android/android_download_storage_settings.dart';
 import 'package:clever_music_player/src/domain/models/audio_source_reference.dart';
@@ -11,6 +12,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/test_audio_folders.dart';
+import 'support/recording_diagnostics.dart';
 
 void main() {
   late TestFolderSettings settings;
@@ -239,6 +241,116 @@ void main() {
     expect(controller.message, isNot(contains('PRIVATE_INTERNAL_PATH')));
     expect(controller.message, isNot(contains('доступ к папке')));
   });
+
+  group('destination write', () {
+    late _Checker checker;
+    late RecordingDiagnostics diagnostics;
+    setUp(() async {
+      await controller.close();
+      controller.dispose();
+      checker = _Checker();
+      diagnostics = RecordingDiagnostics();
+      controller = AndroidDownloadStorageController(
+          settings: settings,
+          documents: documents,
+          diagnostics: diagnostics,
+          destinationChecker: checker);
+    });
+    test('initialization and selection never write; check requires access',
+        () async {
+      await controller.initialize();
+      await controller.checkDestination();
+      expect(checker.calls, 0);
+      await controller.chooseFolder();
+      expect(checker.calls, 0);
+      await controller.checkDestination();
+      expect(checker.calls, 1);
+      expect(checker.tree, documents.tree);
+      expect(controller.message, contains('тестовый файл удалён'));
+      expect(diagnostics.entries.length, 2);
+      expect(diagnostics.entries.toString(), isNot(contains('content://')));
+    });
+    test('revoked access preserves selection and requires reinspection',
+        () async {
+      await controller.chooseFolder();
+      checker.response = const DownloadDestinationResult(
+          DownloadDestinationStatus.accessDenied);
+      await controller.checkDestination();
+      expect(controller.access, isNull);
+      expect(controller.folder, documents.tree);
+      await controller.checkDestination();
+      expect(checker.calls, 1);
+      await controller.inspectFolder();
+      await controller.checkDestination();
+      expect(checker.calls, 2);
+    });
+    test('retained file is never described as a successful cleanup', () async {
+      await controller.chooseFolder();
+      checker.response = const DownloadDestinationResult(
+          DownloadDestinationStatus.retained,
+          retained: 1);
+      await controller.checkDestination();
+      expect(controller.message, contains('незавершённой проверки'));
+      expect(controller.message, isNot(contains('файл удалён')));
+    });
+    test('close cancels, blocks folder changes and drains before checker close',
+        () async {
+      await controller.chooseFolder();
+      final done = Completer<DownloadDestinationResult>();
+      checker.pending = done.future;
+      final action = controller.checkDestination();
+      expect(controller.checkingDestination, isTrue);
+      expect(controller.checkingWorkspace, isFalse);
+      await controller.forgetFolder();
+      expect(controller.folder, documents.tree);
+      var closed = false;
+      final closing = controller.close().then((_) => closed = true);
+      expect(checker.control!.isCancellationRequested, isTrue);
+      await Future<void>.delayed(Duration.zero);
+      expect(closed, isFalse);
+      expect(checker.closed, isFalse);
+      done.complete(
+          const DownloadDestinationResult(DownloadDestinationStatus.cancelled));
+      await action;
+      await closing;
+      expect(checker.closed, isTrue);
+    });
+    test('provider error text never reaches message or diagnostics', () async {
+      await controller.chooseFolder();
+      checker.failure =
+          PlatformException(code: 'private', message: 'content://secret/path');
+      await controller.checkDestination();
+      expect(controller.message, contains('диагностический'));
+      expect(controller.message, isNot(contains('secret')));
+      expect(diagnostics.entries.toString(), isNot(contains('secret')));
+      expect(controller.busy, isFalse);
+    });
+  });
+}
+
+final class _Checker implements DownloadDestinationChecker {
+  int calls = 0;
+  bool closed = false;
+  ContentUriAudioSource? tree;
+  LibraryScanControl? control;
+  Object? failure;
+  Future<DownloadDestinationResult>? pending;
+  DownloadDestinationResult response = const DownloadDestinationResult(
+      DownloadDestinationStatus.ready,
+      stage: 6,
+      verifiedBytes: 4096);
+  @override
+  Future<DownloadDestinationResult> check(
+      ContentUriAudioSource tree, LibraryScanControl control) async {
+    calls++;
+    this.tree = tree;
+    this.control = control;
+    if (failure != null) throw failure!;
+    return pending ?? response;
+  }
+
+  @override
+  Future<void> close() async => closed = true;
 }
 
 final class _Documents implements DownloadFolderDocuments {
