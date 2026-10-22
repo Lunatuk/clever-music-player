@@ -1,5 +1,6 @@
 import 'download_job.dart';
 import 'downloaded_asset.dart';
+import 'document_publication_location.dart';
 
 enum PublicationCleanupKind { imported, abandoned }
 
@@ -11,10 +12,12 @@ final class PublicationCleanupRequest {
     required this.publicationId,
     required this.kind,
     this.verification,
+    this.documentLocation,
   });
   final int jobId;
   final DownloadJobKey key;
   final String publicationId;
   final PublicationCleanupKind kind;
   final DownloadedAssetVerification? verification;
+  final DocumentPublicationLocation? documentLocation;
 }

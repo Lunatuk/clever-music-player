@@ -1,9 +1,10 @@
 import 'package:drift/drift.dart';
-import 'package:path/path.dart' as p;
 
 import '../../domain/models/download_job.dart';
 import '../../domain/models/download_publication.dart';
 import '../../domain/models/downloaded_asset.dart';
+import '../../domain/models/document_publication_location.dart';
+import '../../domain/models/audio_source_reference.dart';
 import '../../domain/models/publication_cleanup.dart';
 import '../../domain/repositories/publication_retention_repository.dart';
 import '../drift/app_database.dart';
@@ -47,6 +48,11 @@ final class DriftPublicationRetentionRepository
             .getSingleOrNull();
         if (folder == null || !folder.isEnabled) return null;
         if (request.kind == PublicationCleanupKind.abandoned) {
+          // Android abandoned/create intents need a separate provider policy.
+          if (request.documentLocation != null ||
+              AudioSourceReference.isContentUriValue(folder.path)) {
+            return null;
+          }
           if (job.state != DownloadJobState.failed &&
               job.state != DownloadJobState.cancelled) {
             return null;
@@ -68,8 +74,11 @@ final class DriftPublicationRetentionRepository
           if (track == null ||
               track.isMissing ||
               track.libraryFolderId != request.key.libraryFolderId ||
-              track.filePath !=
-                  p.normalize(p.absolute(p.join(folder.path, fileName))) ||
+              !publicationSourceMatchesDestination(
+                  source: track.source,
+                  destination: folder.path,
+                  fileName: fileName,
+                  documentLocation: request.documentLocation) ||
               track.contentHash != proof.contentHash ||
               track.fileSizeBytes != proof.fileSizeBytes ||
               asset == null ||

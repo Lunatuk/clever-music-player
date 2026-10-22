@@ -3756,3 +3756,52 @@ Android-теги/обложки/аудиопроверка, затем общи�
 architecture/android-download-storage.md. Логи .dart_tool/core53-full-tests-final,
 targeted-final,analyze-final,format-final,apk-*,native-apk-symbols; source-manifest/
 build-result/verify-result/package JSON. Чек-лист/checks/.sha256 рядом с APK.
+
+**22 октября 2026 — пакет 54: Android receipt и общий atomic import**
+
+Пользователь подтвердил проверку53. В54 подготовлен внутренний путь от уже
+записанного/подготовленного документа до общей БД. DocumentPublicationLocation
+связывает точные tree/document/name, не извлекая путь из opaque ID. Общий
+destination matcher используется commit/replay/cleanup; URI не проходит
+через path.join. Track/ref/asset/job записываются одной прежней транзакцией
+с CAS/lease/session/folder checks, без изменения схемы13. Desktop abandoned
+cleanup отклоняет Android tree URI вместо файлового пути.
+
+Новый read-only native verifier проверяет grants, root, прямое членство/имя
+до и после SHA-256/close, размер/mtime, отмену и drain. Отдельный worker,
+лимит8ГиБ/буфер64КиБ/16нулевых чтений/10000документов, фиксированный протокол.
+Это подтверждение на момент чтения, не постоянная блокировка provider.
+Receipt — строгий canonical version1 до64КиБ; приватный journal под OS lock,
+owner marker, immutable flush + moveNoReplace, до512записей. Прерванные parts
+учитываются в квоте, unknown/corrupt сохраняются и блокируют мутацию.
+Importer повторно проверяет документ, допускает heartbeat во время чтения и
+использует текущую ревизию owner при commit. Cleanup authority удаляет только
+private receipt; её отказ сохраняет completed и не запускает новый download.
+
+63новых Flutter tests:88целевых,2182полных без skips/errors. Настоящие
+SQLite/native private locks/no-replace, opaque URI import/rollback/replay,
+stale/session/folder checks, quota/corruption, persistent DB + receipt restart,
+heartbeat, cancel/close/drain, потеря cleanup authority после completion.
+9новых JVM verifier tests, всего46/0skips/errors/failures. Analyze clean,
+format360/0, lint0errors/6прежних warnings. 508source SHA root/build совпали;
+codegen/schema13/pubspec/lock/native hook/C-fileops/Windows audio source прежние.
+APK2054/target36/signer53/v2/CRC/zipalign+ELF16КиБ/permissions/media service/
+icon/native assets проверены. В DEX actual APK есть новый publication_verifier
+и методы verifyPublishedAudio/cancelPublishedAudioVerification; проверка53
+сохранена. cmp.so идентичен52/53, hardlinks отсутствуют.
+
+Новый Dart importer ещё не связан с публичным UI/runner. Физический provider
+write (intent до create/URI до write), staging quota/recovery до receipt,
+Android tags/cover/audio backend и app-owned wiring — следующие задачи.
+Настоящий ContentResolver/телефон/emulator не квалифицированы этим пакетом;
+Yandex API/секреты/медиатека пользователя не использовались. Новых ручных
+тестов нет, установка APK54 необязательна; Windows51 остаётся актуальной.
+Расписание/дизайн позже, рекомендации отложены. Подробный контракт:
+architecture/android-publication-import.md.
+
+- dist/clever-music-player-core-54-android-arm64.apk — 22971295bytes,
+  SHA-256 `25351c585c3f32a27c5861f3ba2fd4d7c3abac570698598dd62371b06d77b428`.
+
+Логи .dart_tool/core54-full-tests-final,targeted-final,analyze-final,
+format-final,apk-*,native-apk-symbols; source-manifest/build-result/verify-result/
+package JSON, чек-лист/checks/.sha256 рядом с APK.

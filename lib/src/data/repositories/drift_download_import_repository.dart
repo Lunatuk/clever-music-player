@@ -1,9 +1,9 @@
 import 'package:drift/drift.dart';
-import 'package:path/path.dart' as p;
 
 import '../../domain/models/download_job.dart';
 import '../../domain/models/download_publication.dart';
 import '../../domain/models/downloaded_asset.dart';
+import '../../domain/models/document_publication_location.dart';
 import '../../domain/models/external_track_ref.dart';
 import '../../domain/repositories/download_import_repository.dart';
 import '../drift/app_database.dart';
@@ -46,8 +46,7 @@ final class DriftDownloadImportRepository implements DownloadImportRepository {
         }
         return jobs.withOwnedDestination(expected, clock: clock,
             action: (path) async {
-          if (publication.track.filePath !=
-              p.normalize(p.absolute(p.join(path, publication.fileName)))) {
+          if (!_destinationMatches(publication, path)) {
             throw StateError(
                 'Источник не соответствует назначению публикации.');
           }
@@ -135,9 +134,7 @@ final class DriftDownloadImportRepository implements DownloadImportRepository {
         account.provider != current.key.identity.provider ||
         folder == null ||
         !folder.isEnabled ||
-        publication.track.filePath !=
-            p.normalize(
-                p.absolute(p.join(folder.path, publication.fileName))) ||
+        !_destinationMatches(publication, folder.path) ||
         attempts.isEmpty ||
         attempts.single.outcome != DownloadAttemptOutcome.completed ||
         (expected.attemptToken != null &&
@@ -171,6 +168,13 @@ final class DriftDownloadImportRepository implements DownloadImportRepository {
         job: current, track: track, asset: asset, replayed: true);
   }
 }
+
+bool _destinationMatches(DownloadedTrackImport publication, String path) =>
+    publicationSourceMatchesDestination(
+        source: publication.track.source,
+        destination: path,
+        fileName: publication.fileName,
+        documentLocation: publication.documentLocation);
 
 final class _ImportOwnershipLost implements Exception {
   const _ImportOwnershipLost();

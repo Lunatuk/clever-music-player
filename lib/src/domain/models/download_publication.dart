@@ -5,6 +5,7 @@ import 'package:crypto/crypto.dart';
 import 'audio_source_reference.dart';
 import 'download_job.dart';
 import 'downloaded_asset.dart';
+import 'document_publication_location.dart';
 import 'metadata_source.dart';
 import 'track.dart';
 
@@ -18,7 +19,8 @@ String downloadPublicationResourceKey(DownloadJobKey key) => sha256
     .toString();
 
 /// Prepared metadata and current file evidence. No file IO in the repository.
-/// Caller holds the publication lock/seal through the atomic commit.
+/// Caller holds its publication owner through the atomic commit. SAF evidence
+/// is a fresh provider readback; it does not promise an OS byte seal.
 final class DownloadedTrackImport {
   DownloadedTrackImport({
     required this.jobId,
@@ -26,6 +28,7 @@ final class DownloadedTrackImport {
     required this.publicationId,
     required this.track,
     required this.verification,
+    this.documentLocation,
   }) {
     if (jobId <= 0 ||
         publicationId.length != 64 ||
@@ -37,7 +40,11 @@ final class DownloadedTrackImport {
                 entry.value == verification.codec) ||
         track.id != null ||
         track.libraryFolderId != key.libraryFolderId ||
-        track.source is! FileAudioSource ||
+        (track.source is ContentUriAudioSource
+            ? documentLocation == null ||
+                documentLocation!.document != track.source ||
+                documentLocation!.displayName != fileName
+            : documentLocation != null) ||
         track.contentHash != verification.contentHash ||
         track.fileSizeBytes != verification.fileSizeBytes ||
         track.duration != verification.duration ||
@@ -56,6 +63,7 @@ final class DownloadedTrackImport {
   final String publicationId;
   final Track track;
   final DownloadedAssetVerification verification;
+  final DocumentPublicationLocation? documentLocation;
   String get fileName => 'cmp-${downloadPublicationResourceKey(key)}-'
       '$publicationId.${verification.container}';
 }

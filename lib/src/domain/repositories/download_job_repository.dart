@@ -57,7 +57,8 @@ abstract interface class DownloadJobRepository implements PublicationJobAccess {
 
   /// Holds SQLite's writer reservation while a SHORT physical effect is accepted.
   /// Rechecks the full lease/session/folder after obtaining the reservation.
-  /// Never hash, download, decode or call another connection inside [action].
+  /// Never hash, download, decode, call a document provider or another connection
+  /// inside [action]. destinationPath is the persisted path OR SAF tree URI.
   /// The filesystem effect cannot be rolled back with SQLite: journal first.
   @override
   Future<T?> withOwnedDestination<T extends Object>(DownloadJob expected,
