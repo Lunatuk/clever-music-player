@@ -3805,3 +3805,73 @@ architecture/android-publication-import.md.
 Логи .dart_tool/core54-full-tests-final,targeted-final,analyze-final,
 format-final,apk-*,native-apk-symbols; source-manifest/build-result/verify-result/
 package JSON, чек-лист/checks/.sha256 рядом с APK.
+
+
+**22 октября 2026 — пакет 55: физическая Android SAF-публикация**
+
+Пользователь разрешил продолжить после внутреннего54. Добавлены native
+AudioPublication/AtomicFile journal/plugin и Dart backend/publisher. INTENT
+сохраняется до обращения к provider, CREATING до create, новый URI и
+authority/opaque-ID индекс до output. Только свежий ID из живого create
+может быть открыт для записи; имеющиеся файлы не перезаписываются.
+После закрытия потоков выполняется полное чтение/SHA-256 с повторной
+проверкой grants/name/parent/size/mtime. READY предшествует Dart receipt54,
+а native ack разрешён после долговечной записи receipt под текущим fence.
+Общий importer54 повторно проверяет документ перед Track/ref/asset/job commit.
+SQLite writer/gate свободны во время provider IO, heartbeat продолжает работать.
+
+Приватный канонический regular source открывается read-only/O_NOFOLLOW,
+с fstat размера; seal удерживается до завершения finalization. Native global
+OS lock, 64 операции/16ГиБ логических pending bytes/8ГиБ на файл, буфер64КиБ,
+16 нулевых чтений, до10000 children/8МиБ символов. Это не резервирование
+свободного места. Reconciliation не повторяет create/output и не удаляет
+музыку; неизвестный URI можно принять лишь по единственному точному имени
+и полному hash. Частичная/изменённая/неоднозначная музыка сохраняется,
+политика её разрешения остаётся до публичного runner. Снятие native ack
+с ошибкой оставляет оба журнала и не запускает вторую запись.
+
+Сканер/одиночный импорт исключают unfinished managed names/IDs и известные
+пустые файлы. ID-индекс сохраняет защиту при переименовании; чтение markers
+не запускает AtomicFile recovery. READY удаляется последним при ack;
+незавершённая probe/no-effect очистка сохраняет INTENT до остальных markers.
+Кнопка проверки папки переведена на тот же publisher: nonce test4096байт
+с audio/mpeg/mp3, close/readback и удаление только известного собственного
+полного/частичного nonce payload. Даже READY probe не является музыкой.
+Fixture проверяет байтовую запись, не кодек/воспроизведение MP3.
+
+Квалификация нашла несовпадение uri/tree между новой кнопкой и native
+каналом: регрессия воспроизведена тестом до исправления; новый канал получает
+точный tree, legacy53 продолжает получать uri. Lint выявил API27 O_CLOEXEC
+и API30 fcntlInt. Финальный код использует version guard27 для O_CLOEXEC,
+без fcntlInt/hidden API/suppress/minSdk bump; на24–26 краткоживущий raw FD
+закрывается после fstat/dup, backend не запускает подпроцессы. Промежуточные
+APK не выдавались; итог собран из новой ASCII-копии финальных исходников.
+
+35 новых Flutter tests; 78 целевых и 2217 полных без skips/errors.
+28 новых JVM tests: всего74/0skips/errors/failures. Fault tests покрывают
+фазы до эффектов, create gap, потерю owner, частичную запись, cancel/close,
+ошибки stream/journal, хэш/mtime, late cancellation, source-free recovery,
+квоты, nonce cleanup и видимость при переименовании/пустых документах.
+SQLite/native private locks/receipt tests проверяют seal/fence/session,
+heartbeat, drain и связь с атомарным importer. Analyze clean, format364/0.
+Lint0errors/9warnings (6 прежних и 3 стилевых UseKtx в новом коде).
+518 source SHA root/build совпали; codegen/schema13/pubspec/lock/native
+hook/C-fileops/Windows audio source прежние. APK2055/target36/min24/signer54/
+v2/CRC/zipalign+ELF16КиБ/permissions/media service/icon/native assets проверены.
+Новые audio_publication methods/private journal присутствуют в DEX actual APK,
+checkAudioPublication сохранён в AOT. cmp.so идентичен52, hardlinks отсутствуют.
+
+Реальные ContentResolver/AtomicFile/аварийные сценарии на телефоне этим
+набором не квалифицированы. Для55 нужны два запуска кнопки и один Play на
+Redmi. Скачивание песен Android не включено: дальше Android tags/cover/audio
+backend, repair policy и app-owned runner; затем реальные загрузки/fault tests.
+Windows51 актуален, нового Windows-пакета нет. Yandex API/секреты/пользовательская
+медиатека не использовались. Расписание/дизайн позже, рекомендации отложены.
+Контракт: architecture/android-audio-publication.md.
+
+- dist/clever-music-player-core-55-android-arm64.apk — 22987679bytes,
+  SHA-256 `debd6c222d0113b99f11564d2c091d52b6b483663fb74df221e41128d8e8d782`.
+
+Логи .dart_tool/core55-full-tests-final,targeted-final,analyze-final,
+format-final,button-regression-before,apk-*,native-apk-symbols; source-manifest/
+build-result/verify-result/package JSON. Чек-лист/checks/.sha256 рядом с APK.

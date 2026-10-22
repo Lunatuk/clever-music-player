@@ -27,6 +27,7 @@ class AudioDocumentsPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activi
     private val worker = Executors.newSingleThreadExecutor()
     private val mainHandler = Handler(Looper.getMainLooper())
     private lateinit var appContext: Context
+    private val publicationsDirectory by lazy { java.io.File(appContext.filesDir.canonicalFile, "audio-publications-v1") }
     private val contentResolver get() = appContext.contentResolver
     private var activityBinding: ActivityPluginBinding? = null
     private var pickerResult: MethodChannel.Result? = null
@@ -97,14 +98,18 @@ class AudioDocumentsPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activi
                             val cursor = contentResolver.query(children, arrayOf(
                                 DocumentsContract.Document.COLUMN_DOCUMENT_ID,
                                 DocumentsContract.Document.COLUMN_MIME_TYPE,
-                                DocumentsContract.Document.COLUMN_DISPLAY_NAME), null, null, null, cancel)
+                                DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                                DocumentsContract.Document.COLUMN_SIZE), null, null, null, cancel)
                                 ?: error("unreadable_directory")
                             object : TreeDirectoryCursor {
                                 override fun next(): TreeDocument? = if (!cursor.moveToNext()) null else
-                                    TreeDocument(cursor.getString(0), cursor.getString(1), cursor.getString(2))
+                                    TreeDocument(cursor.getString(0), cursor.getString(1), cursor.getString(2),
+                                        if (cursor.isNull(3)) null else cursor.getLong(3).takeIf { it >= 0 })
                                 override fun close() = cursor.close()
                             }
-                        }, cancelled = { cancel.isCanceled })
+                        }, cancelled = { cancel.isCanceled }, includeAudio = { entry ->
+                            !AudioPublicationVisibility.hidden(publicationsDirectory, uri.authority, entry.name, entry.id)
+                        })
                         val id = nextFolderId++
                         folders[id] = FolderSession(uri, cancel, walker)
                         id
@@ -266,7 +271,6 @@ class AudioDocumentsPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activi
 
     private fun readAudio(uri: Uri): Map<String, Any?> {
         check(hasPersistentRead(uri))
-        contentResolver.openAssetFileDescriptor(uri, "r").use { check(it != null) }
         var name: String? = null
         var size: Long? = null
         contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE),
@@ -278,6 +282,10 @@ class AudioDocumentsPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activi
                 if (sizeIndex >= 0 && !cursor.isNull(sizeIndex)) size = cursor.getLong(sizeIndex)
             }
         }
+        val documentId = runCatching { DocumentsContract.getDocumentId(uri) }.getOrNull()
+        check(!AudioPublicationVisibility.hidden(publicationsDirectory, uri.authority, name, documentId))
+        check(size != 0L)
+        contentResolver.openAssetFileDescriptor(uri, "r").use { check(it != null && it.declaredLength != 0L) }
         val metadata = mutableMapOf<String, Any?>("name" to name, "size" to size)
         val reader = MediaMetadataRetriever()
         try {

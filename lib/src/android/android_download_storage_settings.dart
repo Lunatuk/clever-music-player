@@ -20,8 +20,8 @@ final class AndroidDownloadStorageSettings extends StatelessWidget {
                     const SizedBox(height: 8),
                     const Text('Подготовка загрузки музыки на Android. '
                         'Сейчас можно проверить временное хранилище, выбрать '
-                        'и проверить папку назначения; скачивание появится '
-                        'следующим шагом.'),
+                        'и проверить папку назначения. Скачивание музыки '
+                        'на Android ещё готовится.'),
                     const SizedBox(height: 12),
                     OutlinedButton.icon(
                         onPressed:

@@ -37,8 +37,19 @@ final class AndroidDownloadDestinationCheck
   AndroidDownloadDestinationCheck({MethodChannel? channel})
       : _channel = channel ??
             const MethodChannel(
-                'dev.lunatuk.clever_music_player/download_publication');
+                'dev.lunatuk.clever_music_player/download_publication'),
+        _checkMethod = 'checkDownloadDestination',
+        _treeArgument = 'uri',
+        _cancelMethod = 'cancelDownloadDestinationCheck';
+  AndroidDownloadDestinationCheck.audioPublication({MethodChannel? channel})
+      : _channel = channel ??
+            const MethodChannel(
+                'dev.lunatuk.clever_music_player/audio_publication'),
+        _checkMethod = 'checkAudioPublication',
+        _treeArgument = 'tree',
+        _cancelMethod = 'cancelAudioPublicationCheck';
   final MethodChannel _channel;
+  final String _checkMethod, _cancelMethod, _treeArgument;
   int _sequence = 0;
   bool _closed = false;
   Completer<void>? _active;
@@ -57,11 +68,10 @@ final class AndroidDownloadDestinationCheck
     _control = control;
     final id = _sequence = _sequence == 0x7fffffff ? 1 : _sequence + 1;
     final response = _channel.invokeMapMethod<String, dynamic>(
-        'checkDownloadDestination',
-        {'requestId': id, 'uri': tree.storageValue});
+        _checkMethod, {'requestId': id, _treeArgument: tree.storageValue});
     void cancel() {
-      _channel.invokeMethod<void>('cancelDownloadDestinationCheck',
-          {'requestId': id}).catchError((Object _) {});
+      _channel.invokeMethod<void>(
+          _cancelMethod, {'requestId': id}).catchError((Object _) {});
     }
 
     control.addCancellationListener(cancel);

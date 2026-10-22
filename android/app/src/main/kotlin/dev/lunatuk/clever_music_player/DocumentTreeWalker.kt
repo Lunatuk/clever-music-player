@@ -2,7 +2,7 @@ package dev.lunatuk.clever_music_player
 
 import java.util.ArrayDeque
 
-data class TreeDocument(val id: String, val mime: String?, val name: String?)
+data class TreeDocument(val id: String, val mime: String?, val name: String?, val sizeBytes: Long? = null)
 interface TreeDirectoryCursor : AutoCloseable {
     fun next(): TreeDocument?
 }
@@ -15,7 +15,8 @@ class DocumentTreeWalker(
     private val cancelled: () -> Boolean = { false },
     private val maxNodes: Int = 100_000,
     private val pageSize: Int = 64,
-    private val pageWork: Int = 256
+    private val pageWork: Int = 256,
+    private val includeAudio: (TreeDocument) -> Boolean = { true }
 ) : AutoCloseable {
     private val pending = ArrayDeque<String>().apply { add(rootId) }
     private val directories = hashSetOf(rootId)
@@ -51,7 +52,7 @@ class DocumentTreeWalker(
                 if (++visited > maxNodes) error("tree_limit")
                 if (entry.mime == "vnd.android.document/directory") {
                     if (directories.add(entry.id)) pending.add(entry.id)
-                } else if (isAudio(entry) && audio.add(entry.id)) {
+                } else if (isAudio(entry) && includeAudio(entry) && audio.add(entry.id)) {
                     found.add(entry.id)
                 }
             }
@@ -62,10 +63,10 @@ class DocumentTreeWalker(
         }
     }
 
-    private fun isAudio(entry: TreeDocument): Boolean =
+    private fun isAudio(entry: TreeDocument): Boolean = entry.sizeBytes != 0L && (
         entry.mime?.startsWith("audio/") == true ||
             entry.name?.substringAfterLast('.', "")?.lowercase(java.util.Locale.ROOT) in
-                extensions
+                extensions)
 
     private companion object {
         val extensions = setOf("mp3", "flac", "m4a", "aac", "ogg", "wav")

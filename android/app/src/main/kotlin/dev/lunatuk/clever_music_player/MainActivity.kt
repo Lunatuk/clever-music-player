@@ -19,5 +19,8 @@ class MainActivity : AudioServiceActivity() {
         if (!flutterEngine.plugins.has(PublishedAudioVerifierPlugin::class.java)) {
             flutterEngine.plugins.add(PublishedAudioVerifierPlugin())
         }
+        if (!flutterEngine.plugins.has(AudioPublicationPlugin::class.java)) {
+            flutterEngine.plugins.add(AudioPublicationPlugin())
+        }
     }
 }

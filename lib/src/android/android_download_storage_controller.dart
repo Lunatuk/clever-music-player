@@ -44,8 +44,8 @@ final class AndroidDownloadStorageController extends ChangeNotifier {
       DownloadDestinationChecker? destinationChecker,
       DownloadWorkspaceCheck? checkWorkspace})
       : _diagnostics = diagnostics,
-        _destinationChecker =
-            destinationChecker ?? AndroidDownloadDestinationCheck(),
+        _destinationChecker = destinationChecker ??
+            AndroidDownloadDestinationCheck.audioPublication(),
         _checkWorkspace = checkWorkspace ??
             ((control) => _checkPrivateStorage(control, diagnostics));
 
