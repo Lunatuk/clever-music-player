@@ -1,0 +1,2 @@
+# Keep pinned binary and header bytes unchanged across Windows/Linux checkouts.
+/third_party/cmp_android_media/vendor/** -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol

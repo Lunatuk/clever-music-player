@@ -49,6 +49,16 @@ jobs:
           "CMP_MEDIA_HELPER_BUNDLE=$env:RUNNER_TEMP/cmp-media-helper" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - name: Check formatting
         run: dart format --output=none --set-exit-if-changed lib test tool/check_downloaded_audio.dart tool/check_downloaded_audio_metadata.dart tool/check_bundled_media_helper.dart third_party/cmp_file_ops/lib third_party/cmp_file_ops/hook third_party/flutter_secure_storage_windows/lib
+      - name: Verify Android media bundle and corresponding source on Windows
+        if: runner.os == 'Windows'
+        run: python tool/verify_android_media.py
+      - name: Verify Android media bundle and corresponding source on macOS
+        if: runner.os == 'macOS'
+        run: python3 tool/verify_android_media.py
+      - name: Check Android media C core against real FFmpeg
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: python tool/check_android_media.py --ffmpeg-build "$env:RUNNER_TEMP/cmp-helper-build/ffmpeg-7.1.5" --runtime "$env:CMP_MEDIA_HELPER_BUNDLE" --work-dir "$env:RUNNER_TEMP/cmp-android-media-host"
       - name: Analyze
         run: flutter analyze --no-pub
       - name: Run tests

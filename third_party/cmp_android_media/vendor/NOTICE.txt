@@ -1,0 +1,11 @@
+Clever Music Player Android media backend, profile cmp-android-audio-1.
+FFmpeg 7.1.5: LGPL version 2.1 or later. Copyright the FFmpeg developers.
+No GPL, version3 or nonfree options. Dynamically linked, not a playback engine.
+Android's system zlib is used; it is not redistributed in this bundle.
+Exact corresponding source, release signature/key, generated configuration,
+recipes and wrapper source are in source-kit.zip, also included inside the APK.
+The app can export this kit from its licenses page. No network is required.
+Libraries can be rebuilt, replaced in the APK, aligned and signed with your own
+key (the original signing key is not needed). See README in the source kit.
+Upstream: https://ffmpeg.org/   License: https://ffmpeg.org/legal.html
+Player source: https://github.com/Lunatuk/clever-music-player

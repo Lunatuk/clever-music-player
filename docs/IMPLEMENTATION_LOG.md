@@ -3875,3 +3875,83 @@ Windows51 актуален, нового Windows-пакета нет. Yandex API
 Логи .dart_tool/core55-full-tests-final,targeted-final,analyze-final,
 format-final,button-regression-before,apk-*,native-apk-symbols; source-manifest/
 build-result/verify-result/package JSON. Чек-лист/checks/.sha256 рядом с APK.
+
+
+**23 октября 2026 — пакет 56: Android media backend и локальная квалификация**
+
+Пользователь подтвердил55 и разрешил продолжить. AndroidAudioMetadataBackend
+реализует общий AudioMetadataBackend: inspect, full decode, image decode,
+packets/S32PCM/image digests и stream-copy metadata write. Common preparer
+сохраняет source/output full SHA, отдельный private output, проверку тегов/
+обложек/качества/длительности и неизменности аудио. Схема13, Windows51,
+порядок воспроизведения, рекомендации и дедупликация не менялись.
+
+Минимальный FFmpeg7.1.5 построен NDK28.2/API24/ARM64. Только MP3/AAC/FLAC,
+PNG/JPEG, MP3/ipod/FLAC mux, swresample; без программ, сети, URL protocols,
+GPL/version3/nonfree, avfilter/swscale/avdevice/assembly. Четыре shared libs
+1627048bytes, C/JNI wrapper 27480bytes. Чистый повтор tool/build_android_media.py
+дал идентичные runtime hashes. Поставляются135 pinned bundle files, headers,
+LGPL/notices и source kit 11108233bytes с точным архивом/подписью/ключом, generated
+configurations, recipes и wrapper source. CMake и offline verifier проверяют
+bytes; .gitattributes исключает трансляцию vendor при Git checkout.
+
+Вызовы выполняются на native worker с atomic admission/cancel и bounded UTF-8
+JSON. Kotlin/JNI используют byte arrays, поддерживают кириллицу/emoji без
+modified UTF-8. Canonical parent нормализует /data/user/0 aliases; final link
+отклоняется. Native open повторяет O_NOFOLLOW/fstat, source8ГиБ, regular file,
+output только существующий пустой файл, distinct identity, без truncate.
+IO64КиБ; source reading ограничен начальным размером и корректно обновляет
+seek offset. Output write/seek проверяют quota. Decode<=12ч,8каналов/192кГц,
+обложка<=8МиБ/4096², отдельная allocation<=64МиБ (не общий RSS cap).
+
+Card «Подготовка музыки» запускает настоящий общий preparer на шести сочетаниях
+MP3/M4A/FLAC × PNG/JPEG, стерео440/660Гц/48кГц/0,6с, FLAC24-bit. Сохраняются
+восемь тегов, включая отдельные artist/album_artist и emoji. Проверяется
+packets/PCM/image identity; тесты не звучат, не индексируются/публикуются и
+не требуют токена/сети/SAF-папки. Cancel/leave/close дренируют операцию перед
+cleanup. Diagnostics содержат только case/outcome/elapsed, без путей/тегов.
+Лицензия и source-kit сохраняются локально через системный Save dialog.
+Source archive включён только в Android assets, desktop не получает его копию.
+
+37 новых Flutter tests; всего2254 полных и67 целевых без skips/errors. Проверены
+protocol/types/errors, Unicode/artist roles, quota, cancel/close/drain,
+шесть общих prepare/cleanup случаев с mock codec, плохие fixtures, узкий UI,
+уход со страницы и offline license export. Четыре новых JVM private-path tests;
+всего78/0skips/errors/failures. C core проверен с настоящим FFmpeg7.1.5 на
+Windows:13 сценариев, шесть round trips и повтор с очисткой тегов/сохранением
+обложки, packet/PCM/image hashes, overwrite refusal, quota, плохие/пустые/
+отсутствующие файлы, плохая картинка, admission и отмена длинного decode.
+В стресс-проверке Windows позволяет удалить source после cancel: FD закрыт.
+Android C/JNI отдельно собраны NDK с Werror. Анализатор clean, format372/0;
+lint0errors/9прежних warnings. CI дополнен offline bundle/source verification
+и real C-core checks на Windows; Android build уже использует новый CMake.
+Облачные результаты ещё не объявляются пройденными.
+
+678 source SHA root/build совпали; codegen/schema13/pubspec.lock/native
+fileops/hook/Windows audio прежние. Pubspec добавил только пять маленьких
+fixtures. Промежуточный build нашёл конфликт ndk.abiFilters с Flutter splits;
+исправлено через defaultConfig.externalNativeBuild.cmake.abiFilters, без
+смены ABI/SDK выпуска. Промежуточные APK не выдавались. Итоговая свежая сборка
+2056/min24/target36/signer55/v2/CRC/zipalign+ELF16КиБ проверена. Actual APK
+содержит ровно ожидаемые FFmpeg bytes, JNI wrapper из stripped build output,
+соответствующие JNI exports и сохранённый native-class descriptor, DEX/AOT
+channel/methods, fixtures, source-kit/notices/license. Не предполагается,
+что R8 сохраняет имена ненативных plugin/helper classes. Разрешения, media
+service/receiver, notification icon и native-assets сохранены; cmp_file_ops.so
+по-прежнему идентичен52, hardlinks отсутствуют. Dependencies пяти новых .so —
+только четыре bundle libs и публичные Android libc/libm/libdl/libz.
+
+Телефона/emulator нет: host/JVM tests не квалифицируют Android выполнение.
+Для56 нужны новая кнопка дважды, обычный Play и сохранение source ZIP на Redmi.
+Скачивание песен всё ещё выключено: далее repair policy незавершённой музыки,
+app-owned runner и реальные ручные загрузки/fault tests. Аккаунт/токен/песни
+пользователя и Yandex API при квалификации не использовались. Рекомендации
+отложены, расписание/дизайн позже. Контракт: architecture/android-media-backend.md.
+
+- dist/clever-music-player-core-56-android-arm64.apk — 35867578bytes,
+  SHA-256 `9a5934e70e844a2d97d392e09c92d873163d103d4aed9c2e270098f9354a3635`.
+
+Логи .dart_tool/core56-full-tests-final,targeted-final,analyze-final,
+format-final,ffmpeg-recipe,native-host-release,apk-*,*-symbols;
+source-manifest/build-result/verify-result/media-apk/package JSON.
+Чек-лист/checks/.sha256 рядом с APK; соответствующий source kit уже внутри APK.

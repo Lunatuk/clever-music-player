@@ -72,6 +72,9 @@ enum DiagnosticEvent {
   androidDestinationCheckStarted,
   androidDestinationCheckFinished,
   androidDestinationCheckFailed,
+  androidMediaCheckStarted,
+  androidMediaCheckFinished,
+  androidMediaCheckFailed,
 }
 
 enum DiagnosticField {
@@ -157,6 +160,8 @@ enum DiagnosticField {
   destinationStatus,
   recoveredProbes,
   retainedProbes,
+  mediaCheckCase,
+  mediaCheckOutcome,
 }
 
 /// Only fixed event/field names and numeric/boolean values enter the journal.

@@ -51,3 +51,9 @@ dependency_overrides:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/media_check/tone.mp3
+    - assets/media_check/tone.m4a
+    - assets/media_check/tone.flac
+    - assets/media_check/cover.png
+    - assets/media_check/cover.jpg

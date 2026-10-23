@@ -15,6 +15,8 @@ import '../ui/yandex_settings.dart';
 import 'android_import_controller.dart';
 import 'android_download_storage_controller.dart';
 import 'android_download_storage_settings.dart';
+import 'android_media_check_controller.dart';
+import 'android_media_check_settings.dart';
 import 'audio_documents.dart';
 import 'android_media_controls.dart';
 import 'android_folder_bookmarks.dart';
@@ -36,9 +38,12 @@ final class _AndroidPreviewAppState extends State<AndroidPreviewApp> {
   late final AndroidImportController _importer;
   late final AndroidFolderBookmarks _bookmarks;
   late final AndroidDownloadStorageController _downloadStorage;
+  late final AndroidMediaCheckController _mediaCheck;
   @override
   void initState() {
     super.initState();
+    _mediaCheck = AndroidMediaCheckController(
+        diagnostics: widget.dependencies.diagnostics);
     _downloadStorage = AndroidDownloadStorageController(
         diagnostics: widget.dependencies.diagnostics,
         settings: widget.dependencies.repositories.settings);
@@ -67,9 +72,11 @@ final class _AndroidPreviewAppState extends State<AndroidPreviewApp> {
       _importer.close,
       _bookmarks.close,
       _downloadStorage.close,
+      _mediaCheck.close,
       () async => _importer.dispose(),
       () async => _bookmarks.dispose(),
       () async => _downloadStorage.dispose(),
+      () async => _mediaCheck.dispose(),
       widget.dependencies.dispose,
     ]).catchError((Object error, StackTrace stack) {
       widget.dependencies.diagnostics
@@ -110,6 +117,8 @@ final class _AndroidPreviewAppState extends State<AndroidPreviewApp> {
                           const SizedBox(height: 16),
                           AndroidDownloadStorageSettings(
                               controller: _downloadStorage),
+                          const SizedBox(height: 16),
+                          AndroidMediaCheckSettings(controller: _mediaCheck),
                         ]))),
             stop:
                 (widget.dependencies.smtcService as AndroidMediaControlsService)

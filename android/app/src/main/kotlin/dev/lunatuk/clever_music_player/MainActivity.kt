@@ -22,5 +22,8 @@ class MainActivity : AudioServiceActivity() {
         if (!flutterEngine.plugins.has(AudioPublicationPlugin::class.java)) {
             flutterEngine.plugins.add(AudioPublicationPlugin())
         }
+        if (!flutterEngine.plugins.has(AndroidMediaPlugin::class.java)) {
+            flutterEngine.plugins.add(AndroidMediaPlugin())
+        }
     }
 }
