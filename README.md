@@ -1,12 +1,18 @@
 # Clever Music Player
 
+Package 62 adds shared appearance preferences and an Android editor: system/light/
+dark theme, preset or custom HEX accent, motion speed/off, density and cover radius.
+Changes apply immediately and persist through the settings repository. The new
+isolated phone/desktop demo follows the user's Yandex Music references from
+December2023–June2025: home/Wave, collection, player and queue. It uses synthetic
+content; real mobile feature integration follows in packages63–65. Windows51
+remains the working desktop build. See [appearance contracts](docs/architecture/appearance-customization.md).
+
 Package 61 adds Android library search and title/artist/album/recently-added
 sorting through the shared visible-list view. Playback starts from that visible
 order. About → Design previews opens three isolated, interactive Flutter demos
 of phone/desktop library, player and queue; invented data never controls real
-playback or changes user data. The user subsequently requested a design closely
-resembling the older Yandex Music UI; the exact reference version/platforms are
-being clarified. A/B/C are not the selected direction.
+playback or changes user data. Its A/B/C proposals were superseded by the user-provided references in package62.
 See [mobile feature inventory and sequence](docs/architecture/mobile-feature-parity.md)
 and [targeted manual checks](docs/MANUAL_CHECKS.md). Package60 was accepted on-device.
 

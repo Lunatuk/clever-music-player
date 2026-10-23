@@ -1,5 +1,7 @@
 import 'dart:io';
 import 'dart:ui' as ui;
+import 'package:clever_music_player/src/appearance/appearance_settings.dart';
+import 'package:clever_music_player/src/appearance/appearance_controller.dart';
 
 import 'package:clever_music_player/src/ui/design_preview/design_preview_canvas.dart';
 import 'package:clever_music_player/src/ui/design_preview/design_preview_model.dart';
@@ -62,17 +64,17 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  for (final direction in PreviewDirection.values) {
+  for (final mode in [AppearanceMode.dark, AppearanceMode.light]) {
     for (final page in PreviewPage.values) {
       for (final desktop in [false, true]) {
         testWidgets(
-            '${direction.name}/${page.name}/${desktop ? 'desktop' : 'phone'} layout and visual export',
+            '${mode.name}/${page.name}/${desktop ? 'desktop' : 'phone'} render',
             (tester) async {
           final key = GlobalKey();
           await pump(
               tester,
               DesignPreviewCanvas(
-                  direction: direction,
+                  appearance: AppearanceSettings(mode: mode),
                   initialPage: page,
                   fontFamily: 'PreviewQA'),
               width: desktop ? 1280 : 390,
@@ -80,49 +82,34 @@ void main() {
               key: key);
           expect(tester.takeException(), isNull);
           await export(tester, key,
-              '${direction.code.toLowerCase()}-${desktop ? 'desktop' : 'phone'}-${page.name}');
+              '${mode.name}-${desktop ? 'desktop' : 'phone'}-${page.name}');
         });
       }
-      testWidgets(
-          '${direction.name}/${page.name} 320px and large text remain usable',
-          (tester) async {
-        await pump(tester,
-            DesignPreviewCanvas(direction: direction, initialPage: page),
-            width: 320, height: 720, scale: 2);
+      testWidgets('${mode.name}/${page.name} 320px large text', (tester) async {
+        await pump(
+            tester,
+            DesignPreviewCanvas(
+                appearance: AppearanceSettings(mode: mode), initialPage: page),
+            width: 320,
+            height: 720,
+            scale: 2);
         expect(tester.takeException(), isNull);
       });
     }
   }
-  test('preview text and accent colors have readable contrast on both surfaces',
-      () {
-    double contrast(Color a, Color b) {
-      final x = a.computeLuminance(), y = b.computeLuminance();
-      return ((x > y ? x : y) + .05) / ((x < y ? x : y) + .05);
-    }
-
-    for (final d in PreviewDirection.values) {
-      final c = d.colors;
-      expect(contrast(c.text, c.background), greaterThanOrEqualTo(4.5));
-      expect(contrast(c.muted, c.background), greaterThanOrEqualTo(4.5));
-      expect(contrast(c.muted, c.panel), greaterThanOrEqualTo(4.5));
-      expect(contrast(c.accent, c.background), greaterThanOrEqualTo(4.5));
-    }
-  });
   testWidgets(
-      'demo search, play/pause, queue removal and empty state work without runtime dependencies',
+      'reference navigation, search, queue and local player remain isolated',
       (tester) async {
-    await pump(tester,
-        const DesignPreviewCanvas(direction: PreviewDirection.graphite));
+    await pump(tester, const DesignPreviewCanvas());
+    await tester.tap(find.text('Коллекция').last);
+    await tester.pumpAndSettle();
     await tester.enterText(
-        find.byKey(const ValueKey('preview-search')), 'несуществующий запрос');
+        find.byKey(const ValueKey('preview-search')), 'не найдено');
     await tester.pumpAndSettle();
     expect(find.text('Ничего не найдено'), findsOneWidget);
-    await tester.enterText(find.byKey(const ValueKey('preview-search')), '');
+    await tester.tap(find.byTooltip('Очистить поиск'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Пауза'));
-    await tester.pumpAndSettle();
-    expect(find.byTooltip('Воспроизвести'), findsOneWidget);
-    await tester.tap(find.byTooltip('Открыть очередь'));
+    await tester.tap(find.text('Очередь').last);
     await tester.pumpAndSettle();
     expect(find.text('Далее · 6'), findsOneWidget);
     await tester.tap(find.byTooltip('Убрать из очереди').first);
@@ -132,14 +119,9 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Очередь пуста'), findsOneWidget);
   });
-  testWidgets(
-      'full demo player supports local seek, favorite and returning to library',
-      (tester) async {
+  testWidgets('local seek, favorite, pause and return work', (tester) async {
     await pump(
-        tester,
-        const DesignPreviewCanvas(
-            direction: PreviewDirection.paper,
-            initialPage: PreviewPage.player));
+        tester, const DesignPreviewCanvas(initialPage: PreviewPage.player));
     await tester.tap(find.byTooltip('Пауза'));
     await tester.pumpAndSettle();
     expect(find.byTooltip('Воспроизвести'), findsOneWidget);
@@ -150,95 +132,98 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('В медиатеку'));
     await tester.pumpAndSettle();
-    expect(find.text('Моя музыка'), findsOneWidget);
+    expect(find.byKey(const ValueKey('preview-search')), findsOneWidget);
   });
-  testWidgets(
-      'gallery switches three directions and pages on a phone without resetting real app state',
+  testWidgets('same song twice has independent queue identities',
       (tester) async {
-    await pump(tester, const DesignPreviewScreen(), width: 390, height: 844);
-    expect(find.textContaining('Демо-коллекция'), findsOneWidget);
-    await tester.tap(find.text('B · Бумага'));
+    await pump(
+        tester, const DesignPreviewCanvas(initialPage: PreviewPage.library));
+    for (var i = 0; i < 2; i++) {
+      await tester.tap(find.byTooltip('Действия с треком').first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Слушать следующим'));
+      await tester.pumpAndSettle();
+    }
+    await tester.tap(find.text('Очередь').last);
     await tester.pumpAndSettle();
-    expect(
-        tester
-            .widget<DesignPreviewCanvas>(find.byType(DesignPreviewCanvas))
-            .direction,
-        PreviewDirection.paper);
+    expect(find.text('Далее · 8'), findsOneWidget);
+    await tester.tap(find.byTooltip('Убрать из очереди').first);
+    await tester.pumpAndSettle();
+    expect(find.text('Далее · 7'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+  testWidgets('gallery page and appearance controls use shared controller',
+      (tester) async {
+    final controller = AppearanceController();
+    await controller.initialize();
+    addTearDown(controller.dispose);
+    await pump(tester, DesignPreviewScreen(appearance: controller));
     await tester.tap(find.byType(DropdownButton<PreviewPage>));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Очередь').last);
     await tester.pumpAndSettle();
     expect(find.text('Далее · 6'), findsOneWidget);
-    await tester.tap(find.text('C · Полночь'));
+    await controller.update(controller.value.copyWith(
+        mode: AppearanceMode.light, accentRgb: 0x70d9b4, compact: true));
     await tester.pumpAndSettle();
+    expect(
+        tester
+            .widget<DesignPreviewCanvas>(find.byType(DesignPreviewCanvas))
+            .appearance,
+        controller.value);
     expect(find.text('Далее · 6'), findsOneWidget);
-    expect(tester.takeException(), isNull);
   });
   for (final size in [const Size(320, 720), const Size(844, 390)]) {
-    testWidgets('gallery controls remain usable with large text at $size',
-        (tester) async {
+    testWidgets('gallery at $size with 200% text', (tester) async {
       await pump(tester, const DesignPreviewScreen(),
           width: size.width, height: size.height, scale: 2);
       expect(tester.takeException(), isNull);
     });
   }
-  testWidgets('contact sheet renders all three complete phone layouts',
+  testWidgets('reference comparison sheet renders phone and desktop',
       (tester) async {
     final key = GlobalKey();
     await pump(
         tester,
-        Theme(
-            data: ThemeData(fontFamily: 'PreviewQA'),
-            child: ColoredBox(
-                color: const Color(0xffe9e6de),
-                child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text('Clever Music Player · три направления',
-                              style: TextStyle(
-                                  fontSize: 29,
-                                  color: Color(0xff282e29),
-                                  fontWeight: FontWeight.w700)),
-                          const SizedBox(height: 6),
-                          const Text(
-                              'Одна коллекция · медиатека на телефоне · иллюстративные обложки',
-                              style: TextStyle(
-                                  fontSize: 14, color: Color(0xff60665f))),
-                          const SizedBox(height: 20),
-                          Expanded(
-                              child: Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                for (final d in PreviewDirection.values) ...[
-                                  if (d.index != 0) const SizedBox(width: 18),
-                                  Expanded(
-                                      child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                        Text('${d.code} · ${d.label}',
-                                            style: const TextStyle(
-                                                fontSize: 20,
-                                                fontWeight: FontWeight.w600,
-                                                color: Color(0xff282e29))),
-                                        const SizedBox(height: 12),
-                                        Expanded(
-                                            child: ClipRRect(
-                                                borderRadius:
-                                                    BorderRadius.circular(18),
-                                                child: DesignPreviewCanvas(
-                                                    direction: d,
-                                                    fontFamily: 'PreviewQA'))),
-                                      ])),
-                                ]
-                              ])),
-                        ])))),
-        width: 1280,
-        height: 1040,
+        ColoredBox(
+            color: const Color(0xffeaeaea),
+            child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Clever Music Player · новая компоновка',
+                          style: TextStyle(
+                              fontSize: 28,
+                              color: Colors.black,
+                              fontWeight: FontWeight.w700)),
+                      const SizedBox(height: 8),
+                      const Text(
+                          'По референсам пользователя · телефон и компьютер · вымышленные данные',
+                          style: TextStyle(
+                              fontSize: 14, color: Color(0xff505050))),
+                      const SizedBox(height: 24),
+                      Expanded(
+                          child: Row(children: [
+                        const SizedBox(
+                            width: 390,
+                            child:
+                                DesignPreviewCanvas(fontFamily: 'PreviewQA')),
+                        const SizedBox(width: 24),
+                        Expanded(
+                            child: FittedBox(
+                                fit: BoxFit.contain,
+                                child: const SizedBox(
+                                    width: 1280,
+                                    height: 800,
+                                    child: DesignPreviewCanvas(
+                                        fontFamily: 'PreviewQA')))),
+                      ])),
+                    ]))),
+        width: 1500,
+        height: 1000,
         key: key);
     expect(tester.takeException(), isNull);
-    await export(tester, key, 'three-directions', ratio: 1);
+    await export(tester, key, 'reference-layouts', ratio: 1);
   });
 }

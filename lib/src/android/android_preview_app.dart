@@ -4,6 +4,9 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../app/app_dependencies.dart';
+import '../appearance/appearance_controller.dart';
+import '../appearance/appearance_settings_screen.dart';
+import '../appearance/appearance_theme.dart';
 import '../core/async_lifecycle.dart';
 import '../diagnostics/diagnostics_service.dart';
 import '../domain/models/track.dart';
@@ -39,9 +42,13 @@ final class _AndroidPreviewAppState extends State<AndroidPreviewApp> {
   late final AndroidFolderBookmarks _bookmarks;
   late final AndroidDownloadStorageController _downloadStorage;
   late final AndroidMediaCheckController _mediaCheck;
+  late final AppearanceController _appearance;
   @override
   void initState() {
     super.initState();
+    _appearance = AppearanceController(
+        settings: widget.dependencies.repositories.settings);
+    unawaited(_appearance.initialize());
     _mediaCheck = AndroidMediaCheckController(
         diagnostics: widget.dependencies.diagnostics);
     _bookmarks = widget.bookmarks ??
@@ -88,6 +95,10 @@ final class _AndroidPreviewAppState extends State<AndroidPreviewApp> {
 
   @override
   void dispose() {
+    // Stop accepting appearance edits immediately. Let import/native shutdown
+    // start before awaiting SQLite writes, then drain them before closing DB.
+    final appearanceClosing = _appearance.close();
+    appearanceClosing.ignore();
     unawaited(finishCleanup([
       _importer.close,
       _downloadStorage.close,
@@ -97,6 +108,8 @@ final class _AndroidPreviewAppState extends State<AndroidPreviewApp> {
       () async => _bookmarks.dispose(),
       () async => _downloadStorage.dispose(),
       () async => _mediaCheck.dispose(),
+      () => appearanceClosing,
+      () async => _appearance.dispose(),
       widget.dependencies.dispose,
     ]).catchError((Object error, StackTrace stack) {
       widget.dependencies.diagnostics
@@ -106,34 +119,41 @@ final class _AndroidPreviewAppState extends State<AndroidPreviewApp> {
   }
 
   @override
-  Widget build(BuildContext context) => MaterialApp(
-        title: 'Clever Music Preview',
-        debugShowCheckedModeBanner: false,
-        theme: ThemeData(
-            brightness: Brightness.dark,
-            useMaterial3: true,
-            colorScheme: ColorScheme.fromSeed(
-                seedColor: const Color(0xffb7c9ad),
-                brightness: Brightness.dark),
-            scaffoldBackgroundColor: const Color(0xff141615)),
-        home: AndroidLibraryScreen(
-            importer: _importer,
-            tracks: widget.dependencies.repositories.tracks.watchAllTracks(),
-            player: widget.dependencies.playerService,
-            playTrack: (track, visible) => widget.dependencies.playbackQueue
-                .playLibraryTrack(track: track, visibleTracks: visible),
-            previous: widget.dependencies.playbackQueue.previous,
-            next: widget.dependencies.playbackQueue.next,
-            sourceSettings: (context) => AndroidYandexSettingsScreen(
-                connection: widget.dependencies.yandexConnection,
-                updates: widget.dependencies.yandexUpdate,
-                storage: _downloadStorage,
-                media: _mediaCheck,
-                diagnostics: widget.dependencies.diagnostics),
-            stop:
-                (widget.dependencies.smtcService as AndroidMediaControlsService)
+  Widget build(BuildContext context) => ListenableBuilder(
+      listenable: _appearance,
+      builder: (context, _) => MaterialApp(
+            title: 'Clever Music Preview',
+            debugShowCheckedModeBanner: false,
+            themeMode: appearanceThemeMode(_appearance.value.mode),
+            theme: createAppearanceTheme(_appearance.value, Brightness.light),
+            darkTheme:
+                createAppearanceTheme(_appearance.value, Brightness.dark),
+            themeAnimationDuration:
+                (MediaQuery.maybeOf(context)?.disableAnimations ??
+                        WidgetsBinding.instance.platformDispatcher
+                            .accessibilityFeatures.disableAnimations)
+                    ? Duration.zero
+                    : appearanceDuration(_appearance.value.motion),
+            home: AndroidLibraryScreen(
+                appearance: _appearance,
+                importer: _importer,
+                tracks:
+                    widget.dependencies.repositories.tracks.watchAllTracks(),
+                player: widget.dependencies.playerService,
+                playTrack: (track, visible) => widget.dependencies.playbackQueue
+                    .playLibraryTrack(track: track, visibleTracks: visible),
+                previous: widget.dependencies.playbackQueue.previous,
+                next: widget.dependencies.playbackQueue.next,
+                sourceSettings: (context) => AndroidYandexSettingsScreen(
+                    connection: widget.dependencies.yandexConnection,
+                    updates: widget.dependencies.yandexUpdate,
+                    storage: _downloadStorage,
+                    media: _mediaCheck,
+                    diagnostics: widget.dependencies.diagnostics),
+                stop: (widget.dependencies.smtcService
+                        as AndroidMediaControlsService)
                     .stop),
-      );
+          ));
 }
 
 final class AndroidLibraryScreen extends StatefulWidget {
@@ -146,7 +166,9 @@ final class AndroidLibraryScreen extends StatefulWidget {
       required this.previous,
       required this.next,
       this.sourceSettings,
-      this.stop});
+      this.stop,
+      this.appearance});
+  final AppearanceController? appearance;
   final AndroidImportController importer;
   final Stream<List<Track>> tracks;
   final PlayerService player;
@@ -211,6 +233,14 @@ final class _AndroidLibraryScreenState extends State<AndroidLibraryScreen> {
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(title: const Text('Моя музыка'), actions: [
+          if (widget.appearance != null)
+            IconButton(
+                tooltip: 'Внешний вид',
+                icon: const Icon(Icons.palette_outlined),
+                onPressed: () => Navigator.of(context).push(appearanceRoute(
+                    context,
+                    (_) => AppearanceSettingsScreen(
+                        controller: widget.appearance!)))),
           if (widget.sourceSettings != null)
             IconButton(
                 tooltip: 'Яндекс Музыка',
@@ -240,9 +270,10 @@ final class _AndroidLibraryScreenState extends State<AndroidLibraryScreen> {
                               onPressed: () {
                                 Navigator.of(dialogContext).pop();
                                 Navigator.of(context).push(
-                                    MaterialPageRoute<void>(
-                                        builder: (_) =>
-                                            const DesignPreviewScreen()));
+                                    appearanceRoute<void>(
+                                        context,
+                                        (_) => DesignPreviewScreen(
+                                            appearance: widget.appearance)));
                               },
                               child: const Text('Варианты дизайна')),
                           TextButton(
@@ -533,7 +564,8 @@ final class _Cover extends StatelessWidget {
         color: Theme.of(context).colorScheme.surfaceContainerHighest,
         child: const Center(child: Icon(Icons.music_note_rounded)));
     return ClipRRect(
-        borderRadius: BorderRadius.circular(8),
+        borderRadius:
+            BorderRadius.circular(AppearanceTokens.of(context).coverRadius),
         child: SizedBox.square(
             dimension: size,
             child: path == null

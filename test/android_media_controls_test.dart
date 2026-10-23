@@ -7,6 +7,8 @@ import 'package:clever_music_player/src/android/android_media_controls.dart';
 import 'package:clever_music_player/src/android/android_preview_app.dart';
 import 'package:clever_music_player/src/app/app_dependencies.dart';
 import 'package:clever_music_player/src/app/default_platform_adapters.dart';
+import 'package:clever_music_player/src/appearance/appearance_settings.dart';
+import 'package:clever_music_player/src/appearance/appearance_settings_screen.dart';
 import 'package:clever_music_player/src/data/drift/app_database.dart';
 import 'package:clever_music_player/src/data/repositories/drift_repositories.dart';
 import 'package:clever_music_player/src/diagnostics/diagnostics_service.dart';
@@ -29,14 +31,56 @@ void main() {
   setUp(() async => f = await _Fixture.create());
   tearDown(() => f.close());
 
+  testWidgets(
+      'real Android appearance route updates root theme and SQLite without interrupting audio',
+      (tester) async {
+    final dependencies = f.previewDependencies();
+    final bookmarks = AndroidFolderBookmarks(settings: TestFolderSettings());
+    await tester.runAsync(bookmarks.initialize);
+    await tester.runAsync(() => f.player.playTrack(f.tracks.first));
+    await tester.runAsync(() => tester.pumpWidget(
+        AndroidPreviewApp(dependencies: dependencies, bookmarks: bookmarks)));
+    await tester.runAsync(() =>
+        f.repositories.settings.readString(AppearanceSettings.storageKey));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Внешний вид'));
+    await tester.pumpAndSettle();
+    final controller = tester
+        .widget<AppearanceSettingsScreen>(find.byType(AppearanceSettingsScreen))
+        .controller;
+    await tester.runAsync(() => controller.update(controller.value.copyWith(
+        mode: AppearanceMode.light,
+        accentRgb: 0x70d9b4,
+        motion: AppearanceMotion.off,
+        compact: true,
+        coverRadius: 20)));
+    await tester.pumpAndSettle();
+    expect(f.player.isPlaying, isTrue);
+    expect(f.first.playCalls, 1);
+    expect(Theme.of(tester.element(find.text('Акцентный цвет'))).brightness,
+        Brightness.light);
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
+    expect(
+        Theme.of(tester.element(find.byType(AndroidLibraryScreen))).brightness,
+        Brightness.light);
+    final saved = await tester.runAsync(() =>
+        f.repositories.settings.readString(AppearanceSettings.storageKey));
+    expect(AppearanceSettings.decode(saved), controller.value);
+    await tester.runAsync(controller.close);
+    await tester.runAsync(dependencies.dispose);
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+  });
+
   testWidgets('Android root keeps music playing across background and return',
       (tester) async {
     final dependencies = f.previewDependencies();
     final bookmarks = AndroidFolderBookmarks(settings: TestFolderSettings());
     await tester.runAsync(bookmarks.initialize);
     await tester.runAsync(() => f.player.playTrack(f.tracks.first));
-    await tester.pumpWidget(
-        AndroidPreviewApp(dependencies: dependencies, bookmarks: bookmarks));
+    await tester.runAsync(() => tester.pumpWidget(
+        AndroidPreviewApp(dependencies: dependencies, bookmarks: bookmarks)));
     await tester.pump();
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);

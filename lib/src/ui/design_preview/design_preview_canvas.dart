@@ -1,19 +1,19 @@
 import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
-
+import '../../appearance/appearance_settings.dart';
+import '../../appearance/appearance_theme.dart';
 import 'design_preview_model.dart';
 
-/// An interactive visual prototype with invented data. Never imports runtime,
-/// repositories, native media, files, credentials or networking.
+/// Reference composition with synthetic content. No runtime/audio/file/network
+/// dependency; its preferences and visual tokens are shared with the real app.
 final class DesignPreviewCanvas extends StatefulWidget {
   const DesignPreviewCanvas(
       {super.key,
-      required this.direction,
-      this.initialPage = PreviewPage.library,
+      this.appearance = const AppearanceSettings(),
+      this.initialPage = PreviewPage.home,
       this.onPageChanged,
       this.fontFamily});
-  final PreviewDirection direction;
+  final AppearanceSettings appearance;
   final PreviewPage initialPage;
   final ValueChanged<PreviewPage>? onPageChanged;
   final String? fontFamily;
@@ -23,22 +23,25 @@ final class DesignPreviewCanvas extends StatefulWidget {
 
 final class _DesignPreviewCanvasState extends State<DesignPreviewCanvas> {
   late PreviewPage _page = widget.initialPage;
-  int _current = 0, _section = 0;
+  late ThemeData _theme;
+  int _current = 0, _tab = 0, _nextEntry = 7;
   bool _playing = true,
+      _reverse = false,
       _shuffle = false,
       _repeat = false,
-      _reverse = false,
-      _favoritesOnly = false;
+      _likedOnly = false;
   double _position = .257, _volume = .64;
   String _query = '';
-  String? _album;
   final _search = TextEditingController();
-  final _favorites = <int>{0, 2};
-  final _queue = <int>[1, 2, 3, 4, 5, 6];
-  PreviewColors get c => widget.direction.colors;
+  final _likes = <int>{0, 2};
+  final _queue = <({int id, int song})>[
+    for (var i = 1; i <= 6; i++) (id: i, song: i)
+  ];
+  AppearanceTokens get t => _theme.extension<AppearanceTokens>()!;
+  Color get fg => _theme.colorScheme.onSurface;
+  Color get bg => _theme.colorScheme.surface;
+  Color get panel => _theme.colorScheme.surfaceContainer;
   PreviewSong get song => previewSongs[_current];
-  bool get paper => widget.direction == PreviewDirection.paper;
-  bool get midnight => widget.direction == PreviewDirection.midnight;
   @override
   void didUpdateWidget(covariant DesignPreviewCanvas oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -56,11 +59,11 @@ final class _DesignPreviewCanvasState extends State<DesignPreviewCanvas> {
     widget.onPageChanged?.call(page);
   }
 
-  void _select(int index) {
+  void _select(int i) {
     setState(() {
-      _current = index;
-      _position = 0;
+      _current = i;
       _playing = true;
+      _position = 0;
     });
     _open(PreviewPage.player);
   }
@@ -69,398 +72,417 @@ final class _DesignPreviewCanvasState extends State<DesignPreviewCanvas> {
         _current = (_current + delta) % previewSongs.length;
         _position = 0;
       });
-  void _favorite(int index) => setState(() => _favorites.contains(index)
-      ? _favorites.remove(index)
-      : _favorites.add(index));
-  TextStyle _style(double size,
-          {bool muted = false, FontWeight weight = FontWeight.w400}) =>
+  void _like(int i) => setState(() {
+        if (!_likes.add(i)) _likes.remove(i);
+      });
+  TextStyle style(double size,
+          {bool secondary = false, FontWeight weight = FontWeight.w400}) =>
       TextStyle(
-          fontSize: size,
-          color: muted ? c.muted : c.text,
-          fontWeight: weight,
-          letterSpacing: size >= 26 ? -.8 : 0);
-  Widget _title(String title, {double size = 28}) => Text(title,
-      style: _style(size, weight: paper ? FontWeight.w400 : FontWeight.w700));
-  Widget _icon(String tip, IconData icon, VoidCallback action,
-          {Color? color}) =>
+          fontSize: size, color: secondary ? t.muted : fg, fontWeight: weight);
+  Widget icon(String tip, IconData data, VoidCallback action, {Color? color}) =>
       IconButton(
-          tooltip: tip, onPressed: action, icon: Icon(icon, color: color));
-  Widget _favoriteButton(int index) => _icon(
-      _favorites.contains(index) ? 'Убрать из избранного' : 'В избранное',
-      _favorites.contains(index)
+          tooltip: tip,
+          onPressed: action,
+          icon: Icon(data, color: color ?? fg));
+  Widget like(int i) => icon(
+      _likes.contains(i) ? 'Убрать из избранного' : 'В избранное',
+      _likes.contains(i)
           ? Icons.favorite_rounded
           : Icons.favorite_border_rounded,
-      () => _favorite(index),
-      color: _favorites.contains(index) ? c.accent : c.muted);
+      () => _like(i),
+      color: _likes.contains(i) ? _theme.colorScheme.primary : t.muted);
+  Widget cover(int i, double size) => PreviewCover(
+      index: previewSongs[i].cover, size: size, radius: t.coverRadius);
+  Widget button(String label, VoidCallback action,
+          {bool filled = false, IconData? leading}) =>
+      TextButton(
+          onPressed: action,
+          style: TextButton.styleFrom(
+              backgroundColor: filled ? t.accent : panel,
+              foregroundColor: filled ? t.onAccent : fg,
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 12)),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            if (leading != null) ...[
+              Icon(leading, size: 18),
+              const SizedBox(width: 6)
+            ],
+            Flexible(child: Text(label))
+          ]));
 
   @override
-  Widget build(BuildContext context) => Theme(
-      data: c.theme(fontFamily: widget.fontFamily),
-      child: Material(
-          color: c.background,
-          child: LayoutBuilder(builder: (context, box) {
-            final desktop = box.maxWidth >= 900;
-            final body = switch (_page) {
-              PreviewPage.library => _library(context, desktop),
-              PreviewPage.player => _player(context, desktop),
-              PreviewPage.queue => _queuePage(context),
-            };
-            if (desktop) {
-              return Row(children: [
-                _rail(),
-                Expanded(
-                    child: Column(children: [
+  Widget build(BuildContext context) {
+    final brightness = switch (widget.appearance.mode) {
+      AppearanceMode.system => MediaQuery.platformBrightnessOf(context),
+      AppearanceMode.dark => Brightness.dark,
+      AppearanceMode.light => Brightness.light,
+    };
+    _theme = createAppearanceTheme(widget.appearance, brightness,
+        fontFamily: widget.fontFamily);
+    return AnimatedTheme(
+        data: _theme,
+        duration: t.duration(context),
+        child: Material(
+            color: bg,
+            child: LayoutBuilder(builder: (context, box) {
+              final desktop = box.maxWidth >= 900;
+              final main = switch (_page) {
+                PreviewPage.home => _home(context, desktop),
+                PreviewPage.library => _library(context, desktop),
+                PreviewPage.player => _player(context, desktop),
+                PreviewPage.queue => _queuePage(context),
+              };
+              final body = AnimatedSwitcher(
+                  duration: t.duration(context),
+                  child: KeyedSubtree(key: ValueKey(_page), child: main));
+              if (desktop) {
+                return Column(children: [
                   Expanded(
-                      child: Row(children: [
-                    Expanded(child: body),
-                    if (_page == PreviewPage.library &&
-                        box.maxWidth >= 1180 &&
-                        !paper)
-                      _sideDetail(context)
-                  ])),
-                  _desktopDock(),
-                ]))
+                      child:
+                          Row(children: [_sidebar(), Expanded(child: body)])),
+                  _desktopDock()
+                ]);
+              }
+              return Column(children: [
+                Expanded(child: body),
+                if (_page != PreviewPage.player) ...[
+                  _mobileDock(),
+                  _bottomNavigation()
+                ]
               ]);
-            }
-            return Column(children: [
-              Expanded(child: body),
-              if (_page != PreviewPage.player) ...[
-                _mobileDock(),
-                NavigationBar(
-                    backgroundColor: c.background,
-                    indicatorColor: c.accent.withValues(alpha: .16),
-                    selectedIndex: _section,
-                    onDestinationSelected: (value) => setState(() {
-                          _section = value;
-                          _album = null;
-                          _page = PreviewPage.library;
-                        }),
-                    destinations: const [
-                      NavigationDestination(
-                          icon: Icon(Icons.library_music_outlined),
-                          selectedIcon: Icon(Icons.library_music_rounded),
-                          label: 'Музыка'),
-                      NavigationDestination(
-                          icon: Icon(Icons.waves_rounded), label: 'Волна'),
-                      NavigationDestination(
-                          icon: Icon(Icons.queue_music_rounded),
-                          label: 'Плейлисты')
-                    ]),
-              ]
-            ]);
-          })));
+            })));
+  }
 
-  Widget _rail() => Container(
-      width: midnight ? 88 : 190,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 28),
-      decoration: BoxDecoration(
-          border:
-              Border(right: BorderSide(color: c.muted.withValues(alpha: .15)))),
+  Widget _sidebar() => Container(
+      width: 180,
+      color: bg,
+      padding: const EdgeInsets.fromLTRB(14, 26, 14, 18),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Padding(
-            padding: const EdgeInsets.only(left: 12, bottom: 42),
-            child: midnight
-                ? Icon(Icons.album_rounded, color: c.accent, size: 32)
-                : Text(paper ? 'clever.' : 'clever',
-                    style: _style(29, weight: FontWeight.w700))),
-        for (final entry in [
-          (Icons.library_music_outlined, 'Моя музыка'),
-          (Icons.waves_rounded, 'Волна'),
-          (Icons.queue_music_rounded, 'Плейлисты')
-        ].indexed)
-          Padding(
-              padding: const EdgeInsets.only(bottom: 6),
-              child: Tooltip(
-                  message: entry.$2.$2,
-                  child: Material(
-                      color:
-                          _section == entry.$1 && _page == PreviewPage.library
-                              ? c.accent.withValues(alpha: .12)
-                              : Colors.transparent,
-                      borderRadius: BorderRadius.circular(12),
-                      child: InkWell(
-                          borderRadius: BorderRadius.circular(12),
-                          onTap: () => setState(() {
-                                _section = entry.$1;
-                                _album = null;
-                                _page = PreviewPage.library;
-                              }),
-                          child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 14, vertical: 15),
-                              child: Row(children: [
-                                Icon(entry.$2.$1,
-                                    color: _section == entry.$1
-                                        ? c.accent
-                                        : c.muted,
-                                    size: 22),
-                                if (!midnight) ...[
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                      child: Text(entry.$2.$2,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: _style(13,
-                                              weight: FontWeight.w600)))
-                                ],
-                              ])))))),
+            padding: const EdgeInsets.fromLTRB(10, 0, 0, 28),
+            child: Row(children: [
+              Icon(Icons.graphic_eq_rounded, color: t.accent, size: 28),
+              const SizedBox(width: 8),
+              Text('Clever\nМузыка', style: style(17, weight: FontWeight.w700))
+            ])),
+        for (final e in [
+          (Icons.search, 'Поиск', PreviewPage.library),
+          (Icons.music_note_rounded, 'Главная', PreviewPage.home),
+          (Icons.library_music_outlined, 'Коллекция', PreviewPage.library),
+          (Icons.queue_music, 'Очередь', PreviewPage.queue)
+        ])
+          ListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+              leading: Icon(e.$1, size: 20),
+              title: Text(e.$2, style: style(13)),
+              selected: _page == e.$3 && e.$2 != 'Поиск',
+              selectedTileColor: panel,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8)),
+              onTap: () => _open(e.$3)),
         const Spacer(),
-        if (!midnight)
-          Padding(
-              padding: const EdgeInsets.all(12),
-              child: Text('МУЗЫКА РЯДОМ',
-                  style: _style(10, muted: true, weight: FontWeight.w600))),
+        Row(children: [
+          CircleAvatar(
+              radius: 15,
+              backgroundColor: panel,
+              child: Icon(Icons.person_outline, color: t.muted, size: 18)),
+          const SizedBox(width: 8),
+          Expanded(
+              child: Text('Моя музыка\nНа устройстве',
+                  style: style(11, secondary: true)))
+        ]),
       ]));
 
+  Widget _bottomNavigation() => SafeArea(
+      top: false,
+      child: Container(
+          color: bg,
+          child: Row(children: [
+            for (final e in [
+              (Icons.music_note_rounded, 'Главная', PreviewPage.home),
+              (Icons.queue_music, 'Очередь', PreviewPage.queue),
+              (Icons.library_music_outlined, 'Коллекция', PreviewPage.library)
+            ])
+              Expanded(
+                  child: Semantics(
+                      selected: _page == e.$3,
+                      button: true,
+                      child: InkWell(
+                          onTap: () => _open(e.$3),
+                          child: Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 9),
+                              child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(e.$1,
+                                        size: 24,
+                                        color: _page == e.$3 ? fg : t.muted),
+                                    const SizedBox(height: 4),
+                                    Text(e.$2,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style:
+                                            style(10, secondary: _page != e.$3))
+                                  ]))))),
+          ])));
+
+  Widget _home(BuildContext context, bool desktop) =>
+      CustomScrollView(slivers: [
+        SliverToBoxAdapter(
+            child: Column(children: [
+          if (!desktop)
+            Padding(
+                padding: const EdgeInsets.fromLTRB(14, 8, 14, 0),
+                child: Row(children: [
+                  CircleAvatar(
+                      radius: 14,
+                      backgroundColor: panel,
+                      child:
+                          Icon(Icons.person_outline, size: 18, color: t.muted)),
+                  Expanded(
+                      child: Center(
+                          child: Text('Clever Музыка',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: style(18, weight: FontWeight.w700)))),
+                  icon('Поиск в коллекции', Icons.search,
+                      () => _open(PreviewPage.library))
+                ])),
+          SizedBox(
+              width: double.infinity,
+              height: desktop ? 370 : 410,
+              child: Stack(alignment: Alignment.center, children: [
+                Positioned.fill(
+                    child: RepaintBoundary(
+                        child: CustomPaint(painter: _WavePainter(t.accent)))),
+                Column(mainAxisSize: MainAxisSize.min, children: [
+                  TextButton.icon(
+                      onPressed: () => setState(() => _playing = !_playing),
+                      icon: Icon(
+                          _playing
+                              ? Icons.pause_rounded
+                              : Icons.play_arrow_rounded,
+                          size: 32,
+                          color: fg),
+                      label: Text('Моя волна',
+                          style: style(desktop ? 32 : 28,
+                              weight: FontWeight.w800))),
+                  const SizedBox(height: 8),
+                  button('Коллекция', () => _open(PreviewPage.library)),
+                ]),
+                Positioned(
+                    left: 20,
+                    right: 20,
+                    bottom: 8,
+                    child: Wrap(
+                        alignment: WrapAlignment.center,
+                        spacing: 10,
+                        runSpacing: 8,
+                        children: [
+                          button('Для вас', () => _open(PreviewPage.library),
+                              leading: Icons.person_outline),
+                          button('Плейлисты', () {
+                            setState(() => _tab = 1);
+                            _open(PreviewPage.library);
+                          }, leading: Icons.queue_music)
+                        ])),
+              ])),
+          Padding(
+              padding: const EdgeInsets.fromLTRB(20, 22, 20, 10),
+              child: Row(children: [
+                Expanded(
+                    child: Text('Недавно в коллекции',
+                        style: style(20, weight: FontWeight.w700))),
+                TextButton(
+                    onPressed: () => _open(PreviewPage.library),
+                    child: const Text('Все'))
+              ])),
+        ])),
+        SliverToBoxAdapter(
+            child: SizedBox(
+                height: 260,
+                child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    itemCount: 4,
+                    separatorBuilder: (context, index) =>
+                        const SizedBox(width: 16),
+                    itemBuilder: (context, i) => SizedBox(
+                        width: 154,
+                        child: InkWell(
+                            onTap: () => _select(i),
+                            child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  cover(i, 154),
+                                  const SizedBox(height: 10),
+                                  Text(previewSongs[i].album,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style:
+                                          style(14, weight: FontWeight.w600)),
+                                  Text(previewSongs[i].artist,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: style(12, secondary: true))
+                                ])))))),
+      ]);
+
   Widget _library(BuildContext context, bool desktop) {
-    final heading = _section == 1
-        ? 'Моя волна'
-        : _section == 2
-            ? 'Плейлисты'
-            : _album ?? 'Моя музыка';
-    var indices = List.generate(previewSongs.length, (i) => i).where((i) {
-      final s = previewSongs[i];
-      final q = _query.toLowerCase().trim();
-      return (!_favoritesOnly || _favorites.contains(i)) &&
-          (_album == null || s.album == _album) &&
-          (q.isEmpty ||
-              '${s.title} ${s.artist} ${s.album}'.toLowerCase().contains(q));
-    }).toList();
+    final q = _query.trim().toLowerCase();
+    var indices = [
+      for (var i = 0; i < previewSongs.length; i++)
+        if ((!_likedOnly || _likes.contains(i)) &&
+            '${previewSongs[i].title} ${previewSongs[i].artist} ${previewSongs[i].album}'
+                .toLowerCase()
+                .contains(q))
+          i
+    ];
     if (_reverse) indices = indices.reversed.toList();
-    final albums = [0, 1, 3, 5];
-    final margin = desktop ? 32.0 : 22.0;
     return CustomScrollView(slivers: [
       SliverToBoxAdapter(
           child: Padding(
-              padding:
-                  EdgeInsets.fromLTRB(margin, desktop ? 36 : 26, margin, 16),
+              padding: EdgeInsets.fromLTRB(
+                  desktop ? 30 : 20, 24, desktop ? 30 : 20, 16),
               child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    if (midnight)
-                      Text('ТВОЁ ПРОСТРАНСТВО',
-                          style:
-                              _style(10, muted: true, weight: FontWeight.w600)),
-                    _title(heading, size: paper ? 34 : 30),
-                    const SizedBox(height: 6),
+                    Text('Коллекция',
+                        style: style(30, weight: FontWeight.w700)),
+                    const SizedBox(height: 18),
+                    Row(children: [
+                      Expanded(
+                          child: TextField(
+                              key: const ValueKey('preview-search'),
+                              controller: _search,
+                              onChanged: (v) => setState(() => _query = v),
+                              decoration: InputDecoration(
+                                  hintText: 'Поиск в моей музыке',
+                                  prefixIcon: const Icon(Icons.search),
+                                  suffixIcon: q.isEmpty
+                                      ? null
+                                      : IconButton(
+                                          tooltip: 'Очистить поиск',
+                                          icon: const Icon(Icons.close),
+                                          onPressed: () {
+                                            _search.clear();
+                                            setState(() => _query = '');
+                                          })))),
+                      const SizedBox(width: 8),
+                      icon('Сортировать в обратном порядке', Icons.sort,
+                          () => setState(() => _reverse = !_reverse))
+                    ]),
+                    const SizedBox(height: 18),
+                    Wrap(spacing: 8, runSpacing: 8, children: [
+                      button('Моя волна по коллекции',
+                          () => _open(PreviewPage.home),
+                          filled: true, leading: Icons.play_arrow),
+                      button(_likedOnly ? 'Все треки' : 'Мне нравится',
+                          () => setState(() => _likedOnly = !_likedOnly),
+                          leading: Icons.favorite_border)
+                    ]),
+                    const SizedBox(height: 20),
+                    SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(children: [
+                          for (final e
+                              in ['Треки', 'Плейлисты', 'Альбомы'].indexed)
+                            Padding(
+                                padding: const EdgeInsets.only(right: 18),
+                                child: InkWell(
+                                    onTap: () => setState(() => _tab = e.$1),
+                                    child: Container(
+                                        padding:
+                                            const EdgeInsets.only(bottom: 10),
+                                        decoration: BoxDecoration(
+                                            border: Border(
+                                                bottom: BorderSide(
+                                                    color: _tab == e.$1
+                                                        ? t.accent
+                                                        : Colors.transparent,
+                                                    width: 2))),
+                                        child: Text(e.$2,
+                                            style: style(15,
+                                                weight: _tab == e.$1
+                                                    ? FontWeight.w700
+                                                    : FontWeight.w400))))),
+                        ])),
+                    const SizedBox(height: 16),
                     Text(
-                        _section == 1
-                            ? 'Подбор из твоей музыки'
-                            : _section == 2
-                                ? 'Свои подборки для любого дня'
-                                : '${previewSongs.length} треков · на устройстве',
-                        style: _style(12, muted: true)),
-                    if (_section == 0) ...[
-                      const SizedBox(height: 20),
-                      Row(children: [
-                        Expanded(
-                            child: TextField(
-                                key: const ValueKey('preview-search'),
-                                controller: _search,
-                                onChanged: (v) => setState(() => _query = v),
-                                decoration: InputDecoration(
-                                    hintText: 'Найти в музыке',
-                                    isDense: true,
-                                    filled: true,
-                                    fillColor: c.panel,
-                                    contentPadding: const EdgeInsets.symmetric(
-                                        horizontal: 16, vertical: 14),
-                                    prefixIcon: Icon(Icons.search_rounded,
-                                        size: 20, color: c.muted),
-                                    border: OutlineInputBorder(
-                                        borderRadius: BorderRadius.circular(
-                                            paper ? 8 : 14),
-                                        borderSide: BorderSide.none)))),
-                        _icon('Изменить порядок', Icons.sort_rounded,
-                            () => setState(() => _reverse = !_reverse),
-                            color: _reverse ? c.accent : c.muted)
-                      ]),
-                      const SizedBox(height: 12),
-                      Wrap(spacing: 8, runSpacing: 6, children: [
-                        ChoiceChip(
-                            label: const Text('Все треки'),
-                            selected: !_favoritesOnly && _album == null,
-                            onSelected: (_) => setState(() {
-                                  _favoritesOnly = false;
-                                  _album = null;
-                                })),
-                        ChoiceChip(
-                            label: const Text('Избранное'),
-                            selected: _favoritesOnly,
-                            onSelected: (v) =>
-                                setState(() => _favoritesOnly = v)),
-                      ]),
-                    ],
+                        '${_tab == 1 ? 'Мои плейлисты' : _tab == 2 ? 'Альбомы' : 'Треки'} · ${indices.length}',
+                        style: style(14, secondary: true)),
                   ]))),
-      if (_section == 1)
-        SliverToBoxAdapter(
-            child: Padding(
-                padding: EdgeInsets.fromLTRB(margin, 4, margin, 24),
-                child: _waveHero())),
-      if (_section == 2 ||
-          paper &&
-              _section == 0 &&
-              _album == null &&
-              _query.isEmpty &&
-              !_favoritesOnly)
-        SliverPadding(
-            padding: EdgeInsets.fromLTRB(margin, 4, margin, 24),
-            sliver: SliverLayoutBuilder(builder: (context, box) {
-              final scale = MediaQuery.textScalerOf(context).scale(1);
-              final columns = desktop
-                  ? (box.crossAxisExtent / 230).floor().clamp(2, 4)
-                  : scale > 1.5
-                      ? 1
-                      : 2;
-              final width =
-                  (box.crossAxisExtent - 18 * (columns - 1)) / columns;
-              return SliverGrid(
-                  delegate: SliverChildBuilderDelegate((context, index) {
-                    final s = previewSongs[albums[index]];
-                    return _albumTile(
-                        s,
-                        width,
-                        () => setState(() {
-                              _album = s.album;
-                              _section = 0;
-                            }));
-                  }, childCount: albums.length),
-                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: columns,
-                      crossAxisSpacing: 18,
-                      mainAxisSpacing: 20,
-                      mainAxisExtent: width + 64 * scale));
-            })),
-      if (midnight &&
-          _section == 0 &&
-          _album == null &&
-          _query.isEmpty &&
-          !_favoritesOnly)
-        SliverToBoxAdapter(
-            child: Padding(
-                padding: EdgeInsets.fromLTRB(margin, 2, margin, 24),
-                child: _continueHero())),
-      if (_section != 2) ...[
-        SliverToBoxAdapter(
-            child: Padding(
-                padding: EdgeInsets.symmetric(horizontal: margin, vertical: 8),
-                child: Row(children: [
-                  Expanded(
-                      child: Text(
-                          _section == 1
-                              ? 'Знакомые треки'
-                              : paper
-                                  ? 'Треки'
-                                  : 'В библиотеке',
-                          style: _style(13,
-                              muted: true, weight: FontWeight.w600))),
-                  Text('${indices.length}', style: _style(12, muted: true)),
-                ]))),
+      if (_tab == 0) ...[
         if (indices.isEmpty)
           const SliverFillRemaining(
               hasScrollBody: false,
               child: Center(child: Text('Ничего не найдено')))
         else
           SliverPadding(
-              padding: EdgeInsets.fromLTRB(margin - 8, 0, margin - 8, 24),
+              padding: const EdgeInsets.symmetric(horizontal: 12),
               sliver: SliverList.builder(
                   itemCount: indices.length,
-                  itemBuilder: (context, index) =>
-                      _songRow(context, indices[index], showAlbum: desktop))),
-      ],
+                  itemBuilder: (context, i) =>
+                      _track(context, indices[i], desktop: desktop))),
+      ] else
+        SliverPadding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+            sliver: SliverLayoutBuilder(builder: (context, box) {
+              final scale = MediaQuery.textScalerOf(context).scale(1);
+              final count = scale > 1.5
+                  ? 1
+                  : math.max(2, (box.crossAxisExtent / 210).floor());
+              final width = (box.crossAxisExtent - 16 * (count - 1)) / count;
+              return SliverGrid.builder(
+                  itemCount: 4,
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: count,
+                      crossAxisSpacing: 16,
+                      mainAxisSpacing: 20,
+                      mainAxisExtent: width + 76 * scale),
+                  itemBuilder: (context, i) => InkWell(
+                      onTap: () => setState(() => _tab = 0),
+                      child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            cover(i, width),
+                            const SizedBox(height: 8),
+                            Text(
+                                _tab == 1
+                                    ? [
+                                        'Мне нравится',
+                                        'На каждый день',
+                                        'В дороге',
+                                        'Вечер'
+                                      ][i]
+                                    : previewSongs[i].album,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: style(14, weight: FontWeight.w600)),
+                            Text('${i + 2} трека · на устройстве',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: style(12, secondary: true))
+                          ])));
+            })),
+      const SliverToBoxAdapter(child: SizedBox(height: 16)),
     ]);
   }
 
-  Widget _albumTile(PreviewSong song, double width, VoidCallback onTap) =>
-      InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(14),
-          child:
-              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            PreviewCover(
-                index: song.cover, size: width, radius: paper ? 6 : 16),
-            const SizedBox(height: 12),
-            Text(song.album,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: _style(15, weight: FontWeight.w600)),
-            const SizedBox(height: 3),
-            Text(song.artist,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: _style(12, muted: true))
-          ]));
-  Widget _continueHero() => Material(
-      color: c.panel,
-      borderRadius: BorderRadius.circular(18),
-      child: InkWell(
-          onTap: () => _open(PreviewPage.player),
-          borderRadius: BorderRadius.circular(18),
-          child: Padding(
-              padding: const EdgeInsets.all(18),
-              child: Row(children: [
-                PreviewCover(index: song.cover, size: 94, radius: 10),
-                const SizedBox(width: 18),
-                Expanded(
-                    child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                      Text('ПРОДОЛЖИТЬ',
-                          style:
-                              _style(10, muted: true, weight: FontWeight.w600)),
-                      const SizedBox(height: 6),
-                      Text(song.album,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: _style(22, weight: FontWeight.w600)),
-                      const SizedBox(height: 4),
-                      Text(song.artist,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: _style(12, muted: true)),
-                    ])),
-                const SizedBox(width: 8),
-                Icon(Icons.play_circle_fill_rounded, color: c.accent, size: 38),
-              ]))));
-  Widget _waveHero() => Container(
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-          color: c.panel, borderRadius: BorderRadius.circular(22)),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Icon(Icons.waves_rounded, color: c.accent, size: 56),
-        const SizedBox(height: 24),
-        _title('В своём ритме', size: 26),
-        const SizedBox(height: 8),
-        Text('Знакомые альбомы и новые сочетания.',
-            style: _style(13, muted: true)),
-        const SizedBox(height: 20),
-        FilledButton.icon(
-            onPressed: () => _select(0),
-            icon: const Icon(Icons.play_arrow_rounded),
-            label: const Text('Слушать волну'))
-      ]));
-
-  Widget _songRow(BuildContext context, int index,
-      {bool showAlbum = false, Widget? trailing}) {
-    final s = previewSongs[index];
-    final active = index == _current;
+  Widget _track(BuildContext context, int i,
+      {bool desktop = false, Widget? trailing}) {
+    final s = previewSongs[i];
     return Material(
-        color: active
-            ? c.accent.withValues(alpha: paper ? 0.1 : 0.09)
-            : Colors.transparent,
-        borderRadius: BorderRadius.circular(paper ? 6 : 12),
+        color: i == _current ? panel : Colors.transparent,
+        borderRadius: BorderRadius.circular(6),
         child: InkWell(
-            onTap: () => _select(index),
-            borderRadius: BorderRadius.circular(12),
+            onTap: () => _select(i),
             child: Padding(
                 padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+                    EdgeInsets.symmetric(horizontal: 8, vertical: t.rowPadding),
                 child: Row(children: [
-                  PreviewCover(
-                      index: s.cover,
-                      size: midnight ? 44 : 50,
-                      radius: paper ? 5 : 9),
-                  const SizedBox(width: 13),
+                  cover(i, desktop ? 40 : 44),
+                  const SizedBox(width: 12),
                   Expanded(
                       flex: 3,
                       child: Column(
@@ -469,43 +491,43 @@ final class _DesignPreviewCanvasState extends State<DesignPreviewCanvas> {
                             Text(s.title,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: _style(14, weight: FontWeight.w600)
-                                    .copyWith(
-                                        color: active ? c.accent : c.text)),
+                                style: style(14, weight: FontWeight.w500)),
                             const SizedBox(height: 4),
                             Text(s.artist,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: _style(12, muted: true))
+                                style: style(12, secondary: true))
                           ])),
-                  if (showAlbum) ...[
-                    const SizedBox(width: 16),
+                  if (desktop) ...[
                     Expanded(
                         flex: 2,
                         child: Text(s.album,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: _style(12, muted: true))),
+                            style: style(12, secondary: true))),
                     const SizedBox(width: 12),
-                    Text(s.duration, style: _style(12, muted: true)),
-                    const SizedBox(width: 10),
-                    _favoriteButton(index)
+                    Text(s.duration, style: style(12, secondary: true)),
+                    const SizedBox(width: 8),
+                    like(i)
                   ],
                   trailing ??
                       PopupMenuButton<int>(
                           tooltip: 'Действия с треком',
-                          icon: Icon(Icons.more_horiz_rounded, color: c.muted),
-                          onSelected: (value) => setState(() {
-                                if (value == 0) {
-                                  _queue.insert(0, index);
-                                } else if (value == 1) {
-                                  _queue.add(index);
+                          icon: Icon(Icons.more_horiz, color: t.muted),
+                          onSelected: (v) {
+                            if (v == 2) {
+                              _like(i);
+                            } else {
+                              setState(() {
+                                final entry = (id: _nextEntry++, song: i);
+                                if (v == 0) {
+                                  _queue.insert(0, entry);
                                 } else {
-                                  _favorites.contains(index)
-                                      ? _favorites.remove(index)
-                                      : _favorites.add(index);
+                                  _queue.add(entry);
                                 }
-                              }),
+                              });
+                            }
+                          },
                           itemBuilder: (_) => [
                                 const PopupMenuItem(
                                     value: 0, child: Text('Слушать следующим')),
@@ -513,66 +535,64 @@ final class _DesignPreviewCanvasState extends State<DesignPreviewCanvas> {
                                     value: 1, child: Text('В конец очереди')),
                                 PopupMenuItem(
                                     value: 2,
-                                    child: Text(_favorites.contains(index)
+                                    child: Text(_likes.contains(i)
                                         ? 'Убрать из избранного'
                                         : 'В избранное'))
                               ]),
                 ]))));
   }
 
-  Widget _controls({bool compact = false}) => FittedBox(
+  Widget _transport({bool compact = false}) => FittedBox(
       fit: BoxFit.scaleDown,
       child: Row(mainAxisSize: MainAxisSize.min, children: [
-        _icon('Перемешать', Icons.shuffle_rounded,
-            () => setState(() => _shuffle = !_shuffle),
-            color: _shuffle ? c.accent : c.muted),
-        _icon('Предыдущий трек', Icons.skip_previous_rounded, () => _step(-1)),
-        const SizedBox(width: 8),
-        IconButton.filled(
-            tooltip: _playing ? 'Пауза' : 'Воспроизвести',
-            onPressed: () => setState(() => _playing = !_playing),
-            style: IconButton.styleFrom(
-                backgroundColor: c.accent,
-                foregroundColor: c.background,
-                minimumSize: Size.square(compact ? 42 : 62)),
-            icon: Icon(
-                _playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                size: compact ? 24 : 32)),
-        const SizedBox(width: 8),
-        _icon('Следующий трек', Icons.skip_next_rounded, () => _step(1)),
-        _icon('Повтор', Icons.repeat_rounded,
-            () => setState(() => _repeat = !_repeat),
-            color: _repeat ? c.accent : c.muted),
+        if (!compact)
+          icon('Перемешать', Icons.shuffle,
+              () => setState(() => _shuffle = !_shuffle),
+              color: _shuffle ? _theme.colorScheme.primary : t.muted),
+        icon('Предыдущий трек', Icons.skip_previous_rounded, () => _step(-1)),
+        Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: IconButton.filled(
+                tooltip: _playing ? 'Пауза' : 'Воспроизвести',
+                onPressed: () => setState(() => _playing = !_playing),
+                style: IconButton.styleFrom(
+                    backgroundColor: t.accent,
+                    foregroundColor: t.onAccent,
+                    minimumSize: Size.square(compact ? 40 : 64)),
+                icon: Icon(
+                    _playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                    size: compact ? 25 : 38))),
+        icon('Следующий трек', Icons.skip_next_rounded, () => _step(1)),
+        if (!compact)
+          icon('Повторять', Icons.repeat,
+              () => setState(() => _repeat = !_repeat),
+              color: _repeat ? _theme.colorScheme.primary : t.muted),
       ]));
   String get _positionLabel {
-    final parts = song.duration.split(':').map(int.parse).toList();
-    final seconds = ((parts[0] * 60 + parts[1]) * _position).round();
+    final time = song.duration.split(':');
+    final seconds =
+        ((int.parse(time[0]) * 60 + int.parse(time[1])) * _position).round();
     return '${seconds ~/ 60}:${(seconds % 60).toString().padLeft(2, '0')}';
   }
 
   Widget _timeline() => Column(children: [
         Slider(
-            value: _position,
-            onChanged: (v) => setState(() => _position = v),
-            activeColor: c.accent,
-            inactiveColor: c.muted.withValues(alpha: .22)),
+            value: _position, onChanged: (v) => setState(() => _position = v)),
         Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 22),
-            child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(_positionLabel, style: _style(11, muted: true)),
-                  Text(song.duration, style: _style(11, muted: true))
-                ]))
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Row(children: [
+              Text(_positionLabel, style: style(11, secondary: true)),
+              const Spacer(),
+              Text(song.duration, style: style(11, secondary: true))
+            ]))
       ]);
 
   Widget _player(BuildContext context, bool desktop) =>
       LayoutBuilder(builder: (context, box) {
-        final cover = math.min(desktop ? 380.0 : box.maxWidth - 72,
-            math.max(150.0, box.maxHeight * .43));
-        final details = Column(
+        final size = (desktop ? 340.0 : box.maxWidth - 60).clamp(140.0, 380.0);
+        final controls = Column(
             mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(children: [
                 Expanded(
@@ -582,253 +602,249 @@ final class _DesignPreviewCanvasState extends State<DesignPreviewCanvas> {
                       Text(song.title,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
-                          style: _style(desktop ? 34 : 26,
-                              weight:
-                                  paper ? FontWeight.w400 : FontWeight.w700)),
+                          style: style(desktop ? 30 : 22,
+                              weight: FontWeight.w700)),
                       const SizedBox(height: 8),
                       Text(song.artist,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
-                          style: _style(15, muted: true))
+                          style: style(15, secondary: true))
                     ])),
-                _favoriteButton(_current)
+                like(_current)
               ]),
-              const SizedBox(height: 18),
-              _timeline(),
-              const SizedBox(height: 16),
-              _controls(),
               const SizedBox(height: 24),
-              TextButton.icon(
-                  onPressed: () => _open(PreviewPage.queue),
-                  icon: const Icon(Icons.queue_music_rounded),
-                  label: Text('Очередь · ${_queue.length} треков')),
+              _timeline(),
+              const SizedBox(height: 24),
+              Center(child: _transport()),
+              const SizedBox(height: 26),
+              Center(
+                  child: TextButton.icon(
+                      onPressed: () => _open(PreviewPage.queue),
+                      icon: const Icon(Icons.queue_music),
+                      label: Text('Очередь · ${_queue.length} треков'))),
             ]);
-        return Column(children: [
-          Padding(
-              padding: const EdgeInsets.fromLTRB(14, 14, 18, 8),
-              child: Row(children: [
-                _icon('В медиатеку', Icons.keyboard_arrow_down_rounded,
+        return SingleChildScrollView(
+            padding: EdgeInsets.fromLTRB(
+                desktop ? 36 : 20, 12, desktop ? 36 : 20, 28),
+            child: Column(children: [
+              Row(children: [
+                icon('В медиатеку', Icons.keyboard_arrow_down,
                     () => _open(PreviewPage.library)),
                 Expanded(
                     child: Column(children: [
-                  Text('СЕЙЧАС ИГРАЕТ',
-                      style: _style(10, muted: true, weight: FontWeight.w600)),
-                  const SizedBox(height: 3),
+                  Text('Сейчас играет', style: style(11, secondary: true)),
                   Text(song.album,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: _style(12))
+                      style: style(13))
                 ])),
-                _icon('Открыть очередь', Icons.queue_music_rounded,
+                icon('Открыть очередь', Icons.queue_music,
                     () => _open(PreviewPage.queue))
-              ])),
-          Expanded(
-              child: SingleChildScrollView(
-                  padding: EdgeInsets.all(desktop ? 40 : 26),
-                  child: desktop
-                      ? Row(
-                          crossAxisAlignment: CrossAxisAlignment.center,
-                          children: [
-                              Expanded(
-                                  child: Center(
-                                      child: PreviewCover(
-                                          index: song.cover,
-                                          size: cover,
-                                          radius: paper ? 8 : 24))),
-                              const SizedBox(width: 46),
-                              Expanded(child: details)
-                            ])
-                      : Column(children: [
-                          const SizedBox(height: 12),
-                          Center(
-                              child: PreviewCover(
-                                  index: song.cover,
-                                  size: cover,
-                                  radius: paper ? 8 : 24)),
-                          const SizedBox(height: 30),
-                          details
-                        ]))),
-        ]);
+              ]),
+              SizedBox(height: desktop ? 36 : 32),
+              if (desktop && MediaQuery.textScalerOf(context).scale(14) <= 21)
+                Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  cover(_current, size),
+                  const SizedBox(width: 40),
+                  Expanded(child: controls)
+                ])
+              else ...[
+                cover(_current, size),
+                const SizedBox(height: 32),
+                controls
+              ],
+            ]));
       });
 
   Widget _queuePage(BuildContext context) => CustomScrollView(slivers: [
         SliverToBoxAdapter(
             child: Padding(
-                padding: const EdgeInsets.fromLTRB(22, 26, 14, 16),
+                padding: const EdgeInsets.fromLTRB(20, 16, 12, 12),
                 child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Row(children: [
-                        Expanded(child: _title('Очередь')),
-                        _icon('В медиатеку', Icons.close_rounded,
+                        Expanded(
+                            child: Text('Очередь',
+                                style: style(28, weight: FontWeight.w700))),
+                        icon('В медиатеку', Icons.close,
                             () => _open(PreviewPage.library))
                       ]),
                       const SizedBox(height: 18),
-                      Text('Сейчас играет', style: _style(12, muted: true)),
+                      Text('Сейчас играет', style: style(12, secondary: true)),
                       const SizedBox(height: 8),
-                      _songRow(context, _current),
-                      const SizedBox(height: 18),
+                      _track(context, _current),
+                      const SizedBox(height: 20),
                       Row(children: [
                         Expanded(
                             child: Text('Далее · ${_queue.length}',
-                                style: _style(13, weight: FontWeight.w600))),
+                                style: style(16, weight: FontWeight.w600))),
                         TextButton(
-                            onPressed: _queue.isEmpty
-                                ? null
-                                : () => setState(_queue.clear),
+                            onPressed: () => setState(_queue.clear),
                             child: const Text('Очистить'))
                       ]),
                     ]))),
-        _queue.isEmpty
-            ? const SliverFillRemaining(
-                hasScrollBody: false,
-                child: Center(child: Text('Очередь пуста')))
-            : SliverPadding(
-                padding: const EdgeInsets.fromLTRB(14, 0, 14, 24),
-                sliver: SliverReorderableList(
-                    itemCount: _queue.length,
-                    onReorder: (oldIndex, newIndex) => setState(() {
-                          if (newIndex > oldIndex) newIndex--;
-                          _queue.insert(newIndex, _queue.removeAt(oldIndex));
-                        }),
-                    itemBuilder: (context, index) => Padding(
-                        key: ValueKey('queue-$index-${_queue[index]}'),
-                        padding: const EdgeInsets.only(bottom: 2),
-                        child: _songRow(context, _queue[index],
+        if (_queue.isEmpty)
+          const SliverFillRemaining(
+              hasScrollBody: false, child: Center(child: Text('Очередь пуста')))
+        else
+          SliverPadding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              sliver: SliverReorderableList(
+                  itemCount: _queue.length,
+                  onReorder: (oldIndex, newIndex) => setState(() {
+                        if (newIndex > oldIndex) newIndex--;
+                        final entry = _queue.removeAt(oldIndex);
+                        _queue.insert(newIndex, entry);
+                      }),
+                  itemBuilder: (context, index) {
+                    final entry = _queue[index];
+                    return KeyedSubtree(
+                        key: ValueKey(entry.id),
+                        child: _track(context, entry.song,
                             trailing:
                                 Row(mainAxisSize: MainAxisSize.min, children: [
-                              _icon('Убрать из очереди', Icons.close_rounded,
-                                  () => setState(() => _queue.removeAt(index))),
+                              icon(
+                                  'Убрать из очереди',
+                                  Icons.close,
+                                  () => setState(() => _queue
+                                      .removeWhere((e) => e.id == entry.id))),
                               ReorderableDragStartListener(
                                   index: index,
-                                  child: Padding(
-                                      padding: const EdgeInsets.all(10),
-                                      child: Icon(Icons.drag_handle_rounded,
-                                          color: c.muted)))
-                            ]))))),
+                                  child: const Padding(
+                                      padding: EdgeInsets.all(12),
+                                      child: Icon(Icons.drag_handle)))
+                            ])));
+                  })),
       ]);
 
   Widget _mobileDock() => Container(
-      decoration: BoxDecoration(
-          color: c.panel,
-          border:
-              Border(top: BorderSide(color: c.muted.withValues(alpha: .16)))),
-      child: InkWell(
-          onTap: () => _open(PreviewPage.player),
-          child: Padding(
-              padding: const EdgeInsets.fromLTRB(18, 10, 8, 10),
-              child: Row(children: [
-                PreviewCover(index: song.cover, size: 44, radius: 8),
-                const SizedBox(width: 12),
-                Expanded(
-                    child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                      Text(song.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: _style(13, weight: FontWeight.w600)),
-                      const SizedBox(height: 3),
-                      Text(song.artist,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: _style(11, muted: true))
-                    ])),
-                _icon(
-                    _playing ? 'Пауза' : 'Воспроизвести',
-                    _playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                    () => setState(() => _playing = !_playing)),
-                _icon('Открыть очередь', Icons.queue_music_rounded,
-                    () => _open(PreviewPage.queue)),
-              ]))));
-  Widget _desktopDock() => Container(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-      decoration: BoxDecoration(
-          color: c.panel,
-          border:
-              Border(top: BorderSide(color: c.muted.withValues(alpha: .15)))),
-      child: Row(children: [
-        Expanded(
-            flex: 3,
-            child: InkWell(
-                onTap: () => _open(PreviewPage.player),
-                child: Row(children: [
-                  PreviewCover(index: song.cover, size: 46, radius: 8),
-                  const SizedBox(width: 12),
-                  Expanded(
+      margin: const EdgeInsets.fromLTRB(8, 4, 8, 0),
+      decoration:
+          BoxDecoration(color: panel, borderRadius: BorderRadius.circular(12)),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        LinearProgressIndicator(
+            value: _position,
+            minHeight: 2,
+            backgroundColor: Colors.transparent),
+        Padding(
+            padding: const EdgeInsets.fromLTRB(8, 8, 4, 8),
+            child: Row(children: [
+              InkWell(
+                  onTap: () => _open(PreviewPage.player),
+                  child: cover(_current, 40)),
+              const SizedBox(width: 10),
+              Expanded(
+                  child: InkWell(
+                      onTap: () => _open(PreviewPage.player),
                       child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                        Text(song.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: _style(13, weight: FontWeight.w600)),
-                        const SizedBox(height: 4),
-                        Text(song.artist,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: _style(11, muted: true))
-                      ]))
-                ]))),
-        Expanded(flex: 4, child: _controls(compact: true)),
-        const SizedBox(width: 16),
-        SizedBox(
-            width: 104,
-            child: Slider(
-                value: _volume, onChanged: (v) => setState(() => _volume = v))),
-        _icon('Открыть очередь', Icons.queue_music_rounded,
-            () => _open(PreviewPage.queue)),
+                            Text(song.title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: style(12, weight: FontWeight.w600)),
+                            Text(song.artist,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: style(11, secondary: true))
+                          ]))),
+              like(_current),
+              icon(
+                  _playing ? 'Пауза' : 'Воспроизвести',
+                  _playing ? Icons.pause : Icons.play_arrow,
+                  () => setState(() => _playing = !_playing)),
+            ])),
       ]));
-  Widget _sideDetail(BuildContext context) => Container(
-      width: 260,
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-          border:
-              Border(left: BorderSide(color: c.muted.withValues(alpha: .14)))),
-      child: midnight
-          ? Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const SizedBox(height: 12),
-              Text('Далее', style: _style(16, weight: FontWeight.w600)),
-              const SizedBox(height: 22),
-              for (final index in _queue.take(5))
-                Padding(
-                    padding: const EdgeInsets.only(bottom: 20),
-                    child: Row(children: [
-                      PreviewCover(
-                          index: previewSongs[index].cover,
-                          size: 38,
-                          radius: 7),
-                      const SizedBox(width: 10),
-                      Expanded(
-                          child: Text(previewSongs[index].title,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: _style(12)))
-                    ])),
-              TextButton(
-                  onPressed: () => _open(PreviewPage.queue),
-                  child: const Text('Вся очередь')),
-            ])
-          : SingleChildScrollView(
-              child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                  const SizedBox(height: 12),
-                  Text('Сейчас играет', style: _style(12, muted: true)),
-                  const SizedBox(height: 24),
-                  PreviewCover(index: song.cover, size: 212, radius: 18),
-                  const SizedBox(height: 22),
-                  Text(song.title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: _style(20, weight: FontWeight.w600)),
-                  const SizedBox(height: 6),
-                  Text(song.artist, style: _style(13, muted: true)),
-                  const SizedBox(height: 18),
-                  _timeline(),
-                  const SizedBox(height: 10),
-                  TextButton(
-                      onPressed: () => _open(PreviewPage.player),
-                      child: const Text('Открыть плеер')),
-                ])));
+  Widget _desktopDock() => Container(
+      color: panel,
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        SizedBox(height: 3, child: LinearProgressIndicator(value: _position)),
+        Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+            child: Row(children: [
+              cover(_current, 42),
+              const SizedBox(width: 12),
+              Expanded(
+                  child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                    Text(song.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: style(13, weight: FontWeight.w600)),
+                    Text(song.artist,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: style(11, secondary: true))
+                  ])),
+              like(_current),
+              const SizedBox(width: 22),
+              _transport(compact: true),
+              const SizedBox(width: 22),
+              icon('Открыть очередь', Icons.queue_music,
+                  () => _open(PreviewPage.queue)),
+              const SizedBox(width: 12),
+              Icon(Icons.volume_up_outlined, color: t.muted, size: 20),
+              SizedBox(
+                  width: 100,
+                  child: Slider(
+                      value: _volume,
+                      onChanged: (v) => setState(() => _volume = v))),
+            ])),
+      ]));
+}
+
+/// Original bounded vector illustration: no shader asset, video, network,
+/// image decode, or continuous ticker on the home screen.
+final class _WavePainter extends CustomPainter {
+  const _WavePainter(this.accent);
+  final Color accent;
+  @override
+  void paint(Canvas canvas, Size size) {
+    final d = math.min(size.width * .95, size.height * .94);
+    final rect = Rect.fromCenter(
+        center: Offset(size.width / 2, size.height * .47), width: d, height: d);
+    final hsl = HSLColor.fromColor(accent);
+    final warm = hsl.withHue((hsl.hue - 22) % 360).toColor();
+    canvas.drawOval(
+        rect.inflate(16),
+        Paint()
+          ..shader = RadialGradient(colors: [
+            Colors.transparent,
+            accent.withValues(alpha: .08),
+            Colors.transparent
+          ], stops: const [
+            .6,
+            .85,
+            1
+          ]).createShader(rect.inflate(16)));
+    for (var i = 9; i >= 0; i--) {
+      final ring = rect.deflate(i * .8);
+      canvas.drawOval(
+          ring,
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1.5 + i
+            ..shader =
+                SweepGradient(transform: const GradientRotation(-.9), colors: [
+              warm.withValues(alpha: .01),
+              accent.withValues(alpha: .65 / (i + 1)),
+              warm.withValues(alpha: .8 / (i + 1)),
+              accent.withValues(alpha: .04),
+              Colors.transparent,
+              warm.withValues(alpha: .01)
+            ], stops: const [
+              0,
+              .18,
+              .38,
+              .62,
+              .83,
+              1
+            ]).createShader(ring));
+    }
+  }
+
+  @override
+  bool shouldRepaint(_WavePainter oldDelegate) => oldDelegate.accent != accent;
 }
