@@ -12,6 +12,8 @@ import '../library/file_content_hasher.dart';
 import '../library/library_scan_control.dart';
 import '../library/metadata_reader_service.dart';
 import '../library/stable_track_id.dart';
+import 'download_coordination.dart';
+
 import 'desktop_publication_store.dart';
 import 'desktop_publication_maintenance.dart';
 import 'publication_journal.dart';
@@ -23,29 +25,7 @@ import 'native_publication_files.dart';
 import 'publication_intent.dart';
 import 'download_workspace.dart';
 
-enum DownloadCoordinationOutcome {
-  completed,
-  requiresDownload,
-  cancelled,
-  ownershipLost,
-  busy,
-  failed,
-  needsReconciliation,
-}
-
-final class DownloadCoordinationResult {
-  const DownloadCoordinationResult(
-      {required this.outcome,
-      required this.job,
-      this.imported,
-      this.failure,
-      this.cleanupFailed = false});
-  final DownloadCoordinationOutcome outcome;
-  final DownloadJob job;
-  final DownloadImportResult? imported;
-  final DownloadFailure? failure;
-  final bool cleanupFailed;
-}
+export 'download_coordination.dart';
 
 /// Coordinates an already downloaded, exclusively owned local file. Transport,
 /// account access, queue selection and retries are separate.

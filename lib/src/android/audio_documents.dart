@@ -18,10 +18,13 @@ final class AudioDocumentMetadata {
       this.genre,
       this.duration,
       this.size,
-      this.artwork});
+      this.artwork,
+      this.trackNumber,
+      this.discNumber,
+      this.year});
   final String? name, title, artist, album, albumArtist, genre;
   final Duration? duration;
-  final int? size;
+  final int? size, trackNumber, discNumber, year;
   final Uint8List? artwork;
 }
 
@@ -193,6 +196,13 @@ final class AndroidAudioDocuments
       return value is String && value.trim().isNotEmpty ? value.trim() : null;
     }
 
+    int? number(String key, int maximum) {
+      final text = tag(key);
+      if (text == null || text.length > 32) return null;
+      final value = int.tryParse(text.split('/').first);
+      return value != null && value > 0 && value <= maximum ? value : null;
+    }
+
     final milliseconds = int.tryParse(tag('durationMs') ?? '');
     final size = data['size'];
     final artwork = data['artwork'];
@@ -207,6 +217,9 @@ final class AndroidAudioDocuments
           ? Duration(milliseconds: milliseconds)
           : null,
       size: size is int && size >= 0 ? size : null,
+      trackNumber: number('trackNumber', 1000000),
+      discNumber: number('discNumber', 1000000),
+      year: number('year', 9999),
       artwork:
           artwork is Uint8List && artwork.length <= 256 * 1024 ? artwork : null,
     );

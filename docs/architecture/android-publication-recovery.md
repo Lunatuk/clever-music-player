@@ -77,3 +77,8 @@ Flutter tests используют настоящий SQLite/lease/receipt journ
 Автоматическая квалификация57: 2284 Flutter tests (30 новых), 108 targeted,
 анализатор без замечаний; 84 JVM tests, lint0errors/9 прежних warnings.
 Итоговый APK2057 с подписью56 и16КиБ проверен отдельно. Итоговые числа и SHA записаны в IMPLEMENTATION_LOG.md и checks JSON.
+
+
+Проверка57 подтверждена пользователем. В58 восстановление подключено к
+[внутреннему координатору](android-download-coordinator.md); общий runner/UI
+ещё не включён. Дополнительных ручных проверок58 нет.

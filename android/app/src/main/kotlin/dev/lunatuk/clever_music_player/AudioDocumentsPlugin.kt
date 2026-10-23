@@ -296,6 +296,9 @@ class AudioDocumentsPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activi
                 "album" to MediaMetadataRetriever.METADATA_KEY_ALBUM,
                 "albumArtist" to MediaMetadataRetriever.METADATA_KEY_ALBUMARTIST,
                 "genre" to MediaMetadataRetriever.METADATA_KEY_GENRE,
+                "trackNumber" to MediaMetadataRetriever.METADATA_KEY_CD_TRACK_NUMBER,
+                "discNumber" to MediaMetadataRetriever.METADATA_KEY_DISC_NUMBER,
+                "year" to MediaMetadataRetriever.METADATA_KEY_YEAR,
                 "durationMs" to MediaMetadataRetriever.METADATA_KEY_DURATION
             )) metadata[key] = reader.extractMetadata(code)
             reader.embeddedPicture?.let { picture -> metadata["artwork"] = thumbnail(picture) }

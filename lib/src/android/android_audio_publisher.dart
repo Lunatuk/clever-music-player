@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import '../core/async_lifecycle.dart';
 import '../domain/models/models.dart';
 import '../library/library_scan_control.dart';
 import '../library_sync/download_lease_owner.dart';
@@ -340,7 +341,6 @@ final class AndroidAudioPublisher {
 
   Future<void> _drain() async {
     await _active?.future;
-    await _backend.close();
-    await _verifier.close();
+    await finishCleanup([_backend.close, _verifier.close]);
   }
 }

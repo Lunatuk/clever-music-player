@@ -76,6 +76,36 @@ void main() {
     expect(metadata.artwork, isNull);
   });
 
+  test('document reader accepts track/disc totals and a bounded year',
+      () async {
+    messenger.setMockMethodCallHandler(
+        channel,
+        (_) async => {
+              'trackNumber': '2/10',
+              'discNumber': '1/2',
+              'year': '2026',
+            });
+    final result = await adapter.readAudio(source);
+    expect(result.trackNumber, 2);
+    expect(result.discNumber, 1);
+    expect(result.year, 2026);
+  });
+  for (final text in ['0', '-1', '1000001', 'not a number', '1' * 33]) {
+    test('invalid document indices are ignored: $text', () async {
+      messenger.setMockMethodCallHandler(
+          channel,
+          (_) async => {
+                'trackNumber': text,
+                'discNumber': text,
+                'year': text,
+              });
+      final result = await adapter.readAudio(source);
+      expect(result.trackNumber, isNull);
+      expect(result.discNumber, isNull);
+      expect(result.year, isNull);
+    });
+  }
+
   group('document import ownership', () {
     late AppDatabase database;
     late DriftRepositories repositories;

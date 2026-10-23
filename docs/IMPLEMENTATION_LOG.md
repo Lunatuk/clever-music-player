@@ -4021,3 +4021,64 @@ targeted-final,analyze-final,format-final,apk-*,*-symbols; source-manifest,
 build-result/verify-result/media-apk/package JSON. Промежуточная проверка
 побайтного JNI ELF выявила ожидаемую смену build ID; отдельно доказано
 равенство всех остальных bytes, без замены/повторной выдачи APK.
+
+
+## Пакет58 — внутренний Android-координатор подготовки/публикации/импорта
+
+23 октября 2026 года. Пользователь подтвердил проверки57 на телефоне.
+AndroidDownloadCoordinator соединяет preparer56, publisher55/recovery57,
+чтение опубликованных тегов/thumbnail, fresh verifier54 и atomic Track/ref/
+asset/job. Принимает готовый private source либо claimed reconciling job;
+transport/credential/claim/UI не входят в компонент. Владеет preparer/per-job
+adapters; journal/workspace/repositories/artwork cache заимствованы.
+Factories не вызываются при конструировании/старте приложения. Общий результат
+вынесен из desktop implementation с совместимым export, runner зависит от
+общего контракта; поведение Windows pipeline сохранено.
+
+Strict document reader проверяет name/size/duration/title/лимиты, не угадывает
+название по opaque имени. Artist/albumArtist раздельны, album может отсутствовать.
+Native readAudio дополнен track/disc/year, Dart ограничивает indices/год.
+Fresh verification идёт после metadata read; SAF OS seal не обещается.
+Source-free recovery разрешает download только без публикации/при INTENT до
+create, либо продолжает import без копирования. Partial/changed/ambiguous
+сохраняются без delete/write/повторного скачивания. Поздняя caller cancel
+дренирует принятую публикацию/import; потеря account/folder/lease запрещает
+completion. Publisher.close исправлен на finishCleanup: ошибка backend.close
+не пропускает verifier.close. Cleanup error не отменяет completed и видна при
+requiresDownload. Caller закрывает coordinator до borrowed journal/workspace/DB.
+
+2334 Flutter tests прошли,50 новых; targeted144/144 включая Windows coordinator
+и общий runner. Четыре real FFmpeg tests: MP3/M4A/FLAC с тэгами/cover и file-backed
+opaque URI provider → настоящий SQLite; persistent SQLite/receipt reopen после
+rollback и удаления raw. Это host helper/test provider, не Android runtime.
+Проверены current-owner release, partial/noSpace, ack failure, malformed
+metadata, heartbeat, disabled folder, revoke в трёх точках, cancel/drain,
+factory/close failures. Старые repository tests проверяют manual/feedback replay.
+Промежуточная fixture потребовала явного lossy minimum bitrate; финальный
+полный набор прошёл без skips. Analyzer clean, format379/0. JVM84/0fail/0error/
+0skip; lint0errors/9warnings точно совпадают с57 по ID/severity/message.
+
+Fresh ASCII build:686 SHA root/snapshot совпали; codegen/schema13/pubspec/lock,
+Windows audio, fileops/hook, FFmpeg sources/bundle/fixtures прежние. APK2058/
+min24/target36/ARM64/signer57/v2/CRC/zipalign+ELF16КиБ проверен. В фактическом DEX
+подтверждены metadata keys и прежние channel/RPC. Media ELF совпадает с56 вне
+build-ID; assets/source-kit/exports/dependencies проверены. Прежние13 C-core
+checks применимы к неизменённому коду, повторный запуск13 в58 не заявляется.
+Native fileops.so идентичен52, hardlinks/unsafe rename не добавлены.
+Облачный CI не объявляется пройденным.
+
+APK58 квалифицирован, интерфейс прежний; на телефоне можно оставить57,
+новых ручных проверок нет. Android song download ещё выключен. Далее:
+network/cover/workspace/journal/coordinator в app-owned pipeline общего runner,
+completed-receipt maintenance, сообщения/разрешение retained и ручная кнопка.
+Полный путь на телефоне потребует маленькой живой коллекции после подключения.
+Аккаунт/токен/музыка пользователя и Yandex API не использовались.
+Расписание/дизайн позже, рекомендации отложены.
+
+- dist/clever-music-player-core-58-android-arm64.apk — 35867578bytes,
+  SHA-256 `90b866dcd01081caf0bc17732ffcdee8562886ea67cf4e03ae57c2ccb5638da3`.
+
+Контракт: architecture/android-download-coordinator.md. Чек-лист58 без новых
+ручных пунктов; checks/.sha256 рядом с APK. Логи .dart_tool/core58-full-tests-final,
+targeted-final,analyze-final,format-final,apk-*,*-symbols; source-manifest,
+build-result/verify-result/media-apk/package JSON.

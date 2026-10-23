@@ -5,7 +5,7 @@ import '../domain/repositories/download_job_repository.dart';
 import '../domain/repositories/yandex_session_repository.dart';
 import '../library/library_scan_control.dart';
 import 'binary_download.dart';
-import 'desktop_download_coordinator.dart';
+import 'download_coordination.dart';
 import 'yandex_audio_selection.dart';
 import 'yandex_credential_store.dart';
 import 'yandex_download_protocol.dart';
