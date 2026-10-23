@@ -7,6 +7,7 @@ import 'package:clever_music_player/src/android/android_yandex_download_pipeline
 import 'package:clever_music_player/src/android/audio_documents.dart';
 import 'package:clever_music_player/src/domain/models/models.dart';
 import 'package:clever_music_player/src/library/artwork_cache_service.dart';
+import 'package:clever_music_player/src/library/exact_track_copies.dart';
 import 'package:clever_music_player/src/library/library_scan_control.dart';
 import 'package:clever_music_player/src/library/metadata_reader_service.dart';
 import 'package:clever_music_player/src/library_sync/bundled_media_helper.dart';
@@ -142,6 +143,28 @@ void main() {
         expect(provider.writes, 1);
         expect(await x.f.count('tracks'), 1);
         expect(await x.f.count('downloaded_assets'), 1);
+        final published = (await x.f.repositories.tracks.listTracks()).single;
+        final source = published.source as ContentUriAudioSource;
+        final parent = await x.f.repositories.libraryFolders.upsertFolder(
+            LibraryFolder(
+                path: 'content://music.documents/tree/parent',
+                createdAt: x.f.now,
+                updatedAt: x.f.now));
+        final alias = ContentUriAudioSource(source.uri.replace(pathSegments: [
+          'tree',
+          'parent',
+          'document',
+          source.uri.pathSegments.last
+        ]).toString());
+        await x.f.repositories.tracks.upsertTrack(Track.fromSource(
+            source: alias,
+            libraryFolderId: parent,
+            title: published.title,
+            addedAt: x.f.now,
+            updatedAt: x.f.now));
+        final rows = await x.f.repositories.tracks.listTracks();
+        expect(rows, hasLength(2));
+        expect(withoutExactTrackCopies(rows).single.id, published.id);
         final requests = server.requests.length;
         await x.updates.start();
         expect(x.updates.failure, isNull);
@@ -149,6 +172,10 @@ void main() {
         expect(x.updates.planned, 0);
         expect(server.requests.length, requests);
         expect(provider.writes, 1);
+        expect(await x.f.count('tracks'), 2);
+        expect(await x.f.count('downloaded_assets'), 1);
+        expect(
+            await x.f.repositories.tracks.findById(published.id!), published);
         expect(
             x.diagnostics.entries
                 .any((e) => e.fields.values.any((v) => v is String)),

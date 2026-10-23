@@ -9,6 +9,7 @@ import '../diagnostics/diagnostics_service.dart';
 import '../domain/models/track.dart';
 import '../domain/repositories/track_repository.dart';
 import '../library/artwork_cache_service.dart';
+import '../library/exact_track_copies.dart';
 import '../player/player_service.dart';
 import '../player/player_state.dart';
 import 'android_import_controller.dart';
@@ -298,7 +299,7 @@ final class _AndroidLibraryScreenState extends State<AndroidLibraryScreen> {
                           return const Center(
                               child: CircularProgressIndicator());
                         }
-                        final tracks = snapshot.data!;
+                        final tracks = withoutExactTrackCopies(snapshot.data!);
                         if (tracks.isEmpty) {
                           return Center(
                               child: SingleChildScrollView(

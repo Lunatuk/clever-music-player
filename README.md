@@ -1,5 +1,13 @@
 # Clever Music Player
 
+Package 60 removes duplicate display of the same SAF document reached through
+parent and child folder grants. The Android list and its queue context use the
+shared exact-copy view; document authority/ID are compared without title matching.
+Existing source records, download receipts and user data remain intact; no rescan
+is needed for already indexed aliases. Mobile feature parity and design prototypes
+are now the next roadmap block, ahead of download scheduling.
+See [document aliases](docs/architecture/android-document-aliases.md).
+
 Package 59 enables explicit Yandex library updates on Android ARM64: MP3/M4A/FLAC,
 SAF destination bookmarks, embedded covers/tags, verified import and recovery,
 progress/cancellation, and JSON diagnostic export through the system save picker.

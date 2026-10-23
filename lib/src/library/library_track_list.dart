@@ -40,7 +40,9 @@ List<Track> buildVisibleLibraryTracks({
   }).toList(growable: false);
 
   return sortLibraryTracks(
-    showExactCopies ? visible : withoutExactTrackCopies(visible),
+    showExactCopies
+        ? withoutRepeatedAudioSources(visible)
+        : withoutExactTrackCopies(visible),
     sortOption: sortOption,
     userStates: userStates,
   );

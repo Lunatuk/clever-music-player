@@ -4158,3 +4158,77 @@ core59-source-manifest/build-result/verify-result/media-apk/package JSON.
 плейлист1–3, импорт/воспроизведение без scan, повтор без копий, restart и
 необязательный stop/retry. После подтверждения — расписание/дальнейший UX и дизайн;
 рекомендации по решению пользователя отложены.
+
+
+**23 октября 2026 — пакет60: вложенные Android-папки и ближайший UI-план**
+
+Пользователь подтвердил скачивание59 на телефоне и сообщил о двух строках одного
+файла при включённых основной папке и вложенной папке загрузок. Также попросил
+уточнить сроки полного функционала на телефоне и редизайна.
+
+Причина воспроизведена: DocumentsContract.buildDocumentUriUsingTree возвращает
+разные URI parent/child для одного authority + documentId. Repo по прежнему
+хранит каждый grant-адрес, а Android ListView59 не применял общий exact-copy view.
+У scan alias нет verified hash, поэтому одной SHA-проверки также недостаточно.
+
+Добавлена чистая domain identity: точный authority + непрозрачный documentId из
+строгой структуры tree/document или direct document, без угадывания пути/имени.
+Percent escapes декодируются один раз, регистр ID учитывается, неизвестные URI/
+query/fragment/malformed/пустой ID/NUL не дают равенства. Общий фильтр сначала
+выбирает один доступный alias (стабильный ID/URI), затем прежние byte copies.
+Показ physical copies не дублирует один документ с двумя grants. Search/disabled
+roots фильтруются раньше, так что остаётся адрес действующего корня.
+
+Android preview теперь передаёт фильтрованный список и в UI, и в library queue.
+Общий сервис «Волны» тоже получает одного кандидата вместо двух адресов.
+Формула, оценки и настройки рекомендаций не меняются. Существующие registrations
+и их ID/user state/history/playlists/metadata, download refs/assets/jobs/receipts,
+URI/grants не сливаются и не удаляются, схема13 прежняя. Исправление сразу работает
+на старых проиндексированных aliases без scan. Разные физические файлы без
+известного hash не склеиваются по похожим названиям/размеру/тегам.
+
+Targeted67/67 и дополнительный download/desktop copies21/21. Новые27 сценариев:
+22 identity/view,3 настоящий SQLite/folder visibility/restart/reactive stream/
+сохранность user data,1 phone widget/queue context и1 Wave candidate. В трёх
+реальных host FFmpeg pipeline checks (MP3/M4A/FLAC) дополнительно добавляется
+scan alias опубликованного URI: видна одна строка, исходный asset/track прежний,
+повтор не скачивает музыку заново. Provider файловый тестовый, не Android runtime.
+6000-row scrolling/text scale1/2 сохраняет ограниченное построение строк;
+проверка полного context изменена с object identity на сравнение всех элементов,
+поскольку список теперь проходит общий view.
+
+Роадмап переставлен: после60 основные мобильные функции и варианты общего
+дизайна идут раньше расписания. Ориентир3–5 следующих функциональных пакетов,
+не обещание календарной даты. Первые2–3 варианта ключевых экранов — уже первый
+блок: медиатека, полный плеер и очередь на desktop/телефоне. Затем поиск/оценки,
+плейлисты/очередь, прежняя «Волна»/настройки/метаданные и общий дизайн/доступность.
+Технические зависимости проверяются по ходу, все существующие URI user-state
+правила учитываются отдельно перед вводом мобильных редакторов. Рекомендации
+по-прежнему отложены.
+
+Окончательно2391 Flutter tests прошли без skips/failures,27 новых. Analyzer
+чистый,format356/0. Fresh ASCII snapshot696 SHA root/build совпали. Codegen/schema13,
+pubspec/lock, native Android/Windows audio/fileops и FFmpeg assets/bundle/fixtures
+не менялись. APK2060/min24/target36/ARM64/v2/signer59,CRC/zipalign/ELF16КиБ,
+медиаслужба/уведомление проверены. В фактическом AOT найдены новые
+withoutRepeatedAudioSources/audioDocumentIdentity, которых нет в59; прежние
+RPC/diagnostic tokens, source-kit и native asset проверены в APK.
+JVM84/0fail/0error/0skip; lint0errors/9 прежних warnings, ID/severity/message
+идентичны59. FFmpeg media ELF идентичен56 вне GNU build-ID; exports/dependencies
+проверены. Унаследованные13 C-core checks относятся к неизменённому коду,
+повторный запуск13 не заявляется. Fileops.so прежний, unsafe hardlinks/rename
+не добавлены. Cloud CI и новый physical60 test не объявляются пройденными.
+
+- dist/clever-music-player-core-60-android-arm64.apk — 35802046bytes,
+  SHA-256 `44aeb36a0b8ff6609de791dc6a58b5cfc581c149cf69b2c41b0d49abee3ca4bc`.
+
+Рядом .apk.sha256,checks.json,manual-checks.txt. Логи .dart_tool/core60-full-tests-final,
+targeted-first,download-targeted,analyze-final,format-final,apk-*,*-symbols;
+source-manifest/build-result/verify-result/media-apk/package JSON.
+
+
+Контракт: architecture/android-document-aliases.md. Manual60: существующие обе
+папки → одна строка/звук; убрать child/оставить parent; подключить child обратно
+через «Использовать выбранную папку» без scan; restart и маленький повтор sync.
+Новая физическая квалификация60 пока не получена. Аккаунт, токен и музыкальные
+файлы пользователя в автоматических проверках не использовались.

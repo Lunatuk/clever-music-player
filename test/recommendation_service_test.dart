@@ -4,6 +4,23 @@ import 'package:clever_music_player/src/recommendation/recommendation_service.da
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('wave candidates do not count two grants to the same document twice',
+      () async {
+    final now = DateTime(2026);
+    final a = _track(id: 1, title: 'Song', now: now).copyWith(
+        filePath:
+            'content://music.documents/tree/parent/document/opaque%3Asong');
+    final b = a.copyWith(
+        id: 2,
+        filePath:
+            'content://music.documents/tree/child/document/opaque%3Asong');
+    final service = RecommendationService(
+        tracks: _FakeTrackRepository([b, a]),
+        trackUserState: _FakeTrackUserStateRepository({}),
+        playbackEvents: const _FakePlaybackEventRepository());
+    final recommendations = await service.recommend(now: now);
+    expect(recommendations.map((r) => r.track.id), [1]);
+  });
   test('recommend returns scored local tracks with reasons', () async {
     final now = DateTime(2026);
     final service = RecommendationService(

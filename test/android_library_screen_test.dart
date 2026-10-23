@@ -114,11 +114,49 @@ void main() {
       await tester.tap(row);
       await tester.pumpAndSettle();
       expect(fixture.player.currentTrack?.displayTitle, title);
-      expect(fixture.lastContext, same(tracks));
+      expect(fixture.lastContext, orderedEquals(tracks));
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
     });
   }
+
+  testWidgets(
+      'phone collapses nested grant aliases before display and queue context, keeping distinct same-title songs',
+      (tester) async {
+    final fixture = _Fixture();
+    addTearDown(fixture.close);
+    final parent = fixture.track.copyWith(
+        id: 1,
+        filePath:
+            'content://music.documents/tree/parent/document/opaque%3Asong',
+        title: 'Shared song');
+    final child = parent.copyWith(
+        id: 2,
+        filePath:
+            'content://music.documents/tree/child/document/opaque%3Asong');
+    final other = parent.copyWith(
+        id: 3,
+        filePath: 'content://music.documents/tree/child/document/other',
+        title: 'Another song');
+    await tester.pumpWidget(fixture.app(library: [child, parent, other]));
+    await tester.pumpAndSettle();
+    expect(find.text('Shared song'), findsOneWidget);
+    expect(find.text('Another song'), findsOneWidget);
+    await tester.tap(find.text('Shared song'));
+    await tester.pumpAndSettle();
+    expect(fixture.player.currentTrack?.source, parent.source);
+    expect(fixture.lastContext!.map((t) => t.id), [1, 3]);
+    expect(fixture.engine.sources.single, parent.source);
+    await tester.pumpWidget(fixture.app(library: [child, other]));
+    await tester.pumpAndSettle();
+    await tester.tap(find.descendant(
+        of: find.byType(ListTile), matching: find.text('Shared song')));
+    await tester.pumpAndSettle();
+    expect(fixture.player.currentTrack?.source, child.source);
+    expect(fixture.lastContext!.map((t) => t.id), [2, 3]);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
 
   testWidgets(
       'folder button enters busy state and survives picker cancellation',

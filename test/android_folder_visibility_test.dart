@@ -10,6 +10,7 @@ import 'package:clever_music_player/src/data/repositories/drift_repositories.dar
 import 'package:clever_music_player/src/domain/models/models.dart';
 import 'package:clever_music_player/src/domain/repositories/track_repository.dart';
 import 'package:clever_music_player/src/library/artwork_cache_service.dart';
+import 'package:clever_music_player/src/library/exact_track_copies.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -247,6 +248,81 @@ void main() {
     expect(await f.visibleIds(), [id]);
     expect((await f.repo.tracks.findById(id))!.libraryFolderId, isNull);
     expect(await f.repo.libraryFolders.listFolders(), isEmpty);
+  });
+
+  for (final firstRemoved in ['parent', 'child']) {
+    test(
+        'overlap: remove $firstRemoved, restart, then remove last root; surviving URI and data remain',
+        () async {
+      final parent = ContentUriAudioSource(
+          'content://music.documents/tree/primary%3AMusic');
+      final child = ContentUriAudioSource(
+          'content://music.documents/tree/primary%3AMusic%2FDownloads');
+      final a = ContentUriAudioSource(
+          '${parent.storageValue}/document/primary%3AMusic%2FDownloads%2Fsong.mp3');
+      final b = ContentUriAudioSource(
+          '${child.storageValue}/document/primary%3AMusic%2FDownloads%2Fsong.mp3');
+      await f.saveLegacy([parent, child]);
+      await f.store.initialize();
+      final idA = await f.add(a, owner: f.store.folderIdFor(parent));
+      final idB = await f.add(b, owner: f.store.folderIdFor(child));
+      final playlist =
+          await f.repo.playlists.createPlaylist('Keep both source records');
+      await f.repo.playlists.addTrackToPlaylist(playlist, idA);
+      await f.repo.playlists.addTrackToPlaylist(playlist, idB);
+      await f.repo.trackUserState.upsertState(TrackUserState(
+          trackId: idA, isFavorite: true, playCount: 7, updatedAt: f.now));
+      await f.repo.playbackEvents.addEvent(PlaybackEvent(
+          trackId: idB, type: PlaybackEventType.started, occurredAt: f.now));
+      Future<List<Track>> visible() async =>
+          withoutExactTrackCopies(await f.repo.tracks.listTracks());
+      expect((await visible()).single.id, idA);
+      final removed = firstRemoved == 'parent' ? parent : child;
+      final survivor = firstRemoved == 'parent' ? child : parent;
+      await f.store.forget(removed);
+      await f.reload();
+      final saved = (await visible()).single;
+      expect(saved.source, firstRemoved == 'parent' ? b : a);
+      expect(saved.libraryFolderId, f.store.folderIdFor(survivor));
+      await f.store.forget(survivor);
+      expect(await visible(), isEmpty);
+      expect(await f.repo.tracks.listTracks(includeDisabledFolders: true),
+          hasLength(2));
+      expect((await f.repo.trackUserState.findByTrackId(idA))!.playCount, 7);
+      expect(await f.repo.playbackEvents.recentForTrack(idB), hasLength(1));
+      expect(await f.repo.playlists.watchPlaylistTracks(playlist).first,
+          hasLength(2));
+      await f.store.remember(parent);
+      await f.store.remember(child);
+      expect((await visible()).single.id, idA);
+      expect(f.native.opens + f.native.metadataReads, 0);
+    });
+  }
+  test(
+      'legacy aliases collapse immediately on the library stream without reimport or record rewrite',
+      () async {
+    final roots = [
+      ContentUriAudioSource('content://music.documents/tree/parent'),
+      ContentUriAudioSource('content://music.documents/tree/child')
+    ];
+    final ids = [
+      for (final tree in roots)
+        await f.add(ContentUriAudioSource(
+            '${tree.storageValue}/document/opaque%3Asong'))
+    ];
+    await f.saveLegacy(roots);
+    await f.store.initialize();
+    final before = [for (final id in ids) await f.repo.tracks.findById(id)];
+    final stream = StreamIterator(
+        f.repo.tracks.watchAllTracks().map(withoutExactTrackCopies));
+    addTearDown(stream.cancel);
+    expect(await stream.moveNext(), isTrue);
+    expect(stream.current.single.id, ids.first);
+    await f.store.forget(roots.first);
+    expect(await stream.moveNext(), isTrue);
+    expect(stream.current.single.id, ids.last);
+    expect([for (final id in ids) await f.repo.tracks.findById(id)], before);
+    expect(f.native.opens + f.native.metadataReads, 0);
   });
 }
 
