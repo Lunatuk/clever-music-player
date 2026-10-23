@@ -202,13 +202,14 @@ final class AndroidDownloadStorageController extends ChangeNotifier {
           DiagnosticField.sourceBytes: result.verifiedBytes,
           DiagnosticField.recoveredProbes: result.recovered,
           DiagnosticField.retainedProbes: result.retained,
+          DiagnosticField.publicationRecoveryChecks: result.recoveryChecks,
         });
         if (result.status == DownloadDestinationStatus.accessDenied) {
           _access = null;
         }
         _message = switch (result.status) {
           DownloadDestinationStatus.ready =>
-            'Запись в папку проверена. Содержимое совпадает, тестовый файл удалён.'
+            '${result.recoveryChecks == 3 ? 'Запись и восстановление проверены. Тестовые файлы удалены.' : 'Запись в папку проверена. Содержимое совпадает, тестовый файл удалён.'}'
                 '${result.recovered > 0 ? ' Удалены тестовые файлы предыдущей проверки: ${result.recovered}.' : ''}',
           DownloadDestinationStatus.cancelled =>
             'Проверка остановлена. Можно запустить её снова.',

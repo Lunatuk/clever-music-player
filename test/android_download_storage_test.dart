@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:clever_music_player/src/android/android_download_folders.dart';
+import 'package:clever_music_player/src/diagnostics/diagnostics_service.dart';
 import 'package:clever_music_player/src/android/android_download_destination_check.dart';
 import 'package:clever_music_player/src/android/android_download_storage_controller.dart';
 import 'package:clever_music_player/src/android/android_download_storage_settings.dart';
@@ -269,6 +270,23 @@ void main() {
       expect(controller.message, contains('тестовый файл удалён'));
       expect(diagnostics.entries.length, 2);
       expect(diagnostics.entries.toString(), isNot(contains('content://')));
+    });
+    test(
+        'completed recovery qualification has an explicit message and numeric diagnostics',
+        () async {
+      await controller.chooseFolder();
+      checker.response = const DownloadDestinationResult(
+          DownloadDestinationStatus.ready,
+          stage: 6,
+          verifiedBytes: 4096,
+          recoveryChecks: 3);
+      await controller.checkDestination();
+      expect(controller.message, contains('Запись и восстановление проверены'));
+      expect(controller.message, contains('Тестовые файлы удалены'));
+      expect(
+          diagnostics
+              .entries.last.fields[DiagnosticField.publicationRecoveryChecks],
+          3);
     });
     test('revoked access preserves selection and requires reinspection',
         () async {

@@ -234,4 +234,62 @@ class AudioPublicationTest {
         assertThrows(IllegalArgumentException::class.java) { binding.copy(id = "../bad") }
         assertThrows(IllegalArgumentException::class.java) { record.copy(uri = null) }
     }
+    @Test fun uncreatedReleaseNeverCallsProviderAndFencesAnOldWriter() {
+        val j = Journal(); val d = Documents(j); val p = AudioPublication(j,d)
+        p.prepare(binding)
+        p.releaseUncreated(binding.copy(owner = "d".repeat(64)))
+        assertTrue(j.all().isEmpty())
+        assertThrows(AudioPublicationOwnershipLost::class.java) { p.publish(binding,{ d.source() }) { false } }
+        assertEquals(0,d.creations); assertEquals(0,d.writes); assertEquals(0,d.deletes)
+    }
+    @Test fun releaseRefusesEveryPhaseThatMayHaveReachedAProvider() {
+        for (phase in listOf(AudioPublicationPhase.CREATING, AudioPublicationPhase.DOCUMENT, AudioPublicationPhase.READY)) {
+            val j = Journal(); val d = Documents(j); val p = AudioPublication(j,d); p.prepare(binding)
+            j.save(AudioPublicationRecord(binding,phase,if (phase == AudioPublicationPhase.CREATING) null else d.uri))
+            val before = j.all()
+            assertThrows(AudioPublicationNeedsReconciliation::class.java) { p.releaseUncreated(binding) }
+            assertEquals(before,j.all()); assertEquals(0,d.deletes); assertEquals(0,d.creations)
+        }
+    }
+    @Test fun releaseRejectsUnknownOrDifferentPublication() {
+        val j = Journal(); val d = Documents(j); val p = AudioPublication(j,d)
+        assertThrows(AudioPublicationCollision::class.java) { p.releaseUncreated(binding) }
+        p.prepare(binding)
+        for (changed in listOf(binding.copy(intent = "other"),binding.copy(tree = "content://other/tree/root"),
+            binding.copy(size = 4), binding.copy(id = "d".repeat(64)))) {
+            assertThrows(AudioPublicationCollision::class.java) { p.releaseUncreated(changed) }
+        }
+        assertEquals(1,j.all().size)
+    }
+    private fun probe(id: String): AudioPublicationBinding {
+        val bytes = AudioPublicationBinding.probeBytes(id)
+        return binding.copy(id = id,owner = id,probe = true,intent = "cmp-audio-publication-probe-v1",size = 4096,
+            digest = StreamingContentFingerprint.read(ByteArrayInputStream(bytes),4096) { false }.digest)
+    }
+    @Test fun explicitRecoveryCheckExercisesUncreatedFullAndPartialWithClosedStreams() {
+        val j = Journal(); val d = Documents(j); var n = 0; var sources = 0; var adapters = 0
+        val checked = AudioPublicationRecoveryCheck(j) { adapters++; d }.run(
+            { probe((++n).toString(16).padStart(64,'0')) },
+            { b -> sources++; d.source(AudioPublicationBinding.probeBytes(b.id)) }, { false })
+        assertEquals(3,checked); assertEquals(2,sources); assertEquals(5,adapters)
+        assertEquals(2,d.creations); assertEquals(2,d.writes); assertEquals(2,d.deletes)
+        assertTrue(j.all().isEmpty()); assertTrue(d.data.isEmpty()); assertTrue(d.sourceClosed); assertTrue(d.outputClosed)
+    }
+    @Test fun recoveryCheckCannotUseRealMusicOrRunAfterCancellation() {
+        val j = Journal(); val d = Documents(j)
+        val check = AudioPublicationRecoveryCheck(j) { d }
+        assertThrows(IllegalArgumentException::class.java) { check.run({ binding }, { d.source() }, { false }) }
+        assertThrows(CancellationException::class.java) { check.run({ probe(binding.id) }, { d.source() }, { true }) }
+        assertTrue(j.all().isEmpty()); assertEquals(0,d.creations)
+    }
+    @Test fun failedRecoveryCheckDoesNotReportSuccessAndClosesSource() {
+        val j = Journal(); val d = Documents(j); var n = 0
+        assertThrows(IOException::class.java) {
+            AudioPublicationRecoveryCheck(j) { d }.run({ probe((++n).toString().padStart(64,'0')) },
+                { b -> d.source(AudioPublicationBinding.probeBytes(b.id), failClose = true) }, { false })
+        }
+        assertTrue(d.sourceClosed); assertTrue(d.outputClosed)
+        assertTrue(j.all().isEmpty()); assertTrue(d.data.isEmpty())
+    }
+
 }

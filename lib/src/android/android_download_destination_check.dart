@@ -20,9 +20,10 @@ final class DownloadDestinationResult {
       {this.stage = 0,
       this.verifiedBytes = 0,
       this.recovered = 0,
-      this.retained = 0});
+      this.retained = 0,
+      this.recoveryChecks = 0});
   final DownloadDestinationStatus status;
-  final int stage, verifiedBytes, recovered, retained;
+  final int stage, verifiedBytes, recovered, retained, recoveryChecks;
 }
 
 abstract interface class DownloadDestinationChecker {
@@ -97,9 +98,15 @@ final class AndroidDownloadDestinationCheck
       final bytes = field('verifiedBytes', 4096);
       final recovered = field('recovered', 64);
       final retained = field('retained', 64);
+      final recoveryChecks = _checkMethod == 'checkAudioPublication'
+          ? field('recoveryChecks', 3)
+          : 0;
       if ((bytes != 0 && bytes != 4096) ||
           (status == DownloadDestinationStatus.ready &&
               (stage != 6 || bytes != 4096 || retained != 0)) ||
+          (status == DownloadDestinationStatus.ready &&
+              _checkMethod == 'checkAudioPublication' &&
+              recoveryChecks != 3) ||
           (status == DownloadDestinationStatus.retained && retained == 0)) {
         throw const FormatException('Противоречивый результат проверки.');
       }
@@ -112,7 +119,8 @@ final class AndroidDownloadDestinationCheck
           stage: stage,
           verifiedBytes: bytes,
           recovered: recovered,
-          retained: retained);
+          retained: retained,
+          recoveryChecks: recoveryChecks);
     } finally {
       control.removeCancellationListener(cancel);
       _control = null;

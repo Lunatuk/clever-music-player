@@ -52,7 +52,7 @@ class AudioPublicationPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     }
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         val methods = setOf("prepareAudioPublication", "publishPreparedAudio", "reconcileAudioPublication",
-            "acknowledgeAudioPublication", "listAudioPublications", "checkAudioPublication", "cancelAudioPublication", "cancelAudioPublicationCheck")
+            "acknowledgeAudioPublication", "releaseUncreatedAudioPublication", "listAudioPublications", "checkAudioPublication", "cancelAudioPublication", "cancelAudioPublicationCheck")
         if (call.method !in methods) { result.notImplemented(); return }
         val number = call.argument<Any>("requestId")
         val id = when (number) { is Int -> number.toLong(); is Long -> number; else -> null }
@@ -91,6 +91,11 @@ class AudioPublicationPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                         val b = binding!!
                         when (call.method) {
                             "prepareAudioPublication" -> { request.stage = 2; publication.prepare(b); response(request, "prepared") }
+                            "releaseUncreatedAudioPublication" -> {
+                                request.stage = 2
+                                publication.releaseUncreated(b)
+                                response(request, "released") + mapOf("intent" to b.intent)
+                            }
                             "acknowledgeAudioPublication" -> {
                                 publication.acknowledge(b, call.argument<String>("document") ?: error("missing_document"))
                                 request.stage = 6
@@ -130,7 +135,7 @@ class AudioPublicationPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         mapOf("requestId" to request.id, "status" to
             if (request.check && status !in setOf("ready", "cancelled", "accessDenied", "unsupported", "busy", "retained", "io")) "io" else status,
             "stage" to request.stage) +
-            if (request.check) mapOf("verifiedBytes" to 0, "recovered" to 0, "retained" to 0) else emptyMap()
+            if (request.check) mapOf("verifiedBytes" to 0, "recovered" to 0, "retained" to 0, "recoveryChecks" to 0) else emptyMap()
     private fun status(error: Exception, request: Request): String = when {
         error is Busy -> "busy"
         request.cancelled.get() || error is CancellationException -> "cancelled"
@@ -210,10 +215,19 @@ class AudioPublicationPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                 java.io.FileOutputStream(source).use { it.write(bytes); it.fd.sync() }
                 publication.publish(b, { privateSource(source.path, 4096, request) }) { request.cancelled.get() }
             } finally { require(source.delete()) }
-            request.stage = 6
             publication.cleanupProbe(b)
             current = null
-            return response(if (request.cancelled.get()) "cancelled" else "ready", bytes = 4096)
+            val checks = AudioPublicationRecoveryCheck(journal) { Documents(context, tree, request) }.run(
+                binding = {
+                    val nonce = UUID.randomUUID().toString().replace("-", "") + UUID.randomUUID().toString().replace("-", "")
+                    val payload = AudioPublicationBinding.probeBytes(nonce)
+                    val digest = StreamingContentFingerprint.read(ByteArrayInputStream(payload), 4096) { false }.digest
+                    b.copy(id = nonce, owner = nonce, digest = digest)
+                },
+                source = { probe -> ByteArrayInputStream(AudioPublicationBinding.probeBytes(probe.id)) },
+                cancelled = { request.cancelled.get() })
+            request.stage = 6
+            return response(if (request.cancelled.get()) "cancelled" else "ready", bytes = 4096) + mapOf("recoveryChecks" to checks)
         } catch (error: Exception) {
             // Both source and output have drained before attempting test cleanup.
             if (current != null) {

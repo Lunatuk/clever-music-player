@@ -183,6 +183,18 @@ internal class AudioPublication(private val journal: AudioPublicationJournal,
         return ready
     }
 
+    /** Private-only release. INTENT alone proves create was never admitted.
+     * Hold the global journal lock; caller fences the current queue owner.
+     * Even an empty CREATING is ambiguous and must remain quarantined. */
+    fun releaseUncreated(binding: AudioPublicationBinding) {
+        val records = records(binding)
+        if (records.isEmpty() || !records.first().binding.samePublication(binding)) throw AudioPublicationCollision()
+        if (records.size != 1 || records.single().phase != AudioPublicationPhase.INTENT) {
+            throw AudioPublicationNeedsReconciliation()
+        }
+        journal.retire(records.single().binding)
+    }
+
     fun acknowledge(binding: AudioPublicationBinding, uri: String) {
         val ready = records(binding).lastOrNull { it.phase == AudioPublicationPhase.READY }
             ?: throw AudioPublicationNeedsReconciliation()

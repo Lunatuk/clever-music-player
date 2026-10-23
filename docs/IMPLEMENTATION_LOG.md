@@ -3955,3 +3955,69 @@ app-owned runner и реальные ручные загрузки/fault tests. 
 format-final,ffmpeg-recipe,native-host-release,apk-*,*-symbols;
 source-manifest/build-result/verify-result/media-apk/package JSON.
 Чек-лист/checks/.sha256 рядом с APK; соответствующий source kit уже внутри APK.
+
+
+## Пакет57 — Android: восстановление незавершённой публикации
+
+23 октября 2026 года. Пользователь подтвердил проверки56 на телефоне.
+Выполнен следующий шаг перед подключением Android-download pipeline.
+
+AndroidAudioPublisher.recover объединяет native ledger и Dart receipts под
+одним admission и выдаёт requiresDownload/published/retained для текущей
+claimed reconciling попытки. После чтения журналов проверяется актуальное
+назначение/владение. Queue checkpoint и Track остаются задачей координатора.
+
+Новый native releaseUncreatedAudioPublication освобождает только одиночный
+INTENT под текущим SQLite/lease/destination fence, без вызовов provider.
+CREATING/DOCUMENT/READY, partial bytes, отсутствие по имени, потеря доступа
+и неоднозначность не дают разрешения нового download. Полная публикация
+восстанавливается с fresh full readback без raw; receipt сохраняется до ack.
+Receipt-only recovery повторно проверяет документ. Неизвестные ошибки,
+отмена и потеря owner не превращаются в retry. Данные музыки не удаляются
+и не открываются на запись при восстановлении; partial/changed остаются скрыты.
+
+Явная проверка папки сначала выполняет прежнюю запись/readback55, затем три
+nonce-marked сценария: release до create, полный write/close с прерыванием
+до READY и восстановлением новым read-only adapter, partial2048/4096 с отказом
+reconcile и проверкой отсутствия READY. Удаляется только свой известный probe
+с совпадающим payload/prefix. Исходник не передаётся recovery. Это управляемые
+прерывания в живом процессе, не эмуляция смерти ОС/потери питания provider.
+Dart требует recoveryChecks=3 до ready, UI/diagnostics показывают итог.
+
+2284 Flutter tests прошли, включая 30 новых; targeted108/108. Analyzer clean,
+format372/0. Семь JVM suites:84 tests/0fail/0error/0skip, шесть новых.
+Android release lint:0errors,9 прежних warnings. Проверены lost/reclaimed
+attempt, cancelled/drain, receipt-only/changed/multiple candidates, malformed
+response и отсутствие нового provider writer/import при retained. CI Android
+build number57, все JVM tests включены в прежнюю release test задачу.
+Результаты облачного CI не объявляются пройденными.
+
+Свежий ASCII build:679 SHA root/snapshot совпали; codegen/schema13,
+pubspec.yaml/lock, cmp_file_ops/hook, Windows audio, fixtures и FFmpeg sources
+прежние. APK2057/min24/target36/ARM64/signer56/v2/CRC/zipalign+ELF16КиБ
+проверен. В реальных DEX/AOT подтверждены новые RPC/recoveryChecks и поле
+диагностики; не предполагается сохранение R8 имён внутренних классов.
+Native media библиотеки и source-kit/assets проверены; JNI ELF совпадает
+с56 побайтно за исключением .note.gnu.build-id (все остальные секции и bytes
+одинаковы). Поэтому прежняя квалификация13 C-core scenarios применима,
+её повторный запуск в57 не заявляется. cmp_file_ops.so идентичен52,
+hardlink/unsafe rename imports отсутствуют. Права, media service/receiver,
+notification icon и native assets сохранены.
+
+Публичный Android song download в57 ещё выключен. Следом — координатор
+preparer56/publisher55/recovery57/importer54, сообщения для retained и общий
+runner с явной кнопкой обновления. Автоматическая очистка/дописывание partial
+музыки не реализованы. На телефоне нужно дважды проверить папку и обычный Play;
+у агента нет adb-устройства/emulator, проверка57 ещё ожидается. Аккаунт, токен,
+песни пользователя и Yandex API при квалификации не использовались.
+Расписание/дизайн позже, рекомендации отложены по решению пользователя.
+
+- dist/clever-music-player-core-57-android-arm64.apk — 35867578bytes,
+  SHA-256 `75b96219c499334a984e30a26a56a3e4722a07728daa62d347b59b6b23bc77dd`.
+
+Контракт: architecture/android-publication-recovery.md. Ручной чек-лист,
+checks JSON и .sha256 рядом с APK. Логи .dart_tool/core57-full-tests-final,
+targeted-final,analyze-final,format-final,apk-*,*-symbols; source-manifest,
+build-result/verify-result/media-apk/package JSON. Промежуточная проверка
+побайтного JNI ELF выявила ожидаемую смену build ID; отдельно доказано
+равенство всех остальных bytes, без замены/повторной выдачи APK.

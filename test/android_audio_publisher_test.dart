@@ -221,6 +221,186 @@ void main() {
     expect(backend.calls, isEmpty);
     expect(await journal.pending(), isEmpty);
   });
+  Future<void> reclaim() async {
+    await owner.interrupt(DownloadFailure.internalError);
+    await owner.close();
+    job = (await f.repositories.downloadJobs.claimNext(f.account, now: f.now))!;
+    expect(job.state, DownloadJobState.reconciling);
+    owner = DownloadLeaseOwner(
+        job: job, jobs: f.repositories.downloadJobs, clock: f.clock);
+    await owner.start();
+  }
+
+  test(
+      'uncreated release needs no raw file and never imports or changes checkpoint',
+      () async {
+    backend.saved.add(receipt.intent);
+    await f.raw.delete();
+    final before = owner.current;
+    await publisher.releaseUncreated(owner: owner, intent: receipt.intent);
+    expect(backend.calls, ['release']);
+    expect(backend.saved, isEmpty);
+    expect(owner.current, before);
+    expect(await journal.pending(), isEmpty);
+    expect(await f.count('tracks'), 0);
+  });
+  test('durable receipt blocks release even if the native ledger disappeared',
+      () async {
+    await publish();
+    backend.calls.clear();
+    await expectLater(
+        publisher.releaseUncreated(owner: owner, intent: receipt.intent),
+        throwsA(isA<AudioPublicationException>()));
+    expect(backend.calls, isEmpty);
+    expect((await journal.pending()).length, 1);
+  });
+  test('revoked destination cannot release its native admission', () async {
+    backend.saved.add(receipt.intent);
+    await f.repositories.remoteLibrary.activateAccount(f.account.identity);
+    await expectLater(
+        publisher.releaseUncreated(owner: owner, intent: receipt.intent),
+        throwsA(anything));
+    expect(backend.calls, isEmpty);
+    expect(backend.saved.length, 1);
+  });
+  test('pre-cancelled release never reaches the native journal', () async {
+    await expectLater(
+        publisher.releaseUncreated(
+            owner: owner,
+            intent: receipt.intent,
+            control: LibraryScanControl()..cancel()),
+        throwsA(isA<LibraryScanCancelled>()));
+    expect(backend.calls, isEmpty);
+  });
+  test('close drains an accepted private release before closing backend',
+      () async {
+    final entered = Completer<void>(), finish = Completer<void>();
+    backend.onRelease = () async {
+      entered.complete();
+      await finish.future;
+    };
+    final action =
+        publisher.releaseUncreated(owner: owner, intent: receipt.intent);
+    await entered.future;
+    var closed = false;
+    final closing = publisher.close().then((_) => closed = true);
+    await Future<void>.delayed(Duration.zero);
+    expect(closed, isFalse);
+    expect(backend.closed, isFalse);
+    finish.complete();
+    await action;
+    await closing;
+    expect(backend.closed, isTrue);
+  });
+  test('recovery rejects an ordinary running job', () async {
+    await expectLater(publisher.recover(owner), throwsArgumentError);
+    expect(backend.calls, isEmpty);
+  });
+  test('reclaimed attempt with no publication can download again', () async {
+    await reclaim();
+    final result = await publisher.recover(owner);
+    expect(result.status, AndroidPublicationRecoveryStatus.requiresDownload);
+    expect(result.receipt, isNull);
+    expect(owner.current.state, DownloadJobState.reconciling);
+    expect(backend.writes, 0);
+  });
+  test('reclaimed uncreated intent is released under the current owner',
+      () async {
+    backend.saved.add(receipt.intent);
+    await reclaim();
+    await f.raw.delete();
+    final result = await publisher.recover(owner);
+    expect(result.status, AndroidPublicationRecoveryStatus.requiresDownload);
+    expect(backend.calls, ['release']);
+    expect(backend.saved, isEmpty);
+    expect(owner.current.state, DownloadJobState.reconciling);
+  });
+  test(
+      'complete native publication recovers without a raw source or another write',
+      () async {
+    backend.saved.add(receipt.intent);
+    backend.uncreated = false;
+    await reclaim();
+    await f.raw.delete();
+    final result = await publisher.recover(owner);
+    expect(result.status, AndroidPublicationRecoveryStatus.published);
+    expect(result.receipt!.encode(), receipt.encode());
+    expect(backend.reconciles, 1);
+    expect(backend.writes, 0);
+    expect((await journal.pending()).length, 1);
+    expect(backend.saved, isEmpty);
+  });
+  for (final status in [
+    AudioPublicationStatus.changed,
+    AudioPublicationStatus.needsReconciliation,
+    AudioPublicationStatus.accessDenied,
+    AudioPublicationStatus.collision
+  ]) {
+    test(
+        'unresolved publication $status remains retained without a duplicate write',
+        () async {
+      backend.saved.add(receipt.intent);
+      backend.uncreated = false;
+      backend.failReconcile = status;
+      await reclaim();
+      final result = await publisher.recover(owner);
+      expect(result.status, AndroidPublicationRecoveryStatus.retained);
+      expect(result.reason, status);
+      expect(result.receipt, isNull);
+      expect(backend.saved.length, 1);
+      expect(backend.writes, 0);
+      expect(await journal.pending(), isEmpty);
+      expect(await f.count('tracks'), 0);
+    });
+  }
+  test('receipt-only recovery rechecks bytes and never releases native state',
+      () async {
+    await publish();
+    backend.calls.clear();
+    await reclaim();
+    final result = await publisher.recover(owner);
+    expect(result.status, AndroidPublicationRecoveryStatus.published);
+    expect(verifier.calls, 1);
+    expect(backend.calls, isEmpty);
+  });
+  test('changed receipt-only recovery remains retained', () async {
+    await publish();
+    verifier.changed = true;
+    await reclaim();
+    final result = await publisher.recover(owner);
+    expect(result.status, AndroidPublicationRecoveryStatus.retained);
+    expect(result.reason, AudioPublicationStatus.changed);
+    expect((await journal.pending()).length, 1);
+    expect(backend.writes, 1);
+  });
+  test('multiple candidates cannot discard one intent and create a duplicate',
+      () async {
+    backend.saved.addAll([
+      receipt.intent,
+      PublicationIntent(
+          publicationId: 'd' * 64,
+          jobId: job.id,
+          key: job.key,
+          verification: f.proof())
+    ]);
+    await reclaim();
+    final result = await publisher.recover(owner);
+    expect(result.status, AndroidPublicationRecoveryStatus.retained);
+    expect(backend.calls, isEmpty);
+    expect(backend.saved.length, 2);
+  });
+  test(
+      'unrecognized native failure is not converted to permission to redownload',
+      () async {
+    backend.saved.add(receipt.intent);
+    backend.uncreated = false;
+    backend.failReconcile = AudioPublicationStatus.io;
+    await reclaim();
+    await expectLater(
+        publisher.recover(owner), throwsA(isA<AudioPublicationException>()));
+    expect(backend.saved.length, 1);
+    expect(backend.writes, 0);
+  });
 }
 
 final class _Backend implements AudioPublicationBackend {
@@ -228,8 +408,9 @@ final class _Backend implements AudioPublicationBackend {
   final AndroidPublicationReceipt receipt;
   final calls = <String>[];
   final saved = <PublicationIntent>[];
-  Future<void> Function()? onWrite, onAck;
-  AudioPublicationStatus? failWrite;
+  Future<void> Function()? onWrite, onAck, onRelease;
+  bool uncreated = true;
+  AudioPublicationStatus? failWrite, failReconcile;
   bool failAck = false, closed = false;
   int writes = 0, reconciles = 0;
   LibraryScanControl? control;
@@ -237,6 +418,17 @@ final class _Backend implements AudioPublicationBackend {
   Future<void> prepare(AudioPublicationRequest request) async {
     calls.add('prepare');
     saved.add(request.intent);
+  }
+
+  @override
+  Future<void> releaseUncreated(AudioPublicationRequest request) async {
+    calls.add('release');
+    await onRelease?.call();
+    if (!uncreated) {
+      throw const AudioPublicationException(
+          AudioPublicationStatus.needsReconciliation);
+    }
+    saved.clear();
   }
 
   @override
@@ -256,6 +448,7 @@ final class _Backend implements AudioPublicationBackend {
   Future<AndroidPublicationReceipt> reconcile(
       AudioPublicationRequest request, LibraryScanControl control) async {
     reconciles++;
+    if (failReconcile != null) throw AudioPublicationException(failReconcile!);
     return receipt;
   }
 

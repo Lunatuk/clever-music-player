@@ -162,6 +162,7 @@ enum DiagnosticField {
   retainedProbes,
   mediaCheckCase,
   mediaCheckOutcome,
+  publicationRecoveryChecks,
 }
 
 /// Only fixed event/field names and numeric/boolean values enter the journal.

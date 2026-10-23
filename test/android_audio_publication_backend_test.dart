@@ -199,6 +199,7 @@ void main() {
           'status': 'ready',
           'stage': 6,
           'verifiedBytes': 4096,
+          'recoveryChecks': 3,
           'recovered': 0,
           'retained': 0
         };
@@ -211,4 +212,66 @@ void main() {
     });
     await check.close();
   });
+
+  test('uncreated release binds the exact intent without a source path',
+      () async {
+    handler = (call) async => {
+          'requestId': call.arguments['requestId'],
+          'status': 'released',
+          'stage': 2,
+          'intent': request.intent.encode(),
+        };
+    await backend.releaseUncreated(request);
+    expect(calls.single.method, 'releaseUncreatedAudioPublication');
+    expect(calls.single.arguments['intent'], request.intent.encode());
+    expect(calls.single.arguments['owner'], request.owner);
+    expect(calls.single.arguments['sourcePath'], isNull);
+  });
+  for (final key in ['intent', 'stage']) {
+    test('uncreated release rejects mismatched $key', () async {
+      handler = (call) async => {
+            'requestId': call.arguments['requestId'],
+            'status': 'released',
+            'stage': 2,
+            'intent': request.intent.encode(),
+            key: key == 'stage' ? 6 : 'other',
+          };
+      await expectLater(
+          backend.releaseUncreated(request), throwsFormatException);
+    });
+  }
+  test('effect marker cannot be reported as a successful release', () async {
+    handler = (call) async => {
+          'requestId': call.arguments['requestId'],
+          'status': 'needsReconciliation',
+          'stage': 2,
+        };
+    await expectLater(
+        backend.releaseUncreated(request),
+        throwsA(isA<AudioPublicationException>().having((e) => e.status,
+            'status', AudioPublicationStatus.needsReconciliation)));
+  });
+  for (final count in [null, -1, 0, 1, 2, 4, '3']) {
+    test(
+        'audio qualification cannot succeed without all recovery checks: $count',
+        () async {
+      handler = (call) async => {
+            'requestId': call.arguments['requestId'],
+            'status': 'ready',
+            'stage': 6,
+            'verifiedBytes': 4096,
+            'recovered': 0,
+            'retained': 0,
+            'recoveryChecks': count,
+          };
+      final check =
+          AndroidDownloadDestinationCheck.audioPublication(channel: channel);
+      try {
+        await expectLater(check.check(request.tree, LibraryScanControl()),
+            throwsFormatException);
+      } finally {
+        await check.close();
+      }
+    });
+  }
 }

@@ -58,8 +58,8 @@ final class AndroidDownloadStorageSettings extends StatelessWidget {
                     ]),
                     const SizedBox(height: 8),
                     const Text('Выбор папки не запускает сканирование. '
-                        'Проверка записи создаёт небольшой тестовый файл, '
-                        'проверяет содержимое и удаляет его.'),
+                        'Проверка создаёт небольшие тестовые файлы, проверяет '
+                        'запись и восстановление после прерывания, затем удаляет их.'),
                     const SizedBox(height: 8),
                     OutlinedButton.icon(
                         onPressed:

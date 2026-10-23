@@ -23,6 +23,7 @@ enum AudioPublicationStatus {
   noSpace,
   cancelled,
   io,
+  released,
 }
 
 final class AudioPublicationException implements Exception {
@@ -53,6 +54,7 @@ final class AudioPublicationRequest {
 
 abstract interface class AudioPublicationBackend {
   Future<void> prepare(AudioPublicationRequest request);
+  Future<void> releaseUncreated(AudioPublicationRequest request);
   Future<AndroidPublicationReceipt> publish(AudioPublicationRequest request,
       FileAudioSource source, LibraryScanControl control);
   Future<AndroidPublicationReceipt> reconcile(
@@ -123,6 +125,17 @@ final class AndroidAudioPublicationBackend implements AudioPublicationBackend {
   Future<void> prepare(AudioPublicationRequest request) async => _status(
       await _invoke('prepareAudioPublication', request.arguments),
       AudioPublicationStatus.prepared);
+
+  @override
+  Future<void> releaseUncreated(AudioPublicationRequest request) async {
+    final result =
+        await _invoke('releaseUncreatedAudioPublication', request.arguments);
+    _status(result, AudioPublicationStatus.released);
+    if (result['stage'] != 2 || result['intent'] != request.intent.encode()) {
+      throw const FormatException('Результат не соответствует публикации.');
+    }
+  }
+
   Future<AndroidPublicationReceipt> _publish(String method,
       AudioPublicationRequest request, LibraryScanControl control,
       {FileAudioSource? source}) async {
