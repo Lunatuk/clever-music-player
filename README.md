@@ -4,7 +4,9 @@ Package 61 adds Android library search and title/artist/album/recently-added
 sorting through the shared visible-list view. Playback starts from that visible
 order. About → Design previews opens three isolated, interactive Flutter demos
 of phone/desktop library, player and queue; invented data never controls real
-playback or changes user data. The final redesign follows the user's selection.
+playback or changes user data. The user subsequently requested a design closely
+resembling the older Yandex Music UI; the exact reference version/platforms are
+being clarified. A/B/C are not the selected direction.
 See [mobile feature inventory and sequence](docs/architecture/mobile-feature-parity.md)
 and [targeted manual checks](docs/MANUAL_CHECKS.md). Package60 was accepted on-device.
 
