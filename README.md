@@ -1,5 +1,14 @@
 # Clever Music Player
 
+Package 59 enables explicit Yandex library updates on Android ARM64: MP3/M4A/FLAC,
+SAF destination bookmarks, embedded covers/tags, verified import and recovery,
+progress/cancellation, and JSON diagnostic export through the system save picker.
+Existing verified downloads are checked before planning another transfer.
+The complete path still needs a small physical-device check; no schedule or
+automatic startup download is enabled.
+See [Android download contracts](docs/architecture/android-yandex-downloads.md)
+and [targeted manual checks](docs/MANUAL_CHECKS.md). Windows51 remains current.
+
 Local-first Flutter smart music player architecture.
 
 ## Current scope

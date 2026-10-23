@@ -10,10 +10,17 @@ import 'yandex_library_update_settings.dart';
 
 class YandexSettings extends StatefulWidget {
   const YandexSettings(
-      {super.key, required this.controller, this.updates, this.openHelp});
+      {super.key,
+      required this.controller,
+      this.updates,
+      this.openHelp,
+      this.updateDestination,
+      this.updateActionsBlocked = false});
   final YandexConnectionController controller;
   final YandexLibraryUpdateController? updates;
   final Future<void> Function()? openHelp;
+  final Widget? updateDestination;
+  final bool updateActionsBlocked;
   @override
   State<YandexSettings> createState() => _YandexSettingsState();
 }
@@ -73,7 +80,9 @@ class _YandexSettingsState extends State<YandexSettings> {
       builder: (context, _) {
         final connection = widget.controller;
         final account = connection.account;
-        final busy = connection.isBusy || (widget.updates?.isBusy ?? false);
+        final busy = connection.isBusy ||
+            (widget.updates?.isBusy ?? false) ||
+            widget.updateActionsBlocked;
         return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(widget.updates == null
               ? 'Подключи аккаунт, выбери «Мне нравится» и плейлисты. Сейчас доступна проверка их состава; скачивание появится следующим шагом.'
@@ -179,7 +188,10 @@ class _YandexSettingsState extends State<YandexSettings> {
                 )),
           ],
           if (widget.updates != null)
-            YandexLibraryUpdateSettings(controller: widget.updates!),
+            YandexLibraryUpdateSettings(
+                controller: widget.updates!,
+                destination: widget.updateDestination,
+                actionsBlocked: widget.updateActionsBlocked),
           const SizedBox(height: 12),
           OutlinedButton.icon(
               key: const ValueKey('yandex-probe'),

@@ -57,12 +57,16 @@ final class YandexDownloadRunProgress {
 
 final class YandexDownloadRunResult {
   const YandexDownloadRunResult(this.outcome, this.started, this.completed,
-      {this.failure, this.jobFailure, this.cleanupFailed = false});
+      {this.failure,
+      this.jobFailure,
+      this.cleanupFailed = false,
+      this.needsReconciliation = false});
   final YandexDownloadRunOutcome outcome;
   final int started, completed;
   final YandexDownloadRunFailure? failure;
   final DownloadFailure? jobFailure;
   final bool cleanupFailed;
+  final bool needsReconciliation;
 }
 
 /// Factory receives a BORROWED reader; closing a pipeline must not close it.
@@ -181,6 +185,7 @@ final class YandexDownloadRunner implements YandexDownloadRunService {
     var started = 0, completed = 0;
     DownloadJob? claimed;
     var outcome = YandexDownloadRunOutcome.completed;
+    var needsReconciliation = false;
     YandexDownloadRunFailure? failure;
     DownloadFailure? jobFailure;
     void progress(YandexDownloadRunStage stage,
@@ -266,6 +271,8 @@ final class YandexDownloadRunner implements YandexDownloadRunService {
             break;
           }
         } else {
+          needsReconciliation =
+              result.outcome == DownloadCoordinationOutcome.needsReconciliation;
           jobFailure = result.failure;
           outcome = result.outcome == DownloadCoordinationOutcome.cancelled
               ? YandexDownloadRunOutcome.cancelled
@@ -351,7 +358,10 @@ final class YandexDownloadRunner implements YandexDownloadRunService {
     }
     progress(YandexDownloadRunStage.finished);
     return YandexDownloadRunResult(outcome, started, completed,
-        failure: failure, jobFailure: jobFailure, cleanupFailed: cleanupFailed);
+        failure: failure,
+        jobFailure: jobFailure,
+        cleanupFailed: cleanupFailed,
+        needsReconciliation: needsReconciliation);
   }
 
   @override

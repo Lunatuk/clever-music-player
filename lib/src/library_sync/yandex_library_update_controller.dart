@@ -72,6 +72,8 @@ final class YandexLibraryUpdateController extends ChangeNotifier {
       required SettingsRepository settings,
       required DownloadedAssetChecker Function() checkerFactory,
       required YandexDownloadRunService Function() runnerFactory,
+      Future<bool> Function(LibraryFolder, LibraryScanControl)?
+          validateDestination,
       required this.supported,
       this.diagnostics = const NoopDiagnosticsService(),
       DateTime Function()? clock})
@@ -80,12 +82,15 @@ final class YandexLibraryUpdateController extends ChangeNotifier {
         _settings = settings,
         _checkerFactory = checkerFactory,
         _runnerFactory = runnerFactory,
+        _validateDestination = validateDestination,
         _clock = clock ?? DateTime.now {
     connection.addListener(_connectionChanged);
   }
   static const optionsKey = 'library_sync.yandex.options.v1';
   static const limits = [3, 10, 50, LibrarySyncSnapshot.maxEntries];
   final bool supported;
+  final Future<bool> Function(LibraryFolder, LibraryScanControl)?
+      _validateDestination;
   final DiagnosticsService diagnostics;
   final YandexConnectionController connection;
   final LibraryRepository _library;
@@ -181,6 +186,8 @@ final class YandexLibraryUpdateController extends ChangeNotifier {
           DiagnosticField.syncRunFailure: _result!.failure!.index,
         if (_result?.jobFailure != null)
           DiagnosticField.syncJobFailure: _result!.jobFailure!.index,
+        if (_result != null)
+          DiagnosticField.needsReconciliation: _result!.needsReconciliation,
         DiagnosticField.plannedTracks: _planned,
         DiagnosticField.addedTracks: _result?.completed ?? 0,
       });
@@ -255,16 +262,22 @@ final class YandexLibraryUpdateController extends ChangeNotifier {
   }
 
   Future<void> configure(
-      {int? folderId, YandexUpdateQuality? quality, int? limit}) async {
+      {int? folderId,
+      YandexUpdateQuality? quality,
+      int? limit,
+      bool clearFolder = false}) async {
     await initialize();
     if (!supported || _closed || isBusy) return;
-    final nextFolder = folderId ?? this.folderId;
-    final nextQuality = quality ?? _quality, nextLimit = limit ?? _limit;
-    if ((nextFolder != null && !_folders.any((f) => f.id == nextFolder)) ||
-        !limits.contains(nextLimit)) {
-      return;
-    }
     await _run(YandexUpdateStage.saving, (control) async {
+      _folders =
+          List.unmodifiable(await _library.listFolders(includeDisabled: false));
+      control.throwIfCancelled();
+      final nextFolder = clearFolder ? null : folderId ?? this.folderId;
+      final nextQuality = quality ?? _quality, nextLimit = limit ?? _limit;
+      if ((nextFolder != null && !_folders.any((f) => f.id == nextFolder)) ||
+          !limits.contains(nextLimit)) {
+        return;
+      }
       final value = jsonEncode({
         'version': 1,
         'folder': nextFolder,
@@ -311,6 +324,16 @@ final class YandexLibraryUpdateController extends ChangeNotifier {
       }
       if (folder == null) {
         throw const _UpdateFailure(YandexUpdateFailure.destination);
+      }
+      final validate = _validateDestination;
+      if (validate != null) {
+        final current = await _library.listFolders(includeDisabled: false);
+        control.throwIfCancelled();
+        final matches = current.where((f) => f.id == folder).toList();
+        if (matches.length != 1 || !await validate(matches.single, control)) {
+          throw const _UpdateFailure(YandexUpdateFailure.destination);
+        }
+        control.throwIfCancelled();
       }
       if (_selected.isEmpty) {
         throw const _UpdateFailure(YandexUpdateFailure.noCollections);

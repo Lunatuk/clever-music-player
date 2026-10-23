@@ -1,7 +1,8 @@
 # Android download coordinator
 
 Пакет58, 23 октября 2026 года. Проверка57 на телефоне подтверждена пользователем.
-Координатор пока внутренний: Android song download/controller ещё не подключены.
+В58 координатор внутренний. В59 подключены Android song download/controller:
+[композиция и публичная кнопка](android-yandex-downloads.md). Ниже контракт58.
 
 ## Ответственность и владение
 

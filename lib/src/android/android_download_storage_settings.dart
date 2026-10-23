@@ -3,8 +3,10 @@ import 'package:flutter/material.dart';
 import 'android_download_storage_controller.dart';
 
 final class AndroidDownloadStorageSettings extends StatelessWidget {
-  const AndroidDownloadStorageSettings({super.key, required this.controller});
+  const AndroidDownloadStorageSettings(
+      {super.key, required this.controller, this.locked = false});
   final AndroidDownloadStorageController controller;
+  final bool locked;
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
@@ -18,14 +20,17 @@ final class AndroidDownloadStorageSettings extends StatelessWidget {
                     Text('Хранилище загрузок',
                         style: Theme.of(context).textTheme.titleMedium),
                     const SizedBox(height: 8),
-                    const Text('Подготовка загрузки музыки на Android. '
-                        'Сейчас можно проверить временное хранилище, выбрать '
-                        'и проверить папку назначения. Скачивание музыки '
-                        'на Android ещё готовится.'),
+                    Text(controller.canUseDestination
+                        ? 'Выбери папку для скачивания. Она добавится в библиотеку без полного сканирования; загрузка начнётся по кнопке «Обновить библиотеку».'
+                        : 'Подготовка загрузки музыки на Android. '
+                            'Сейчас можно проверить временное хранилище, выбрать '
+                            'и проверить папку назначения. Скачивание музыки '
+                            'на Android ещё готовится.'),
                     const SizedBox(height: 12),
                     OutlinedButton.icon(
-                        onPressed:
-                            controller.busy ? null : controller.checkWorkspace,
+                        onPressed: controller.busy || locked
+                            ? null
+                            : controller.checkWorkspace,
                         icon: const Icon(Icons.storage_outlined),
                         label: const Text('Проверить временное хранилище')),
                     if (controller.checkingWorkspace)
@@ -39,18 +44,26 @@ final class AndroidDownloadStorageSettings extends StatelessWidget {
                     const SizedBox(height: 8),
                     Wrap(spacing: 8, runSpacing: 8, children: [
                       OutlinedButton.icon(
-                          onPressed:
-                              controller.busy ? null : controller.chooseFolder,
+                          onPressed: controller.busy || locked
+                              ? null
+                              : controller.chooseFolder,
                           icon: const Icon(Icons.folder_open_outlined),
                           label: const Text('Выбрать папку загрузок')),
                       if (controller.folder != null) ...[
+                        if (controller.canUseDestination)
+                          TextButton(
+                              onPressed: controller.busy || locked
+                                  ? null
+                                  : controller.useDestination,
+                              child:
+                                  const Text('Использовать выбранную папку')),
                         TextButton(
-                            onPressed: controller.busy
+                            onPressed: controller.busy || locked
                                 ? null
                                 : controller.inspectFolder,
                             child: const Text('Проверить доступ')),
                         TextButton(
-                            onPressed: controller.busy
+                            onPressed: controller.busy || locked
                                 ? null
                                 : controller.forgetFolder,
                             child: const Text('Сбросить выбор')),
@@ -62,10 +75,11 @@ final class AndroidDownloadStorageSettings extends StatelessWidget {
                         'запись и восстановление после прерывания, затем удаляет их.'),
                     const SizedBox(height: 8),
                     OutlinedButton.icon(
-                        onPressed:
-                            controller.busy || controller.access?.usable != true
-                                ? null
-                                : controller.checkDestination,
+                        onPressed: controller.busy ||
+                                locked ||
+                                controller.access?.usable != true
+                            ? null
+                            : controller.checkDestination,
                         icon: const Icon(Icons.fact_check_outlined),
                         label: const Text('Проверить запись в папку')),
                     if (controller.checkingDestination)

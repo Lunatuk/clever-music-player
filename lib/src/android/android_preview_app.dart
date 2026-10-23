@@ -11,17 +11,15 @@ import '../domain/repositories/track_repository.dart';
 import '../library/artwork_cache_service.dart';
 import '../player/player_service.dart';
 import '../player/player_state.dart';
-import '../ui/yandex_settings.dart';
 import 'android_import_controller.dart';
 import 'android_download_storage_controller.dart';
-import 'android_download_storage_settings.dart';
 import 'android_media_check_controller.dart';
-import 'android_media_check_settings.dart';
 import 'audio_documents.dart';
 import 'android_media_controls.dart';
 import 'android_folder_bookmarks.dart';
 import 'android_folders_screen.dart';
 import 'drift_android_folder_library.dart';
+import 'android_yandex_settings_screen.dart';
 
 /// A small Android prototype using the same database, player and queue.
 /// The Android application ID isolates its sandbox from the future release.
@@ -44,15 +42,35 @@ final class _AndroidPreviewAppState extends State<AndroidPreviewApp> {
     super.initState();
     _mediaCheck = AndroidMediaCheckController(
         diagnostics: widget.dependencies.diagnostics);
-    _downloadStorage = AndroidDownloadStorageController(
-        diagnostics: widget.dependencies.diagnostics,
-        settings: widget.dependencies.repositories.settings);
-    unawaited(_downloadStorage.initialize());
     _bookmarks = widget.bookmarks ??
         AndroidFolderBookmarks(
             settings: widget.dependencies.repositories.settings,
             library: DriftAndroidFolderLibrary(widget.dependencies.database),
             access: const AndroidAudioDocuments());
+    _downloadStorage = AndroidDownloadStorageController(
+        diagnostics: widget.dependencies.diagnostics,
+        settings: widget.dependencies.repositories.settings,
+        onUseDestination: (tree, name) async {
+          final updates = widget.dependencies.yandexUpdate;
+          if (updates.isBusy) throw StateError('Обновление уже выполняется.');
+          await _bookmarks.initialize();
+          await _bookmarks.remember(tree, name: name);
+          final id = _bookmarks.folderIdFor(tree);
+          if (id == null) throw StateError('Папка не подключена.');
+          await updates.configure(folderId: id);
+          if (updates.folderId != id || updates.failure != null) {
+            throw StateError('Папка не сохранена.');
+          }
+        },
+        onClearDestination: () async {
+          final updates = widget.dependencies.yandexUpdate;
+          if (updates.isBusy) throw StateError('Обновление уже выполняется.');
+          await updates.configure(clearFolder: true);
+          if (updates.folderId != null || updates.failure != null) {
+            throw StateError('Выбор папки не сброшен.');
+          }
+        });
+    unawaited(_downloadStorage.initialize());
     unawaited(
         _bookmarks.initialize().catchError((Object error, StackTrace stack) {
       widget.dependencies.diagnostics
@@ -70,8 +88,8 @@ final class _AndroidPreviewAppState extends State<AndroidPreviewApp> {
   void dispose() {
     unawaited(finishCleanup([
       _importer.close,
-      _bookmarks.close,
       _downloadStorage.close,
+      _bookmarks.close,
       _mediaCheck.close,
       () async => _importer.dispose(),
       () async => _bookmarks.dispose(),
@@ -104,22 +122,12 @@ final class _AndroidPreviewAppState extends State<AndroidPreviewApp> {
                 .playLibraryTrack(track: track, visibleTracks: visible),
             previous: widget.dependencies.playbackQueue.previous,
             next: widget.dependencies.playbackQueue.next,
-            sourceSettings: (context) => Scaffold(
-                appBar: AppBar(title: const Text('Яндекс Музыка')),
-                body: SingleChildScrollView(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          YandexSettings(
-                              controller: widget.dependencies.yandexConnection,
-                              updates: widget.dependencies.yandexUpdate),
-                          const SizedBox(height: 16),
-                          AndroidDownloadStorageSettings(
-                              controller: _downloadStorage),
-                          const SizedBox(height: 16),
-                          AndroidMediaCheckSettings(controller: _mediaCheck),
-                        ]))),
+            sourceSettings: (context) => AndroidYandexSettingsScreen(
+                connection: widget.dependencies.yandexConnection,
+                updates: widget.dependencies.yandexUpdate,
+                storage: _downloadStorage,
+                media: _mediaCheck,
+                diagnostics: widget.dependencies.diagnostics),
             stop:
                 (widget.dependencies.smtcService as AndroidMediaControlsService)
                     .stop),

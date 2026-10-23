@@ -4,8 +4,10 @@ import 'android_media_check_controller.dart';
 import 'android_media_licenses.dart';
 
 final class AndroidMediaCheckSettings extends StatefulWidget {
-  const AndroidMediaCheckSettings({super.key, required this.controller});
+  const AndroidMediaCheckSettings(
+      {super.key, required this.controller, this.locked = false});
   final AndroidMediaCheckController controller;
+  final bool locked;
   @override
   State<AndroidMediaCheckSettings> createState() =>
       _AndroidMediaCheckSettingsState();
@@ -36,7 +38,7 @@ final class _AndroidMediaCheckSettingsState
                         'примерах MP3, M4A и FLAC. Твоя музыка не изменяется, интернет не нужен.'),
                     const SizedBox(height: 12),
                     OutlinedButton.icon(
-                        onPressed: widget.controller.busy
+                        onPressed: widget.controller.busy || widget.locked
                             ? null
                             : widget.controller.check,
                         icon: const Icon(Icons.library_music_outlined),

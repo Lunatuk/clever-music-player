@@ -4,6 +4,9 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import '../android/android_download_workspace.dart';
+import '../android/android_yandex_destination_guard.dart';
+import '../android/android_yandex_download_pipeline.dart';
 import '../data/drift/app_database.dart';
 import '../diagnostics/diagnostics_service.dart';
 import '../domain/repositories/repositories.dart';
@@ -87,7 +90,12 @@ final class AppDependencies {
             library: repositories.libraryFolders,
             plans: repositories.librarySync,
             settings: repositories.settings,
-            supported: Abi.current() == Abi.windowsX64,
+            supported:
+                {Abi.windowsX64, Abi.androidArm64}.contains(Abi.current()),
+            validateDestination: Abi.current() == Abi.androidArm64
+                ? AndroidYandexDestinationGuard(settings: repositories.settings)
+                    .call
+                : null,
             diagnostics: diagnostics,
             checkerFactory: () => DownloadedAssetChecker(
                 repository: repositories.downloadedAssets,
@@ -102,6 +110,20 @@ final class AppDependencies {
                     transport: YandexHttpTransport(diagnostics: diagnostics)),
                 pipelineFactory: (reader, control) async {
                   control.throwIfCancelled();
+                  if (Platform.isAndroid) {
+                    final parent = await androidDownloadWorkspaceParent();
+                    control.throwIfCancelled();
+                    return AndroidYandexDownloadPipeline.open(
+                        reader: reader,
+                        temporaryParent: parent,
+                        jobs: repositories.downloadJobs,
+                        accounts: repositories.remoteLibrary,
+                        imports: repositories.downloadImports,
+                        retention: repositories.publicationRetention,
+                        artworkCache: AppSupportArtworkCacheService(),
+                        control: control,
+                        diagnostics: diagnostics);
+                  }
                   final support = await getApplicationSupportDirectory();
                   control.throwIfCancelled();
                   final parent = Directory(

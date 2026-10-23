@@ -38,6 +38,7 @@ final class LibraryUpdateFixture {
     yandexTrack('001')
   ];
   bool supported = true;
+  Future<bool> Function(LibraryFolder, LibraryScanControl)? validateDestination;
   static Future<LibraryUpdateFixture> open(
       {bool supported = true, bool connected = true}) async {
     final fixture = LibraryUpdateFixture._(await DownloadFixture.open());
@@ -83,6 +84,8 @@ final class LibraryUpdateFixture {
           plans: plans,
           settings: f.repositories.settings,
           supported: supported,
+          validateDestination: (folder, control) async =>
+              await validateDestination?.call(folder, control) ?? true,
           diagnostics: diagnostics,
           clock: f.clock,
           checkerFactory: () => DownloadedAssetChecker(

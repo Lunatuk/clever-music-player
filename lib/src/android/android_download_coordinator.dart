@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 
 import '../core/async_lifecycle.dart';
+import '../diagnostics/diagnostics_service.dart';
 import '../domain/models/models.dart';
 import '../domain/repositories/download_import_repository.dart';
 import '../domain/repositories/download_job_repository.dart';
@@ -38,6 +39,7 @@ final class AndroidDownloadCoordinator {
       required DownloadedAudioMetadataPreparer preparer,
       required this.journal,
       required ArtworkCacheService artworkCache,
+      this.diagnostics = const NoopDiagnosticsService(),
       this.workspace,
       AudioPublicationBackend Function()? backendFactory,
       PublicationDocumentVerifier Function()? verifierFactory,
@@ -73,6 +75,7 @@ final class AndroidDownloadCoordinator {
   final AndroidPublicationJournal journal;
   final DownloadWorkspace? workspace;
   final PublicationFiles files;
+  final DiagnosticsService diagnostics;
   final AudioPublicationBackend Function() _backend;
   final PublicationDocumentVerifier Function() _verifier;
   final AndroidPublishedTrackReader _reader;
@@ -238,6 +241,17 @@ final class AndroidDownloadCoordinator {
         outcome = DownloadCoordinationOutcome.completed;
       }
     } on Object catch (error) {
+      try {
+        diagnostics.record(DiagnosticEvent.androidDownloadCoordinated, fields: {
+          DiagnosticField.coordinationStage: owner.current.stage.index,
+          if (error is AudioPublicationException)
+            DiagnosticField.publicationStatus: error.status.index,
+          if (error is AudioValidationException)
+            DiagnosticField.audioValidationOutcome: error.outcome.index,
+          if (error is AndroidPublicationVerificationException)
+            DiagnosticField.fingerprintStatus: error.status.index,
+        });
+      } on Object {/* Observers cannot interrupt ownership or cleanup. */}
       failure = _failure(error);
       if (owner.lost ||
           error is PublicationException &&
@@ -282,6 +296,14 @@ final class AndroidDownloadCoordinator {
       }
       owner.lossControl.removeCancellationListener(control.cancel);
     }
+    try {
+      diagnostics.record(DiagnosticEvent.androidDownloadCoordinated, fields: {
+        DiagnosticField.coordinationStage: owner.current.stage.index,
+        DiagnosticField.coordinationOutcome: outcome.index,
+        DiagnosticField.needsReconciliation:
+            outcome == DownloadCoordinationOutcome.needsReconciliation,
+      });
+    } on Object {/* Observers cannot interrupt ownership or cleanup. */}
     return DownloadCoordinationResult(
         outcome: outcome,
         job: owner.current,

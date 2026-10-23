@@ -42,6 +42,8 @@ final class AndroidDownloadStorageController extends ChangeNotifier {
       DiagnosticsService diagnostics = const NoopDiagnosticsService(),
       this.documents = const AndroidDownloadFolders(),
       DownloadDestinationChecker? destinationChecker,
+      this.onUseDestination,
+      this.onClearDestination,
       DownloadWorkspaceCheck? checkWorkspace})
       : _diagnostics = diagnostics,
         _destinationChecker = destinationChecker ??
@@ -54,6 +56,9 @@ final class AndroidDownloadStorageController extends ChangeNotifier {
   final DownloadFolderDocuments documents;
   final DownloadWorkspaceCheck _checkWorkspace;
   final DownloadDestinationChecker _destinationChecker;
+  final Future<void> Function(ContentUriAudioSource, String?)? onUseDestination;
+  final Future<void> Function()? onClearDestination;
+  bool get canUseDestination => onUseDestination != null;
   final DiagnosticsService _diagnostics;
   bool _destinationCheck = false;
   ContentUriAudioSource? _folder;
@@ -151,6 +156,21 @@ final class AndroidDownloadStorageController extends ChangeNotifier {
         _access = result;
         _loaded = true;
         _message = 'Папка сохранена. Музыкальные файлы пока не записывались.';
+        if (onUseDestination != null) {
+          await onUseDestination!(selected, result.name);
+          _message =
+              'Папка подключена к загрузкам. Новые треки появятся в библиотеке автоматически.';
+        }
+      });
+
+  Future<void> useDestination() => _run(() async {
+        final selected = _folder;
+        if (selected == null || onUseDestination == null) return;
+        await _inspect();
+        if (_closed || _access?.usable != true) return;
+        await onUseDestination!(selected, _access?.name);
+        _message =
+            'Папка подключена к загрузкам. Новые треки появятся в библиотеке автоматически.';
       });
 
   Future<void> inspectFolder() => _run(() async {
@@ -158,6 +178,7 @@ final class AndroidDownloadStorageController extends ChangeNotifier {
       });
 
   Future<void> forgetFolder() => _run(() async {
+        await onClearDestination?.call();
         await settings.delete(settingKey);
         if (_closed) return;
         _folder = null;

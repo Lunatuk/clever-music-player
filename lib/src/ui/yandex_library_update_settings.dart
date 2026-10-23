@@ -7,8 +7,14 @@ import '../library_sync/yandex_download_runner.dart';
 import '../library_sync/yandex_library_update_controller.dart';
 
 class YandexLibraryUpdateSettings extends StatefulWidget {
-  const YandexLibraryUpdateSettings({super.key, required this.controller});
+  const YandexLibraryUpdateSettings(
+      {super.key,
+      required this.controller,
+      this.destination,
+      this.actionsBlocked = false});
   final YandexLibraryUpdateController controller;
+  final Widget? destination;
+  final bool actionsBlocked;
   @override
   State<YandexLibraryUpdateSettings> createState() =>
       _YandexLibraryUpdateSettingsState();
@@ -29,7 +35,7 @@ class _YandexLibraryUpdateSettingsState
               child: Text(
                   'Загрузка музыки пока доступна на Windows. На этом устройстве можно подключить аккаунт и проверить состав коллекций.'));
         }
-        final busy = c.isBusy || c.connection.isBusy;
+        final busy = c.isBusy || c.connection.isBusy || widget.actionsBlocked;
         final progress = c.progress;
         final bytes = progress?.bytes;
         final total = bytes?.totalBytes;
@@ -43,22 +49,27 @@ class _YandexLibraryUpdateSettingsState
               Text('Обновление библиотеки',
                   style: Theme.of(context).textTheme.titleMedium),
               const SizedBox(height: 12),
-              _Option<int>(
-                  key: const ValueKey('yandex-update-folder'),
-                  value: c.folderId,
-                  label: 'Папка для загрузок',
-                  items: c.folders
-                      .map((f) => DropdownMenuItem(
-                          value: f.id,
-                          child: Text(f.displayName ?? f.path,
-                              maxLines: 1, overflow: TextOverflow.ellipsis)))
-                      .toList(),
-                  onChanged: busy
-                      ? null
-                      : (id) {
-                          if (id != null) unawaited(c.configure(folderId: id));
-                        }),
-              if (c.folders.isEmpty)
+              if (widget.destination != null)
+                widget.destination!
+              else
+                _Option<int>(
+                    key: const ValueKey('yandex-update-folder'),
+                    value: c.folderId,
+                    label: 'Папка для загрузок',
+                    items: c.folders
+                        .map((f) => DropdownMenuItem(
+                            value: f.id,
+                            child: Text(f.displayName ?? f.path,
+                                maxLines: 1, overflow: TextOverflow.ellipsis)))
+                        .toList(),
+                    onChanged: busy
+                        ? null
+                        : (id) {
+                            if (id != null) {
+                              unawaited(c.configure(folderId: id));
+                            }
+                          }),
+              if (widget.destination == null && c.folders.isEmpty)
                 const Padding(
                     padding: EdgeInsets.only(top: 8),
                     child:
@@ -253,25 +264,29 @@ String _failure(YandexLibraryUpdateController c) => switch (c.failure) {
         'Не удалось прочитать или сохранить данные обновления. Повтори действие.',
       YandexUpdateFailure.download => c.result?.cleanupFailed == true
           ? 'Обновление остановлено: не удалось очистить временные файлы. Проверь доступ к диску и повтори действие.'
-          : switch (c.result?.jobFailure) {
-              DownloadFailure.unavailable =>
-                'Яндекс не выдал трек в выбранном формате или качестве. Для FLAC попробуй MP3 или M4A; конвертация в FLAC не улучшит исходное качество.',
-              DownloadFailure.noSpace =>
-                'Недостаточно места или рабочего резерва для загрузки. Освободи место и повтори действие.',
-              DownloadFailure.authorization ||
-              DownloadFailure.accountChanged =>
-                'Подключение Яндекса изменилось или токен больше не действует. Подключись заново.',
-              DownloadFailure.invalidMedia =>
-                'Скачанный файл не прошёл проверку. Он не добавлен в библиотеку.',
-              _ => switch (c.result?.failure) {
-                  YandexDownloadRunFailure.credential ||
-                  YandexDownloadRunFailure.authorization =>
-                    'Проверь токен и подключи аккаунт заново.',
-                  YandexDownloadRunFailure.network =>
-                    'Не удалось завершить загрузку из-за сетевой ошибки. Повтори действие позже.',
-                  _ =>
-                    'Не удалось завершить загрузку. Проверь медиапомощник в диагностике и доступ к папке.',
+          : c.result?.needsReconciliation == true
+              ? 'Осталась незавершённая запись. Повтор сначала проверит готовый файл. Если сообщение остаётся, создай диагностический отчёт. Уже добавленные треки сохранены.'
+              : switch (c.result?.jobFailure) {
+                  DownloadFailure.unavailable =>
+                    'Яндекс не выдал трек в выбранном формате или качестве. Для FLAC попробуй MP3 или M4A; конвертация в FLAC не улучшит исходное качество.',
+                  DownloadFailure.noSpace =>
+                    'Недостаточно места или рабочего резерва для загрузки. Освободи место и повтори действие.',
+                  DownloadFailure.accessDenied =>
+                    'Нет доступа к папке загрузок. Выбери её заново и повтори обновление.',
+                  DownloadFailure.authorization ||
+                  DownloadFailure.accountChanged =>
+                    'Подключение Яндекса изменилось или токен больше не действует. Подключись заново.',
+                  DownloadFailure.invalidMedia =>
+                    'Скачанный файл не прошёл проверку. Он не добавлен в библиотеку.',
+                  _ => switch (c.result?.failure) {
+                      YandexDownloadRunFailure.credential ||
+                      YandexDownloadRunFailure.authorization =>
+                        'Проверь токен и подключи аккаунт заново.',
+                      YandexDownloadRunFailure.network =>
+                        'Не удалось завершить загрузку из-за сетевой ошибки. Повтори действие позже.',
+                      _ =>
+                        'Не удалось завершить загрузку. Проверь медиапомощник в диагностике и доступ к папке.',
+                    },
                 },
-            },
       _ => 'Не удалось обновить библиотеку.',
     };

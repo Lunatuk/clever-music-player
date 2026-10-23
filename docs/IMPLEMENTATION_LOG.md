@@ -4082,3 +4082,79 @@ completed-receipt maintenance, сообщения/разрешение retained 
 ручных пунктов; checks/.sha256 рядом с APK. Логи .dart_tool/core58-full-tests-final,
 targeted-final,analyze-final,format-final,apk-*,*-symbols; source-manifest,
 build-result/verify-result/media-apk/package JSON.
+
+
+**23 октября 2026 — пакет59: ручное обновление Android-библиотеки из Яндекса**
+
+Проверки57 на Redmi подтверждены пользователем,58 был внутренним этапом без
+новых ручных действий. В59 Android ARM64 подключён к общему update controller/
+runner. Windows51 остаётся актуальной; новый Windows-архив не нужен.
+
+AndroidYandexDownloadPipeline владеет одной явной сессией network/raw pool/
+workspace/journal/media preparer/coordinator. Использует общие resolver,
+decryption, cover и планирование, затем coordinator58/publisher55/recovery57,
+чтение опубликованных тегов, fresh verifier54 и атомарный URI Track/ref/asset/job.
+MP3/M4A/FLAC, лимит3 по умолчанию, прогресс и остановка. До admission проверяется
+native media capability; закрываются все построенные владельцы при ошибке.
+Только completed receipts с текущей SQLite authority убираются при open;
+pending сохраняются, музыкальные документы здесь не удаляются.
+
+Выбор SAF-папки теперь явно регистрирует bookmark/library root без полного scan,
+затем сохраняет destination в update options. Старый выбранный tree подключается
+кнопкой «Использовать выбранную папку», а не при boot. Сброс назначения оставляет
+музыку и библиотечный корень. Fresh grant guard до refresh/планирования сверяет
+сохранённый tree, enabled root и read/write/create. Две прерванные записи выбора
+не разрешают скачивание в прежнюю папку. Настройки перечитывают roots внутри
+своей операции; SQLite/настройки ошибок не обходятся непойманным async future.
+
+Экран Яндекса восстанавливает локальные controllers до установки child listeners,
+блокирует смену папки/проверки во время update и update во время storage check.
+Остановка доступна, navigation не отменяет принятое обновление. Storage callbacks
+дренируются до bookmarks/dependencies/SQLite close. Partial/ambiguous не удаляются
+и не создают download loop; результат needsReconciliation передаётся в UI с
+просьбой повторить и сообщить об ошибке. Known-partial repair/deletion не добавлены.
+При завершении Android процесса во время copy может потребоваться отдельный
+разбор. Поздняя caller stop после accepted publication дренирует готовый импорт.
+
+Добавлены только числовые/булевы диагностические коды coordinator/open failure.
+Экспорт JSON на Android выполняется по явной кнопке через системный save picker
+(file_picker уже был зависимостью). Отмена/ошибка/повтор/закрытие маршрута не
+раскрывают private path и не отправляют файл автоматически.
+
+Квалификация:2364 Flutter tests,30 новых. Четырнадцать destination/registration/
+grants/drain checks,8 полных pipeline checks с synthetic loopback HTTP,
+настоящим host FFmpeg/SQLite и file-backed opaque URI provider;4 UI checks и4
+экспорта отчёта. Проверены MP3/M4A/FLAC с encrypted payload/cover, повтор с полным
+хэшем без новой сети, новый pipeline после SQL rollback без raw, partial quarantine,
+HTTP stop/retry, media admission failure и accepted late stop. Host helper и
+file-backed provider не считаются исполнением Android JNI/ContentResolver.
+Промежуточный streaming cancel fixture пропускал MIME binary и мог завершиться
+invalidResponse до stop; fixture исправлена, окончательный полный набор прошёл.
+Analyzer без замечаний, format354/0. Текущий аккаунт/токен/музыка пользователя и
+Yandex API в проверках не использовались. Новая физическая проверка59 ещё нужна.
+
+Fresh ASCII snapshot:694 исходника совпали с root/build по SHA-256; codegen,
+схема13, pubspec/lock, Android native sources, Windows audio, fileops и FFmpeg
+bundle/source-kit/fixtures прежние. APK2059/min24/target36/ARM64, подпись58/v2,
+CRC/zipalign/ELF16КиБ и уведомление проверены в фактическом APK. Новый pipeline/
+coordinator подтверждён AOT diagnostic tokens и source snapshot; существующие
+channels/RPC проверены в DEX. JVM84/0fail/0error/0skip; lint0errors/9 прежних
+warnings, ID/severity/message точно совпали с58. Media ELF совпадает с56 вне
+build-ID; библиотеки/source-kit/assets/exports/dependencies проверены. Прежние
+13 C-core checks относятся к неизменённому коду, новый запуск13 не заявляется.
+Native fileops.so идентичен прежнему, hardlinks/unsafe rename отсутствуют.
+Облачный CI и проверка полного пути на физическом Android не объявляются
+пройденными.
+
+- dist/clever-music-player-core-59-android-arm64.apk — 35802042bytes,
+  SHA-256 `ebd0ae80569162421a33e26228344cc9b5e1ba688df5ce8a9be82f362d5f5d7e`.
+
+Рядом .apk.sha256, checks.json и короткий manual-checks.txt. Логи и manifest:
+.dart_tool/core59-full-tests-final,analyze-final,format-final,apk-*,*-symbols;
+core59-source-manifest/build-result/verify-result/media-apk/package JSON.
+
+
+Контракт: architecture/android-yandex-downloads.md. Чек-лист59 — маленький
+плейлист1–3, импорт/воспроизведение без scan, повтор без копий, restart и
+необязательный stop/retry. После подтверждения — расписание/дальнейший UX и дизайн;
+рекомендации по решению пользователя отложены.
