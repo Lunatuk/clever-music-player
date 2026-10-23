@@ -9,9 +9,10 @@ import '../diagnostics/diagnostics_service.dart';
 import '../domain/models/track.dart';
 import '../domain/repositories/track_repository.dart';
 import '../library/artwork_cache_service.dart';
-import '../library/exact_track_copies.dart';
+import '../library/library_track_list.dart';
 import '../player/player_service.dart';
 import '../player/player_state.dart';
+import '../ui/design_preview/design_preview_screen.dart';
 import 'android_import_controller.dart';
 import 'android_download_storage_controller.dart';
 import 'android_media_check_controller.dart';
@@ -158,6 +159,20 @@ final class AndroidLibraryScreen extends StatefulWidget {
 }
 
 final class _AndroidLibraryScreenState extends State<AndroidLibraryScreen> {
+  final _search = TextEditingController();
+  String _query = '';
+  LibraryTrackSortOption _sort = LibraryTrackSortOption.title;
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  void _clearSearch() {
+    _search.clear();
+    setState(() => _query = '');
+  }
+
   Future<void> _command(Future<void> Function() action) async {
     try {
       await action();
@@ -169,6 +184,29 @@ final class _AndroidLibraryScreenState extends State<AndroidLibraryScreen> {
       }
     }
   }
+
+  List<Widget> _playbackButtons(PlayerState state) => [
+        IconButton(
+            tooltip: 'Предыдущий трек',
+            onPressed: () => _command(widget.previous),
+            icon: const Icon(Icons.skip_previous_rounded)),
+        IconButton.filled(
+            tooltip: state.isPlaying ? 'Пауза' : 'Воспроизвести',
+            onPressed: () => _command(
+                state.isPlaying ? widget.player.pause : widget.player.play),
+            icon: Icon(state.isPlaying
+                ? Icons.pause_rounded
+                : Icons.play_arrow_rounded)),
+        IconButton(
+            tooltip: 'Следующий трек',
+            onPressed: () => _command(widget.next),
+            icon: const Icon(Icons.skip_next_rounded)),
+        if (widget.stop != null)
+          IconButton(
+              tooltip: 'Остановить',
+              onPressed: () => _command(widget.stop!),
+              icon: const Icon(Icons.stop_rounded)),
+      ];
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -184,7 +222,7 @@ final class _AndroidLibraryScreenState extends State<AndroidLibraryScreen> {
               icon: const Icon(Icons.info_outline_rounded),
               onPressed: () => showDialog<void>(
                   context: context,
-                  builder: (context) => AlertDialog(
+                  builder: (dialogContext) => AlertDialog(
                         title: const Text('Clever Music Preview'),
                         content: const SingleChildScrollView(
                             child: Text(
@@ -199,7 +237,17 @@ final class _AndroidLibraryScreenState extends State<AndroidLibraryScreen> {
                                 'Нажми Play, чтобы продолжить.')),
                         actions: [
                           TextButton(
-                              onPressed: () => Navigator.of(context).pop(),
+                              onPressed: () {
+                                Navigator.of(dialogContext).pop();
+                                Navigator.of(context).push(
+                                    MaterialPageRoute<void>(
+                                        builder: (_) =>
+                                            const DesignPreviewScreen()));
+                              },
+                              child: const Text('Варианты дизайна')),
+                          TextButton(
+                              onPressed: () =>
+                                  Navigator.of(dialogContext).pop(),
                               child: const Text('Понятно'))
                         ],
                       ))),
@@ -247,6 +295,52 @@ final class _AndroidLibraryScreenState extends State<AndroidLibraryScreen> {
         body: SafeArea(
             top: false,
             child: Column(children: [
+              Padding(
+                  padding: EdgeInsets.fromLTRB(
+                      16,
+                      MediaQuery.sizeOf(context).height < 500 ? 0 : 8,
+                      8,
+                      MediaQuery.sizeOf(context).height < 500 ? 0 : 8),
+                  child: Row(children: [
+                    Expanded(
+                        child: TextField(
+                            key: const ValueKey('android-library-search'),
+                            controller: _search,
+                            textInputAction: TextInputAction.search,
+                            onSubmitted: (_) =>
+                                FocusScope.of(context).unfocus(),
+                            onChanged: (value) =>
+                                setState(() => _query = value),
+                            decoration: InputDecoration(
+                                labelText: 'Поиск в музыке',
+                                hintText: 'Название, исполнитель, альбом',
+                                prefixIcon: const Icon(Icons.search_rounded),
+                                suffixIcon: _query.isEmpty
+                                    ? null
+                                    : IconButton(
+                                        tooltip: 'Очистить поиск',
+                                        onPressed: _clearSearch,
+                                        icon:
+                                            const Icon(Icons.close_rounded))))),
+                    PopupMenuButton<LibraryTrackSortOption>(
+                        key: const ValueKey('android-library-sort'),
+                        tooltip: 'Сортировка треков',
+                        initialValue: _sort,
+                        onSelected: (value) => setState(() => _sort = value),
+                        icon: const Icon(Icons.sort_rounded),
+                        itemBuilder: (_) => [
+                              for (final option in const [
+                                LibraryTrackSortOption.title,
+                                LibraryTrackSortOption.artist,
+                                LibraryTrackSortOption.album,
+                                LibraryTrackSortOption.recentlyAdded
+                              ])
+                                CheckedPopupMenuItem(
+                                    value: option,
+                                    checked: _sort == option,
+                                    child: Text(option.label)),
+                            ]),
+                  ])),
               ListenableBuilder(
                   listenable: widget.importer,
                   builder: (context, _) {
@@ -299,8 +393,13 @@ final class _AndroidLibraryScreenState extends State<AndroidLibraryScreen> {
                           return const Center(
                               child: CircularProgressIndicator());
                         }
-                        final tracks = withoutExactTrackCopies(snapshot.data!);
-                        if (tracks.isEmpty) {
+                        final all = snapshot.data!;
+                        final tracks = buildVisibleLibraryTracks(
+                            tracks: all,
+                            searchQuery: _query,
+                            showMissingTracks: false,
+                            sortOption: _sort);
+                        if (all.isEmpty) {
                           return Center(
                               child: SingleChildScrollView(
                                   padding: const EdgeInsets.all(28),
@@ -319,6 +418,21 @@ final class _AndroidLibraryScreenState extends State<AndroidLibraryScreen> {
                                         const Text(
                                             'Добавь папку с музыкой или выбери отдельные файлы через +. Доступ сохранится после перезапуска.',
                                             textAlign: TextAlign.center),
+                                      ])));
+                        }
+                        if (tracks.isEmpty) {
+                          return Center(
+                              child: SingleChildScrollView(
+                                  padding: const EdgeInsets.all(24),
+                                  child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const Text('Ничего не найдено'),
+                                        const SizedBox(height: 8),
+                                        TextButton(
+                                            onPressed: _clearSearch,
+                                            child:
+                                                const Text('Сбросить поиск')),
                                       ])));
                         }
                         return ListView.builder(
@@ -344,92 +458,66 @@ final class _AndroidLibraryScreenState extends State<AndroidLibraryScreen> {
                                       () => widget.playTrack(track, tracks)));
                             });
                       })),
-              StreamBuilder<PlayerState>(
-                  stream: widget.player.stateStream,
-                  initialData: widget.player.state,
-                  builder: (context, snapshot) {
-                    final state = snapshot.data ?? widget.player.state;
-                    final track = state.currentTrack;
-                    if (track == null) return const SizedBox.shrink();
-                    final total =
-                        (state.duration ?? track.duration ?? Duration.zero)
-                            .inMilliseconds;
-                    final position = state.position.inMilliseconds
-                        .clamp(0, total > 0 ? total : 0);
-                    return Material(
-                        color: Theme.of(context).colorScheme.surfaceContainer,
-                        child: Padding(
-                            padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
-                            child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Row(children: [
-                                    _Cover(track: track, size: 40),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                        child: Text(track.displayTitle,
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis)),
-                                    if (state.status ==
-                                        PlayerPlaybackStatus.loading)
-                                      const Padding(
-                                          padding: EdgeInsets.all(8),
-                                          child: SizedBox.square(
-                                              dimension: 18,
-                                              child: CircularProgressIndicator(
-                                                  strokeWidth: 2))),
-                                  ]),
-                                  if (state.hasError)
-                                    const Text(
-                                        'Не удалось открыть трек. Выберите файл заново через +.',
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis),
-                                  Slider(
-                                      value: position.toDouble(),
-                                      max: total > 0 ? total.toDouble() : 1,
-                                      onChanged: total <= 0
-                                          ? null
-                                          : (value) => _command(() =>
-                                              widget.player.seek(Duration(
-                                                  milliseconds:
-                                                      value.round())))),
-                                  Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.center,
-                                      children: [
-                                        IconButton(
-                                            tooltip: 'Предыдущий трек',
-                                            onPressed: () =>
-                                                _command(widget.previous),
-                                            icon: const Icon(
-                                                Icons.skip_previous_rounded)),
-                                        IconButton.filled(
-                                            tooltip: state.isPlaying
-                                                ? 'Пауза'
-                                                : 'Воспроизвести',
-                                            onPressed: () => _command(
-                                                state.isPlaying
-                                                    ? widget.player.pause
-                                                    : widget.player.play),
-                                            icon: Icon(state.isPlaying
-                                                ? Icons.pause_rounded
-                                                : Icons.play_arrow_rounded)),
-                                        IconButton(
-                                            tooltip: 'Следующий трек',
-                                            onPressed: () =>
-                                                _command(widget.next),
-                                            icon: const Icon(
-                                                Icons.skip_next_rounded)),
-                                        if (widget.stop != null)
-                                          IconButton(
-                                              tooltip: 'Остановить',
-                                              onPressed: () =>
-                                                  _command(widget.stop!),
-                                              icon: const Icon(
-                                                  Icons.stop_rounded)),
-                                      ]),
-                                ])));
-                  }),
+              if (MediaQuery.viewInsetsOf(context).bottom == 0)
+                StreamBuilder<PlayerState>(
+                    stream: widget.player.stateStream,
+                    initialData: widget.player.state,
+                    builder: (context, snapshot) {
+                      final state = snapshot.data ?? widget.player.state;
+                      final track = state.currentTrack;
+                      if (track == null) return const SizedBox.shrink();
+                      final compact = MediaQuery.sizeOf(context).height < 500;
+                      final total =
+                          (state.duration ?? track.duration ?? Duration.zero)
+                              .inMilliseconds;
+                      final position = state.position.inMilliseconds
+                          .clamp(0, total > 0 ? total : 0);
+                      return Material(
+                          color: Theme.of(context).colorScheme.surfaceContainer,
+                          child: Padding(
+                              padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
+                              child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Row(children: [
+                                      _Cover(track: track, size: 40),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                          child: Text(track.displayTitle,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis)),
+                                      if (compact) ..._playbackButtons(state),
+                                      if (state.status ==
+                                          PlayerPlaybackStatus.loading)
+                                        const Padding(
+                                            padding: EdgeInsets.all(8),
+                                            child: SizedBox.square(
+                                                dimension: 18,
+                                                child:
+                                                    CircularProgressIndicator(
+                                                        strokeWidth: 2))),
+                                    ]),
+                                    if (state.hasError)
+                                      const Text(
+                                          'Не удалось открыть трек. Выберите файл заново через +.',
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis),
+                                    Slider(
+                                        value: position.toDouble(),
+                                        max: total > 0 ? total.toDouble() : 1,
+                                        onChanged: total <= 0
+                                            ? null
+                                            : (value) => _command(() =>
+                                                widget.player.seek(Duration(
+                                                    milliseconds:
+                                                        value.round())))),
+                                    if (!compact)
+                                      Row(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.center,
+                                          children: _playbackButtons(state)),
+                                  ])));
+                    }),
             ])),
       );
 }

@@ -1,5 +1,13 @@
 # Clever Music Player
 
+Package 61 adds Android library search and title/artist/album/recently-added
+sorting through the shared visible-list view. Playback starts from that visible
+order. About → Design previews opens three isolated, interactive Flutter demos
+of phone/desktop library, player and queue; invented data never controls real
+playback or changes user data. The final redesign follows the user's selection.
+See [mobile feature inventory and sequence](docs/architecture/mobile-feature-parity.md)
+and [targeted manual checks](docs/MANUAL_CHECKS.md). Package60 was accepted on-device.
+
 Package 60 removes duplicate display of the same SAF document reached through
 parent and child folder grants. The Android list and its queue context use the
 shared exact-copy view; document authority/ID are compared without title matching.

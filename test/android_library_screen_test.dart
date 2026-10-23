@@ -9,6 +9,7 @@ import 'package:clever_music_player/src/domain/models/models.dart';
 import 'package:clever_music_player/src/domain/repositories/track_repository.dart';
 import 'package:clever_music_player/src/library/artwork_cache_service.dart';
 import 'package:clever_music_player/src/player/just_audio_player_service.dart';
+import 'package:clever_music_player/src/ui/design_preview/design_preview_screen.dart';
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -16,6 +17,189 @@ import 'package:flutter_test/flutter_test.dart';
 import 'support/test_audio_engine.dart';
 
 void main() {
+  for (final query in [
+    'SECOND',
+    'второй артист',
+    'ВТОРОЙ АЛЬБОМ',
+    'unique-b'
+  ]) {
+    testWidgets('phone search finds $query and starts only its visible context',
+        (tester) async {
+      final f = _Fixture();
+      addTearDown(f.close);
+      final tracks = [
+        f.track.copyWith(
+            id: 1,
+            title: 'First',
+            artist: 'Первый артист',
+            album: 'Первый альбом'),
+        f.track.copyWith(
+            id: 2,
+            title: 'Second',
+            artist: 'Второй артист',
+            album: 'Второй альбом',
+            filePath: 'content://test/document/unique-b')
+      ];
+      await tester.pumpWidget(f.app(library: tracks));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+          find.byKey(const ValueKey('android-library-search')), query);
+      await tester.pumpAndSettle();
+      expect(find.text('First'), findsNothing);
+      expect(find.text('Second'), findsOneWidget);
+      await tester.tap(find.text('Second'));
+      await tester.pumpAndSettle();
+      expect(f.lastContext!.map((t) => t.id), [2]);
+      expect(f.player.currentTrack?.id, 2);
+      await tester.pumpWidget(const SizedBox());
+    });
+  }
+  testWidgets('empty search result and clear leave actual playback running',
+      (tester) async {
+    final f = _Fixture();
+    addTearDown(f.close);
+    await f.player.playTrack(f.track);
+    await tester.pumpWidget(f.app());
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const ValueKey('android-library-search')),
+        'Нет такого трека');
+    await tester.pumpAndSettle();
+    expect(find.text('Ничего не найдено'), findsOneWidget);
+    expect(f.player.isPlaying, isTrue);
+    await tester.tap(find.text('Сбросить поиск'));
+    await tester.pumpAndSettle();
+    expect(
+        find.descendant(
+            of: find.byType(ListTile), matching: find.text('Тестовый трек')),
+        findsOneWidget);
+    expect(f.engine.playCalls, 1);
+    await tester.pumpWidget(const SizedBox());
+  });
+  for (final choice in {
+    'Название': [2, 1, 3],
+    'Исполнитель': [2, 3, 1],
+    'Альбом': [3, 2, 1],
+    'Недавно добавленные': [3, 2, 1]
+  }.entries) {
+    testWidgets('phone ${choice.key} order is also used for playback context',
+        (tester) async {
+      final f = _Fixture();
+      addTearDown(f.close);
+      final tracks = [
+        f.track.copyWith(
+            id: 1,
+            title: 'Beta',
+            artist: 'Z',
+            album: 'Z',
+            filePath: 'content://test/document/b',
+            addedAt: DateTime(2026, 1, 1)),
+        f.track.copyWith(
+            id: 2,
+            title: 'Alpha',
+            artist: 'A',
+            album: 'B',
+            filePath: 'content://test/document/a',
+            addedAt: DateTime(2026, 1, 2)),
+        f.track.copyWith(
+            id: 3,
+            title: 'Gamma',
+            artist: 'M',
+            album: 'A',
+            filePath: 'content://test/document/g',
+            addedAt: DateTime(2026, 1, 3))
+      ];
+      await tester.pumpWidget(f.app(library: tracks));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('android-library-sort')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(choice.key));
+      await tester.pumpAndSettle();
+      final title =
+          tracks.singleWhere((t) => t.id == choice.value.first).title!;
+      await tester.tap(find.text(title));
+      await tester.pumpAndSettle();
+      expect(f.lastContext!.map((t) => t.id), choice.value);
+      await tester.pumpWidget(const SizedBox());
+    });
+  }
+  testWidgets(
+      'search stays applied when library stream adds another matching song',
+      (tester) async {
+    final f = _Fixture();
+    addTearDown(f.close);
+    final stream = StreamController<List<Track>>();
+    addTearDown(stream.close);
+    await tester.pumpWidget(f.app(stream: stream.stream));
+    stream.add([f.track.copyWith(id: 1, title: 'Alpha')]);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+        find.byKey(const ValueKey('android-library-search')), 'Beta');
+    await tester.pumpAndSettle();
+    expect(find.text('Ничего не найдено'), findsOneWidget);
+    stream.add([
+      f.track.copyWith(id: 1, title: 'Alpha'),
+      f.track.copyWith(id: 2, title: 'Beta')
+    ]);
+    await tester.pumpAndSettle();
+    expect(find.text('Alpha'), findsNothing);
+    await tester.tap(find.descendant(
+        of: find.byType(ListTile), matching: find.text('Beta')));
+    await tester.pumpAndSettle();
+    expect(f.lastContext!.single.id, 2);
+    await tester.pumpWidget(const SizedBox());
+  });
+  testWidgets(
+      'landscape keyboard and large text preserve search and ongoing audio',
+      (tester) async {
+    tester.view.physicalSize = const Size(844, 390);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final f = _Fixture();
+    addTearDown(f.close);
+    await f.player.playTrack(f.track);
+    await tester.pumpWidget(f.app(textScale: 2, keyboard: 220));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+        find.byKey(const ValueKey('android-library-search')), 'Тест');
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(f.player.isPlaying, isTrue);
+    expect(find.byTooltip('Пауза'), findsNothing);
+    await tester.pumpWidget(const SizedBox());
+  });
+  testWidgets(
+      'design gallery opens from About while real playback and search survive',
+      (tester) async {
+    final f = _Fixture();
+    addTearDown(f.close);
+    await f.player.playTrack(f.track);
+    await tester.pumpWidget(f.app());
+    await tester.pumpAndSettle();
+    await tester.enterText(
+        find.byKey(const ValueKey('android-library-search')), 'Тест');
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('О версии'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Варианты дизайна'));
+    await tester.pumpAndSettle();
+    expect(find.byType(DesignPreviewScreen), findsOneWidget);
+    await tester.tap(find.byTooltip('Пауза'));
+    await tester.pumpAndSettle();
+    expect(f.player.isPlaying, isTrue);
+    expect(f.engine.playCalls, 1);
+    await tester.tap(find.byType(BackButton).first);
+    await tester.pumpAndSettle();
+    expect(
+        tester
+            .widget<TextField>(
+                find.byKey(const ValueKey('android-library-search')))
+            .controller!
+            .text,
+        'Тест');
+    expect(f.player.isPlaying, isTrue);
+    await tester.pumpWidget(const SizedBox());
+  });
   testWidgets('phone layout selects once, plays, pauses and seeks',
       (tester) async {
     tester.view.physicalSize = const Size(390, 844);
@@ -85,8 +269,12 @@ void main() {
       await tester
           .pumpWidget(fixture.app(textScale: textScale, library: tracks));
       await tester.pumpAndSettle();
-      final position =
-          tester.state<ScrollableState>(find.byType(Scrollable).first).position;
+      final position = tester
+          .state<ScrollableState>(find
+              .descendant(
+                  of: find.byType(ListView), matching: find.byType(Scrollable))
+              .first)
+          .position;
       final extent = position.maxScrollExtent;
       var newRows = 0;
       final previous = debugOnRebuildDirtyWidget;
@@ -145,7 +333,7 @@ void main() {
     await tester.tap(find.text('Shared song'));
     await tester.pumpAndSettle();
     expect(fixture.player.currentTrack?.source, parent.source);
-    expect(fixture.lastContext!.map((t) => t.id), [1, 3]);
+    expect(fixture.lastContext!.map((t) => t.id), [3, 1]);
     expect(fixture.engine.sources.single, parent.source);
     await tester.pumpWidget(fixture.app(library: [child, other]));
     await tester.pumpAndSettle();
@@ -153,7 +341,7 @@ void main() {
         of: find.byType(ListTile), matching: find.text('Shared song')));
     await tester.pumpAndSettle();
     expect(fixture.player.currentTrack?.source, child.source);
-    expect(fixture.lastContext!.map((t) => t.id), [2, 3]);
+    expect(fixture.lastContext!.map((t) => t.id), [3, 2]);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
   });
@@ -244,15 +432,21 @@ final class _Fixture {
       duration: const Duration(minutes: 1),
       addedAt: DateTime(2026),
       updatedAt: DateTime(2026));
-  Widget app({double textScale = 1, List<Track>? library}) => MaterialApp(
+  Widget app(
+          {double textScale = 1,
+          List<Track>? library,
+          Stream<List<Track>>? stream,
+          double keyboard = 0}) =>
+      MaterialApp(
         theme: ThemeData(useMaterial3: true, brightness: Brightness.dark),
         builder: (context, child) => MediaQuery(
-            data: MediaQuery.of(context)
-                .copyWith(textScaler: TextScaler.linear(textScale)),
+            data: MediaQuery.of(context).copyWith(
+                textScaler: TextScaler.linear(textScale),
+                viewInsets: EdgeInsets.only(bottom: keyboard)),
             child: child!),
         home: AndroidLibraryScreen(
             importer: importer,
-            tracks: Stream.value(library ?? [track]),
+            tracks: stream ?? Stream.value(library ?? [track]),
             player: player,
             playTrack: (track, tracks) async {
               selections++;

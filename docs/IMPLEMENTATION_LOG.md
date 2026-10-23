@@ -4232,3 +4232,65 @@ source-manifest/build-result/verify-result/media-apk/package JSON.
 через «Использовать выбранную папку» без scan; restart и маленький повтор sync.
 Новая физическая квалификация60 пока не получена. Аккаунт, токен и музыкальные
 файлы пользователя в автоматических проверках не использовались.
+
+## Пакет61 — Android-поиск/сортировка и выбор направления дизайна
+
+24 октября 2026. Пользователь подтвердил пакет60 («теперь всё супер»).
+Начат приоритетный блок мобильных функций/общего оформления. Инвентаризация
+desktop/Android, зависимости и последовательность62–65 зафиксированы в
+architecture/mobile-feature-parity.md; рекомендации и расписание остаются позже.
+
+Реальная Android-медиатека использует buildVisibleLibraryTracks: поиск по
+названию/исполнителю/альбому/имени файла и сортировки title/artist/album/recent.
+В playLibraryTrack передаётся этот же видимый порядок, а уже запущенная очередь
+не меняется от ввода/сортировки. Нет сохранения поискового запроса/сортировки в
+БД. Сохранены ленивый список и фильтрация точных копий/SAF aliases. При открытой
+клавиатуре нижний транспорт скрывается, музыка продолжает играть; landscape
+получает компактную строку транспорта. Импорт/скачивание не менялись.
+
+ui/design_preview содержит отдельные Flutter-макеты: A «Графит», B «Бумага»,
+C «Полночь», медиатека/плеер/очередь, phone/desktop. Выдуманные треки, собственные
+рисованные обложки и локальный state; нет зависимости от runtime/repositories,
+файлов, аудио, токенов/сети. «О версии» → «Варианты дизайна» открывает демо.
+Поиск/локальные оценки/очередь/перемотка иллюстрируют взаимодействие, реальные
+функции на эту тему ещё не перенесены. Основная тема не меняется до выбора.
+
+Widget-тест экспортировал18 настоящих Flutter PNG и сравнительный лист с Segoe UI
+на Windows; все18 осмотрены. tool/package_design_preview.py упаковывает их в
+автономный HTML с переключением устройства/экрана и увеличением. Вложены все18
+PNG, внешних ресурсов нет, JS проходит node --check. Проверка HTML в браузере
+не выполнена: встроенный браузер отклонил file: URL по политике протоколов;
+обход этого ограничения не предпринимался. Визуальная проверка относится к
+самим Flutter-рендерам, а не к снимку HTML-браузера.
+
+54 targeted-теста прошли. В полном наборе2437 Flutter tests, без skips/failures,
+46 новых:34 design/layout/interaction и12 Android search/sort/stream/isolation.
+Проверены320px/200% текст, phone/desktop, контраст, пустой поиск, новый результат
+из stream, точный контекст запуска, музыка при поиске/в демо, landscape+keyboard.
+6000-row jump по-прежнему строит ограниченное число строк. Тест lifecycle теперь
+посылает настоящую последовательность inactive→hidden→paused→hidden→inactive→
+resumed: новый TextField добавил framework-listener, который выявил прежний
+недопустимый shortcut inactive→paused в тесте. Runtime lifecycle не изменён.
+Analyzer чистый, format356/0 (точный CI-набор Dart paths). Схема13 и lock прежние.
+
+Fresh ASCII build:701 source SHA root/build совпали, build_runner не изменил
+сгенерированную схему. Native Android/Windows/macOS, FFmpeg, assets и зависимости
+идентичны60. APK2061/min24/target36/ARM64 подписан прежним signer60 (v2);
+CRC, zipalign и ELF16КиБ, медиаслужба/receiver/icon/permissions проверены в
+фактическом APK. Новые DesignPreviewCanvas/DesignPreviewScreen/
+buildVisibleLibraryTracks присутствуют в AOT и отсутствуют в60. JVM84 прошли;
+lint0errors/9 прежних warnings (точные ID/severity/message совпали с60).
+Native media ELF идентичен56 вне build-ID, exports/imports/dependencies и
+лицензии/source-kit/fixtures проверены;13 C-core checks унаследованы от56 для
+неизменённого кода, новый запуск не заявляется. FileOps ELF прежний. Физическая
+квалификация61 на Redmi и cloud CI пока не получены.
+
+- dist/clever-music-player-core-61-android-arm64.apk —36131194bytes,
+  SHA-256 `422ce4cef254b89c28c96105691a31c7846e29e3863bce652464daa75ee30946`.
+- dist/clever-music-player-core-61-design-preview/index.html — автономная
+  галерея18 снимков; рядом PNG, three-directions.png и renders.json с SHA.
+
+Рядом APK лежат .sha256/checks.json/manual-checks.txt. Логи/manifest/build/
+verification/package в .dart_tool/core61-*. Аккаунт и музыка пользователя не
+использовались. Manual61: найти/запустить/сбросить, сменить сортировку и сравнить
+три направления через About; полный scan и повторная загрузка не нужны.
