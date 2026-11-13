@@ -12,6 +12,54 @@ const utf8Decoder = Utf8Decoder();
 const utf16Decoder = Utf16Decoder();
 const latin1Decoder = Latin1Decoder();
 
+Comment? _readComment(Uint8List content) {
+  if (content.length < 5 || content[0] > 3) return null;
+  final encoding = content[0];
+  final width = encoding == 1 || encoding == 2 ? 2 : 1;
+  var end = 4; // Encoding byte and the three-byte language identifier.
+  while (end + width <= content.length) {
+    if (content[end] == 0 && (width == 1 || content[end + 1] == 0)) break;
+    end += width;
+  }
+  if (end + width > content.length) return null;
+  final description = content.sublist(4, end);
+  final text = content.sublist(end + width);
+  final littleEndian = encoding == 1 &&
+      !(description.length >= 2 &&
+          description[0] == 0xfe &&
+          description[1] == 0xff);
+  String decode(Uint8List bytes) {
+    if (encoding == 0) return latin1Decoder.convert(bytes);
+    if (encoding == 3) return utf8Decoder.convert(bytes);
+    var offset = 0;
+    var little = littleEndian;
+    if (bytes.length >= 2) {
+      if (bytes[0] == 0xff && bytes[1] == 0xfe) {
+        little = true;
+        offset = 2;
+      } else if (bytes[0] == 0xfe && bytes[1] == 0xff) {
+        little = false;
+        offset = 2;
+      }
+    }
+    if ((bytes.length - offset).isOdd) {
+      throw const FormatException('Incomplete UTF-16 comment.');
+    }
+    final data = ByteData.sublistView(bytes);
+    return String.fromCharCodes([
+      for (var index = offset; index < bytes.length; index += 2)
+        data.getUint16(index, little ? Endian.little : Endian.big),
+    ]);
+  }
+
+  try {
+    return Comment(String.fromCharCodes(content.sublist(1, 4)), decode(text))
+      ..shortDescription = decode(description);
+  } on FormatException {
+    return null;
+  }
+}
+
 class ID3v3Frame {
   final String id;
   final int size;
@@ -430,6 +478,10 @@ class ID3v2Parser extends TagParser<Mp3Metadata> {
           final content = buffer.read(size);
           final frame = TXXXFrame(content);
           metadata.customMetadata[frame.description] = frame.information;
+        },
+      "COMM" => () {
+          final comment = _readComment(buffer.read(size));
+          if (comment != null) metadata.comments.add(comment);
         },
       "USLT" => () {
           final content = buffer.read(size);

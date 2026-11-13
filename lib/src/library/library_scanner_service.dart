@@ -69,6 +69,7 @@ final class LibraryScanResult {
     required this.missingTracks,
     required this.errors,
     this.wasCancelled = false,
+    this.yandexLinkedTracks = 0,
     int? processedFiles,
     this.metrics = const LibraryScanMetrics(),
   }) : _processedFiles = processedFiles;
@@ -89,6 +90,7 @@ final class LibraryScanResult {
   final int missingTracks;
   final List<LibraryScanError> errors;
   final bool wasCancelled;
+  final int yandexLinkedTracks;
   final LibraryScanMetrics metrics;
   final int? _processedFiles;
   int get processedFiles => _processedFiles ?? scannedFiles;
@@ -98,7 +100,8 @@ final class LibraryScanResult {
   String get summary {
     final text =
         'Просканировано файлов: $processedFiles, добавлено: $addedTracks, '
-        'обновлено: $updatedTracks, отсутствует: $missingTracks.';
+        'обновлено: $updatedTracks, отсутствует: $missingTracks.'
+        '${yandexLinkedTracks == 0 ? '' : ' Связано с Яндексом: $yandexLinkedTracks.'}';
     return wasCancelled ? 'Сканирование остановлено. $text' : text;
   }
 
@@ -110,6 +113,8 @@ final class LibraryScanResult {
       addedTracks: items.fold(0, (sum, result) => sum + result.addedTracks),
       updatedTracks: items.fold(0, (sum, result) => sum + result.updatedTracks),
       missingTracks: items.fold(0, (sum, result) => sum + result.missingTracks),
+      yandexLinkedTracks:
+          items.fold(0, (sum, result) => sum + result.yandexLinkedTracks),
       errors: [
         for (final result in items) ...result.errors,
       ],
@@ -127,6 +132,7 @@ final class LibraryScannerService {
     required this.libraryRepository,
     required this.trackRepository,
     required this.metadataReader,
+    this.settingsRepository,
     this.artworkCache = const NoopArtworkCacheService(),
     this.contentHasher = const Sha256FileContentHasher(),
     this.reuseHashWorker = true,
@@ -143,6 +149,7 @@ final class LibraryScannerService {
   final LibraryRepository libraryRepository;
   final TrackRepository trackRepository;
   final MetadataReaderService metadataReader;
+  final SettingsRepository? settingsRepository;
   final ArtworkCacheService artworkCache;
   final FileContentHasher contentHasher;
   final bool reuseHashWorker;
@@ -184,6 +191,7 @@ final class LibraryScannerService {
           addedTracks: scanned.addedTracks,
           updatedTracks: scanned.updatedTracks,
           missingTracks: scanned.missingTracks,
+          yandexLinkedTracks: scanned.yandexLinkedTracks,
           errors: scanned.errors,
           wasCancelled: scanned.wasCancelled,
           processedFiles: scanned.processedFiles,
@@ -273,11 +281,21 @@ final class LibraryScannerService {
     final importer = trackRepository is TrackImportRepository
         ? trackRepository as TrackImportRepository
         : null;
+    final identityReader = metadataReader is EmbeddedYandexIdentityReader
+        ? metadataReader as EmbeddedYandexIdentityReader
+        : null;
+    final identitySetting = 'scan.yandex-source-ids.v1.$folderId';
+    final settings = settingsRepository;
+    final backfillIdentities = settings != null &&
+        importer != null &&
+        identityReader != null &&
+        await settings.readString(identitySetting) != '1';
 
     var scannedFiles = 0;
     var addedTracks = 0;
     var updatedTracks = 0;
     var completedDirectoryTraversal = false;
+    var identityReadsComplete = true;
     var processedFiles = 0;
     String? currentFileName;
     void report(LibraryScanStage stage, {int bytesRead = 0, int? sizeBytes}) {
@@ -299,10 +317,22 @@ final class LibraryScannerService {
       if (pendingTracks.isEmpty) return;
       final preparedFiles = List<_PreparedScanTrack>.of(pendingTracks);
       pendingTracks.clear();
+      final identities = {
+        for (final prepared in preparedFiles)
+          if (prepared.identityRead)
+            prepared.track.filePath: prepared.yandexIdentity,
+      };
       Future<void> save(List<Track> prepared) async {
         final ids = await metrics.measureDatabase(ScanDatabaseOperation.import,
             () async {
-          if (importer != null) return importer.upsertScannedTracks(prepared);
+          if (importer != null) {
+            return importer
+                .upsertScannedTracks(prepared, embeddedYandexIdentities: {
+              for (final track in prepared)
+                if (identities.containsKey(track.filePath))
+                  track.filePath: identities[track.filePath],
+            });
+          }
           return [await trackRepository.upsertTrack(prepared.single)];
         });
         metrics.committedImport(rows: prepared.length);
@@ -469,8 +499,24 @@ final class LibraryScannerService {
           if (existingId != null &&
               !contentChanged &&
               _isUnchangedFile(existingByPath!, fileStat)) {
-            updatedTracks++;
-            scanStateOnlyTrackIds.add(existingId);
+            if (backfillIdentities && fingerprint != null) {
+              report(LibraryScanStage.readingMetadata);
+              final identity = await metrics.measure(ScanTimingPhase.metadata,
+                  () => identityReader.readYandexIdentity(entity));
+              activeControl.throwIfCancelled();
+              pendingTracks.add(_PreparedScanTrack(
+                  existingByPath.copyWith(
+                      contentHash: contentHash,
+                      lastSeenAt: now,
+                      isMissing: false,
+                      updatedAt: now),
+                  fingerprint,
+                  yandexIdentity: identity,
+                  identityRead: true));
+            } else {
+              updatedTracks++;
+              scanStateOnlyTrackIds.add(existingId);
+            }
             continue;
           }
 
@@ -478,6 +524,9 @@ final class LibraryScannerService {
           activeControl.throwIfCancelled();
           final metadata = await metrics.measure(
               ScanTimingPhase.metadata, () => metadataReader.read(entity));
+          if (identityReader != null && !metadata.yandexIdentityRead) {
+            identityReadsComplete = false;
+          }
           activeControl.throwIfCancelled();
           final artwork = await metrics.measure(
               ScanTimingPhase.artwork, () => _cacheArtwork(metadata.artwork));
@@ -508,9 +557,15 @@ final class LibraryScannerService {
             activeControl.throwIfCancelled();
             pendingTracks.add(_PreparedScanTrack(
                 track.copyWith(id: knownByFilePath[track.filePath]?.id),
-                fingerprint));
+                fingerprint,
+                yandexIdentity: metadata.yandexIdentity,
+                identityRead:
+                    metadata.yandexIdentityRead && fingerprint != null));
           } else {
-            pendingTracks.add(_PreparedScanTrack(track, fingerprint));
+            pendingTracks.add(_PreparedScanTrack(track, fingerprint,
+                yandexIdentity: metadata.yandexIdentity,
+                identityRead:
+                    metadata.yandexIdentityRead && fingerprint != null));
           }
         } on LibraryScanCancelled {
           discardPartialFile();
@@ -601,8 +656,27 @@ final class LibraryScannerService {
                   updatedAt: now,
                 ),
               ));
+      if (settings != null &&
+          importer != null &&
+          identityReader != null &&
+          errors.isEmpty &&
+          !activeControl.isCancellationRequested) {
+        if (!identityReadsComplete) {
+          await settings.writeString(identitySetting, '0');
+        } else if (backfillIdentities) {
+          await settings.writeString(identitySetting, '1');
+        }
+      }
     }
 
+    var linkedTracks = 0;
+    if (trackRepository is TrackExternalIdentityCountRepository) {
+      linkedTracks = await metrics.measureDatabase(
+          ScanDatabaseOperation.lookup,
+          () => (trackRepository as TrackExternalIdentityCountRepository)
+              .countTracksWithExternalIdentity(
+                  libraryFolderId: folderId, provider: 'yandex_music'));
+    }
     report(LibraryScanStage.finishing);
     return LibraryScanResult(
       folderPath: normalizedRootPath,
@@ -610,6 +684,7 @@ final class LibraryScannerService {
       addedTracks: addedTracks,
       updatedTracks: updatedTracks,
       missingTracks: missingTracks,
+      yandexLinkedTracks: linkedTracks,
       errors: errors,
       wasCancelled: activeControl.isCancellationRequested,
       processedFiles: processedFiles,
@@ -850,9 +925,12 @@ final class LibraryScannerService {
 }
 
 final class _PreparedScanTrack {
-  const _PreparedScanTrack(this.track, this.fingerprint);
+  const _PreparedScanTrack(this.track, this.fingerprint,
+      {this.yandexIdentity, this.identityRead = false});
   final Track track;
   final FileContentFingerprint? fingerprint;
+  final ExternalTrackIdentity? yandexIdentity;
+  final bool identityRead;
 }
 
 bool _sameUtcMillisecond(DateTime left, DateTime right) {

@@ -25,6 +25,7 @@ final class EmbeddedAudioMetadata {
     this.discNumber,
     this.year,
     this.artwork,
+    this.comments = const [],
   });
 
   final String? title;
@@ -37,6 +38,7 @@ final class EmbeddedAudioMetadata {
   final int? discNumber;
   final int? year;
   final EmbeddedArtwork? artwork;
+  final List<String> comments;
 }
 
 final class MergedMetadata {

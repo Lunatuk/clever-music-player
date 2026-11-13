@@ -169,7 +169,9 @@ final class _Fixture {
 final class _Imports implements TrackImportRepository {
   final saved = <String, Track>{};
   @override
-  Future<List<int>> upsertScannedTracks(List<Track> tracks) async {
+  Future<List<int>> upsertScannedTracks(List<Track> tracks,
+      {Map<String, ExternalTrackIdentity?> embeddedYandexIdentities =
+          const {}}) async {
     for (final track in tracks) {
       saved[track.filePath] = track;
     }

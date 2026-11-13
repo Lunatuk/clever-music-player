@@ -43,6 +43,9 @@ AudioMetadata readMetadata(File track, {bool getImage = false}) {
       );
 
       newMetadata.genres = apeMetadata.genres;
+      if (apeMetadata.comment != null) {
+        newMetadata.comments = [apeMetadata.comment!];
+      }
       newMetadata.pictures = apeMetadata.pictures;
       newMetadata.performers.addAll(apeMetadata.performer);
 
@@ -72,6 +75,11 @@ AudioMetadata readMetadata(File track, {bool getImage = false}) {
       );
 
       a.pictures = mp3Metadata.pictures;
+      a.comments = [
+        for (final comment in mp3Metadata.comments) comment.text,
+        for (final entry in mp3Metadata.customMetadata.entries)
+          if (entry.key.toLowerCase() == 'comment') entry.value,
+      ];
       a.genres = mp3Metadata.genres;
 
       final guestArtistFrame = mp3Metadata.customMetadata["GUEST ARTIST"];
@@ -104,6 +112,10 @@ AudioMetadata readMetadata(File track, {bool getImage = false}) {
       );
 
       newMetadata.genres = vorbisMetadata.genres;
+      newMetadata.comments = [
+        ...vorbisMetadata.comment,
+        ...vorbisMetadata.description,
+      ];
       newMetadata.pictures = vorbisMetadata.pictures;
       newMetadata.performers.addAll(vorbisMetadata.performer);
 
@@ -131,6 +143,9 @@ AudioMetadata readMetadata(File track, {bool getImage = false}) {
 
       if (mp4Metadata.picture != null) {
         newMetadata.pictures.add(mp4Metadata.picture!);
+      }
+      if (mp4Metadata.comment != null) {
+        newMetadata.comments = [mp4Metadata.comment!];
       }
 
       if (mp4Metadata.genre != null) {
@@ -162,6 +177,10 @@ AudioMetadata readMetadata(File track, {bool getImage = false}) {
         year: oggMetadata.date.firstOrNull,
       );
       newMetadata.genres = oggMetadata.genres;
+      newMetadata.comments = [
+        ...oggMetadata.comment,
+        ...oggMetadata.description,
+      ];
       newMetadata.pictures.addAll(oggMetadata.pictures);
       newMetadata.performers.addAll(oggMetadata.performer);
 
@@ -187,6 +206,9 @@ AudioMetadata readMetadata(File track, {bool getImage = false}) {
       );
 
       newMetadata.pictures = riffMetadata.pictures;
+      if (riffMetadata.comment != null) {
+        newMetadata.comments = [riffMetadata.comment!];
+      }
       newMetadata.genres =
           (riffMetadata.genre != null) ? [riffMetadata.genre!] : [];
 
@@ -212,6 +234,9 @@ AudioMetadata readMetadata(File track, {bool getImage = false}) {
       );
 
       newMetadata.pictures = aiffMetadata.pictures;
+      if (aiffMetadata.comment != null) {
+        newMetadata.comments = [aiffMetadata.comment!];
+      }
       newMetadata.genres =
           (aiffMetadata.genre != null) ? [aiffMetadata.genre!] : [];
 

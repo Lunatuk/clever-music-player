@@ -343,7 +343,10 @@ final class _ImportAdapter implements TrackRepository, TrackImportRepository {
   final TrackRepository inner;
   final Future<List<int>> Function(List<Track>) save;
   @override
-  Future<List<int>> upsertScannedTracks(List<Track> tracks) => save(tracks);
+  Future<List<int>> upsertScannedTracks(List<Track> tracks,
+          {Map<String, ExternalTrackIdentity?> embeddedYandexIdentities =
+              const {}}) =>
+      save(tracks);
   @override
   Future<Track?> findByPath(String filePath) => inner.findByPath(filePath);
   @override

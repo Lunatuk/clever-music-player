@@ -1,5 +1,6 @@
 import '../models/track.dart';
 import '../models/track_metadata_update.dart';
+import '../models/external_track_ref.dart';
 
 abstract interface class TrackRepository {
   Future<int> upsertTrack(Track track);
@@ -78,7 +79,17 @@ abstract interface class TrackContentHashRepository {
 abstract interface class TrackImportRepository {
   static const maxBatchSize = 64;
 
-  Future<List<int>> upsertScannedTracks(List<Track> tracks);
+  /// Supplied paths replace file-derived Yandex links in the same transaction.
+  /// A null identity clears that file's former embedded link. Other origins
+  /// retain their provenance. Omitted paths leave their links alone.
+  Future<List<int>> upsertScannedTracks(List<Track> tracks,
+      {Map<String, ExternalTrackIdentity?> embeddedYandexIdentities =
+          const {}});
+}
+
+abstract interface class TrackExternalIdentityCountRepository {
+  Future<int> countTracksWithExternalIdentity(
+      {required int libraryFolderId, required String provider});
 }
 
 abstract interface class TrackLibraryCountRepository {

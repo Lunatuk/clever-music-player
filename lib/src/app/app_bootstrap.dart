@@ -66,6 +66,7 @@ Future<AppDependencies> bootstrapApplication(
     final scanner = LibraryScannerService(
         libraryRepository: repositories.libraryFolders,
         trackRepository: repositories.tracks,
+        settingsRepository: repositories.settings,
         metadataReader: local.metadataReader,
         artworkCache: local.artworkCache,
         diagnostics: diagnostics);

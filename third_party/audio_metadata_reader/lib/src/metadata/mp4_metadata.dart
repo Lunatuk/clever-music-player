@@ -2,6 +2,8 @@ part of 'base.dart';
 
 /// Metadata model for MP4/M4A files.
 class Mp4Metadata extends ParserTag {
+  String? comment;
+
   /// Track title (`©nam`).
   String? title;
 
@@ -52,6 +54,7 @@ class Mp4Metadata extends ParserTag {
 
   /// Build an MP4 metadata object.
   Mp4Metadata({
+    this.comment,
     this.title,
     this.artist,
     this.albumArtist,

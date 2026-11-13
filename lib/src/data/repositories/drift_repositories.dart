@@ -193,6 +193,7 @@ final class DriftTrackRepository
         TrackScanRepository,
         TrackContentHashRepository,
         TrackImportRepository,
+        TrackExternalIdentityCountRepository,
         TrackLibraryCountRepository {
   const DriftTrackRepository(this._database);
 
@@ -208,13 +209,27 @@ final class DriftTrackRepository
   }
 
   @override
-  Future<List<int>> upsertScannedTracks(List<Track> tracks) {
+  Future<List<int>> upsertScannedTracks(List<Track> tracks,
+      {Map<String, ExternalTrackIdentity?> embeddedYandexIdentities =
+          const {}}) {
     if (tracks.length > TrackImportRepository.maxBatchSize) {
       throw ArgumentError.value(tracks.length, 'tracks.length');
     }
-    if (tracks.isEmpty) return Future.value(const []);
+    if (tracks.isEmpty) {
+      if (embeddedYandexIdentities.isNotEmpty) {
+        throw ArgumentError('Для ссылки требуется импортируемый файл.');
+      }
+      return Future.value(const []);
+    }
     final incoming = List<Track>.of(tracks);
     final paths = incoming.map((track) => track.filePath).toSet();
+    final identities =
+        Map<String, ExternalTrackIdentity?>.of(embeddedYandexIdentities);
+    if (identities.keys.any((path) => !paths.contains(path)) ||
+        identities.values.any((identity) =>
+            identity != null && identity.provider != 'yandex_music')) {
+      throw ArgumentError('Ссылка должна относиться к импортируемому файлу.');
+    }
     if (paths.length != incoming.length) {
       throw ArgumentError('An import batch must contain unique file paths.');
     }
@@ -272,8 +287,59 @@ final class DriftTrackRepository
         for (final row in saved)
           row.read(_database.tracks.filePath)!: row.read(_database.tracks.id)!
       };
+      await _replaceEmbeddedYandexIdentities({
+        for (final entry in identities.entries) ids[entry.key]!: entry.value,
+      }, incoming.first.updatedAt);
       return [for (final track in incoming) ids[track.filePath]!];
     });
+  }
+
+  Future<void> _replaceEmbeddedYandexIdentities(
+      Map<int, ExternalTrackIdentity?> identities, DateTime linkedAt) async {
+    if (identities.isEmpty) return;
+    final repository = DriftExternalTrackRepository(_database);
+    final previous = await (_database.select(_database.externalTrackRefs)
+          ..where((t) =>
+              t.trackId.isIn(identities.keys) &
+              t.provider.equals('yandex_music') &
+              t.origin.equals(ExternalTrackRefOrigin.embeddedTag.storageKey)))
+        .get();
+    for (final row in previous) {
+      final old = ExternalTrackIdentity(
+          provider: row.provider,
+          externalId: row.externalId,
+          variantKey: row.variantKey);
+      if (identities[row.trackId] != old) {
+        await repository.unlink(row.trackId, old);
+      }
+    }
+    await repository.linkAll([
+      for (final entry in identities.entries)
+        if (entry.value != null)
+          ExternalTrackRef(
+              trackId: entry.key,
+              identity: entry.value!,
+              origin: ExternalTrackRefOrigin.embeddedTag,
+              linkedAt: linkedAt),
+    ]);
+  }
+
+  @override
+  Future<int> countTracksWithExternalIdentity(
+      {required int libraryFolderId, required String provider}) async {
+    final row = await _database.customSelect(
+        'SELECT COUNT(DISTINCT t.id) AS total FROM tracks t '
+        'JOIN external_track_refs r ON r.track_id = t.id '
+        'WHERE t.library_folder_id = ? AND t.is_missing = 0 AND r.provider = ?',
+        variables: [
+          Variable.withInt(libraryFolderId),
+          Variable.withString(provider)
+        ],
+        readsFrom: {
+          _database.tracks,
+          _database.externalTrackRefs
+        }).getSingle();
+    return row.read<int>('total');
   }
 
   @override

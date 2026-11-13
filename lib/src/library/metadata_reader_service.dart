@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 import '../domain/models/models.dart';
 import 'filename_metadata_parser.dart';
 import 'metadata_enrichment.dart';
+import 'embedded_yandex_identity.dart';
 
 final class AudioMetadata {
   const AudioMetadata({
@@ -27,6 +28,8 @@ final class AudioMetadata {
     this.discNumber,
     this.year,
     this.artwork,
+    this.yandexIdentity,
+    this.yandexIdentityRead = false,
   });
 
   final String filePath;
@@ -45,17 +48,24 @@ final class AudioMetadata {
   final int? discNumber;
   final int? year;
   final EmbeddedArtwork? artwork;
+  final ExternalTrackIdentity? yandexIdentity;
+  final bool yandexIdentityRead;
 }
 
 abstract interface class MetadataReaderService {
   Future<AudioMetadata> read(File file);
 }
 
+abstract interface class EmbeddedYandexIdentityReader {
+  Future<ExternalTrackIdentity?> readYandexIdentity(File file);
+}
+
 typedef EmbeddedMetadataReader = Future<EmbeddedAudioMetadata?> Function(
   String filePath,
 );
 
-final class AudioMetadataReaderService implements MetadataReaderService {
+final class AudioMetadataReaderService
+    implements MetadataReaderService, EmbeddedYandexIdentityReader {
   const AudioMetadataReaderService({
     EmbeddedMetadataReader? embeddedMetadataReader,
     this.filenameParser = const FilenameMetadataParser(),
@@ -65,9 +75,25 @@ final class AudioMetadataReaderService implements MetadataReaderService {
   final FilenameMetadataParser filenameParser;
 
   @override
+  Future<ExternalTrackIdentity?> readYandexIdentity(File file) async {
+    final reader = _embeddedMetadataReader;
+    final path = file.absolute.path;
+    try {
+      final tags = reader != null
+          ? await reader(path)
+          : await Isolate.run(
+              () => _readEmbeddedAudioTags(path, getArtwork: false));
+      return embeddedYandexIdentity(tags?.comments ?? const []);
+    } on audio_reader.NoMetadataParserException {
+      return null;
+    }
+  }
+
+  @override
   Future<AudioMetadata> read(File file) async {
     final baseMetadata = await _baseFileMetadata(file);
     EmbeddedAudioMetadata? tagMetadata;
+    var noTags = false;
 
     try {
       final reader = _embeddedMetadataReader;
@@ -75,6 +101,8 @@ final class AudioMetadataReaderService implements MetadataReaderService {
       tagMetadata = reader != null
           ? await reader(path)
           : await Isolate.run(() => _readEmbeddedAudioTags(path));
+    } on audio_reader.NoMetadataParserException {
+      noTags = true;
     } on Object {
       tagMetadata = null;
     }
@@ -83,6 +111,7 @@ final class AudioMetadataReaderService implements MetadataReaderService {
       baseMetadata: baseMetadata,
       tagMetadata: tagMetadata,
       filenameParser: filenameParser,
+      identityRead: noTags,
     );
   }
 }
@@ -172,6 +201,7 @@ AudioMetadata _mergeFileMetadata({
   required _BaseFileMetadata baseMetadata,
   required EmbeddedAudioMetadata? tagMetadata,
   required FilenameMetadataParser filenameParser,
+  bool identityRead = false,
 }) {
   final filenameMetadata = filenameParser.parse(baseMetadata.filePath);
   final fallbackMetadata = filenameParser.fallback(baseMetadata.filePath);
@@ -198,11 +228,16 @@ AudioMetadata _mergeFileMetadata({
     discNumber: merged.discNumber,
     year: merged.year,
     artwork: tagMetadata?.artwork,
+    yandexIdentity: embeddedYandexIdentity(tagMetadata?.comments ?? const []),
+    yandexIdentityRead: identityRead || tagMetadata != null,
   );
 }
 
-Future<EmbeddedAudioMetadata?> _readEmbeddedAudioTags(String filePath) async {
-  final tag = _readMetadataWithOptionalArtwork(File(filePath));
+Future<EmbeddedAudioMetadata?> _readEmbeddedAudioTags(String filePath,
+    {bool getArtwork = true}) async {
+  final tag = getArtwork
+      ? _readMetadataWithOptionalArtwork(File(filePath))
+      : audio_reader.readMetadata(File(filePath), getImage: false);
   final picture = _frontCoverOrFirstPicture(tag.pictures);
 
   return EmbeddedAudioMetadata(
@@ -215,6 +250,7 @@ Future<EmbeddedAudioMetadata?> _readEmbeddedAudioTags(String filePath) async {
     trackNumber: tag.trackNumber,
     discNumber: tag.discNumber,
     year: tag.year?.year,
+    comments: List.unmodifiable(tag.comments),
     artwork: picture == null
         ? null
         : EmbeddedArtwork(

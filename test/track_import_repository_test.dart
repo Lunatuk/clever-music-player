@@ -32,6 +32,119 @@ void main() {
       addedAt: now,
       updatedAt: now);
 
+  ExternalTrackIdentity yandex(String id) => ExternalTrackIdentity(
+      provider: 'yandex_music', externalId: id, variantKey: '12');
+
+  test('source links commit with tracks and remain idempotent on rescan',
+      () async {
+    final file = track('source');
+    final input = {file.filePath: yandex('34')};
+    final id = (await getImporter()
+            .upsertScannedTracks([file], embeddedYandexIdentities: input))
+        .single;
+    final first = (await repositories.externalTracks.listForTrack(id)).single;
+    expect(first.origin, ExternalTrackRefOrigin.embeddedTag);
+    expect(first.identity, yandex('34'));
+    await getImporter().upsertScannedTracks([
+      file.copyWith(updatedAt: now.add(const Duration(days: 1))),
+    ], embeddedYandexIdentities: input);
+    expect(await repositories.externalTracks.listForTrack(id), [first]);
+  });
+  test('source refresh replaces weak links and preserves stronger provenance',
+      () async {
+    final file = track('source');
+    final id = (await getImporter().upsertScannedTracks([file],
+            embeddedYandexIdentities: {file.filePath: yandex('34')}))
+        .single;
+    await repositories.externalTracks.linkAll([
+      ExternalTrackRef(
+          trackId: id,
+          identity: yandex('99'),
+          origin: ExternalTrackRefOrigin.manual,
+          linkedAt: now),
+    ]);
+    await getImporter().upsertScannedTracks([file],
+        embeddedYandexIdentities: {file.filePath: yandex('35')});
+    final refs = await repositories.externalTracks.listForTrack(id);
+    expect(
+        refs.map((ref) => ref.identity).toSet(), {yandex('35'), yandex('99')});
+    await getImporter().upsertScannedTracks([file],
+        embeddedYandexIdentities: {file.filePath: null});
+    final remaining =
+        (await repositories.externalTracks.listForTrack(id)).single;
+    expect(remaining.identity, yandex('99'));
+    expect(remaining.origin, ExternalTrackRefOrigin.manual);
+  });
+  test('omitting source evidence preserves a previously imported association',
+      () async {
+    final file = track('source');
+    final id = (await getImporter().upsertScannedTracks([file],
+            embeddedYandexIdentities: {file.filePath: yandex('34')}))
+        .single;
+    await getImporter().upsertScannedTracks([file.copyWith(title: 'Updated')]);
+    expect((await repositories.externalTracks.listForTrack(id)).single.identity,
+        yandex('34'));
+  });
+  test('a source-link failure rolls back all new tracks in the batch',
+      () async {
+    await database.customStatement(
+        "CREATE TRIGGER reject_source BEFORE INSERT ON external_track_refs BEGIN SELECT RAISE(ABORT, 'synthetic'); END");
+    final files = [track('a'), track('b')];
+    await expectLater(
+        getImporter().upsertScannedTracks(files,
+            embeddedYandexIdentities: {files.last.filePath: yandex('34')}),
+        throwsA(anything));
+    expect(await repositories.tracks.listTracks(), isEmpty);
+    expect(await repositories.externalTracks.findRefs(yandex('34')), isEmpty);
+  });
+  test('source evidence is snapshotted and must refer to an imported path',
+      () async {
+    final file = track('source');
+    final input = {file.filePath: yandex('34')};
+    final pending = getImporter()
+        .upsertScannedTracks([file], embeddedYandexIdentities: input);
+    input[file.filePath] = yandex('35');
+    final id = (await pending).single;
+    expect((await repositories.externalTracks.listForTrack(id)).single.identity,
+        yandex('34'));
+    expect(
+        () => getImporter().upsertScannedTracks([file],
+            embeddedYandexIdentities: {'/different.mp3': yandex('34')}),
+        throwsArgumentError);
+    expect(
+        () => getImporter().upsertScannedTracks([],
+            embeddedYandexIdentities: {file.filePath: yandex('34')}),
+        throwsArgumentError);
+  });
+  test('linked-track count uses distinct available records in the given folder',
+      () async {
+    final folderId = await repositories.libraryFolders.upsertFolder(
+        LibraryFolder(path: '/music', createdAt: now, updatedAt: now));
+    final files = [
+      track('available').copyWith(libraryFolderId: folderId),
+      track('missing').copyWith(libraryFolderId: folderId, isMissing: true),
+    ];
+    final ids = await getImporter()
+        .upsertScannedTracks(files, embeddedYandexIdentities: {
+      for (final file in files) file.filePath: yandex('34'),
+    });
+    await repositories.externalTracks.linkAll([
+      ExternalTrackRef(
+          trackId: ids.first,
+          identity: yandex('99'),
+          origin: ExternalTrackRefOrigin.providerResponse,
+          linkedAt: now),
+    ]);
+    final counter = repositories.tracks as TrackExternalIdentityCountRepository;
+    expect(
+        await counter.countTracksWithExternalIdentity(
+            libraryFolderId: folderId, provider: 'yandex_music'),
+        1);
+    expect(
+        await counter.countTracksWithExternalIdentity(
+            libraryFolderId: folderId + 1, provider: 'yandex_music'),
+        0);
+  });
   test('batch IDs follow input order and a rescan preserves linked data',
       () async {
     final prepared = [track('бета 💿'), track('alpha')];

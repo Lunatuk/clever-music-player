@@ -78,6 +78,9 @@ class AudioMetadata {
   /// The lyric of the track. Can be nornal text or LRC
   String? lyrics;
 
+  /// Source comments, kept separately from lyrics and display tags.
+  List<String> comments = [];
+
   /// The bitrate
   int? bitrate;
 

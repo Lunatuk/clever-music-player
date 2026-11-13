@@ -217,6 +217,7 @@ class MP4Parser extends TagParser<Mp4Metadata> {
           tags.album = value;
           break;
         case "cmt":
+          tags.comment = value;
           break;
         case "lyr":
           tags.lyrics = value;

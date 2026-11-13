@@ -402,7 +402,9 @@ final class _DelayedImports implements TrackImportRepository {
   final committed = Completer<List<int>>();
   int calls = 0;
   @override
-  Future<List<int>> upsertScannedTracks(List<Track> tracks) {
+  Future<List<int>> upsertScannedTracks(List<Track> tracks,
+      {Map<String, ExternalTrackIdentity?> embeddedYandexIdentities =
+          const {}}) {
     calls++;
     entered.complete();
     return committed.future;
