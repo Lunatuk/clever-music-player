@@ -306,19 +306,201 @@ void main() {
     expect(readers.single.closes, 1);
     expect((await stored(1)).attemptCount, 0);
   });
-  test('failure stops the batch and never retries terminal work', () async {
+  test('failed tracks get three attempts and one final pass after the queue',
+      () async {
     await enqueue(3);
     onFactory = (pipeline, _) async {
-      pipeline.mode = 'fail';
+      pipeline.failJob = (job, _) async => job.key.identity.externalId == '1'
+          ? DownloadFailure.unavailable
+          : null;
     };
     final result = await run();
-    expect(result.outcome, YandexDownloadRunOutcome.failed);
-    expect(result.jobFailure, DownloadFailure.unavailable);
-    expect(result.started, 1);
+    expect(result.outcome, YandexDownloadRunOutcome.completedWithFailures);
+    expect(result.failure, isNull);
+    expect(result.started, 3);
+    expect(result.completed, 2);
+    expect(result.failed, 1);
+    expect(pipelines.single.executedIds, ['1', '1', '1', '2', '3', '1']);
     expect((await stored(1)).state, DownloadJobState.failed);
-    expect((await stored(1)).attemptCount, 1);
+    expect((await stored(1)).attemptCount, 4);
+    expect((await stored(1)).remainingAttempts, 0);
+    expect(await f.count('tracks'), 2);
+    expect(events.any((e) => e.isFinalAttempt), isTrue);
+    expect(events.any((e) => e.attempt == 3), isTrue);
+  });
+  test('success on the third attempt proceeds to the next distinct track',
+      () async {
+    await enqueue(3);
+    onFactory = (pipeline, _) async {
+      pipeline.failJob = (job, _) async =>
+          job.key.identity.externalId == '1' && job.attemptCount < 3
+              ? DownloadFailure.network
+              : null;
+    };
+    final result = await run();
+    expect(result.outcome, YandexDownloadRunOutcome.limited);
+    expect(result.started, 3);
+    expect(result.completed, 3);
+    expect(result.failed, 0);
+    expect(pipelines.single.executedIds, ['1', '1', '1', '2', '3']);
+    expect((await stored(1)).attemptCount, 3);
+    expect(events.any((e) => e.isFinalAttempt), isFalse);
+  });
+  test('final pass can recover one track while another remains failed',
+      () async {
+    await enqueue(3);
+    onFactory = (pipeline, _) async {
+      pipeline.failJob = (job, _) async {
+        final id = job.key.identity.externalId;
+        return id == '3' || (id == '1' && job.attemptCount < 4)
+            ? DownloadFailure.unavailable
+            : null;
+      };
+    };
+    final result = await run();
+    expect(result.outcome, YandexDownloadRunOutcome.completedWithFailures);
+    expect(result.completed, 2);
+    expect(result.failed, 1);
+    expect(pipelines.single.executedIds,
+        ['1', '1', '1', '2', '3', '3', '3', '1', '3']);
+    expect((await stored(1)).state, DownloadJobState.completed);
+    expect((await stored(3)).state, DownloadJobState.failed);
+  });
+  test(
+      'all failures exhaust four attempts and a later run leaves them terminal',
+      () async {
+    await enqueue(3);
+    onFactory = (pipeline, _) async => pipeline.mode = 'fail';
+    final result = await run();
+    expect(result.outcome, YandexDownloadRunOutcome.completedWithFailures);
+    expect(result.started, 3);
+    expect(result.failed, 3);
+    expect(pipelines.single.executedIds,
+        ['1', '1', '1', '2', '2', '2', '3', '3', '3', '1', '2', '3']);
+    final repeated = await run();
+    expect(repeated.started, 0);
+    expect(pipelines.last.executedIds, isEmpty);
+    for (var id = 1; id <= 3; id++) {
+      expect((await stored(id)).attemptCount, 4);
+    }
+  });
+  test('retries preserve the selected limit of distinct tracks', () async {
+    await enqueue(3);
+    onFactory = (pipeline, _) async {
+      pipeline.failJob = (job, _) async =>
+          job.key.identity.externalId == '1' ? DownloadFailure.network : null;
+    };
+    final result = await run(maxJobs: 2);
+    expect(result.started, 2);
+    expect(result.completed, 1);
+    expect(result.failed, 1);
+    expect(pipelines.single.executedIds, ['1', '1', '1', '2', '1']);
+    expect((await stored(3)).state, DownloadJobState.queued);
+    expect((await stored(3)).attemptCount, 0);
+  });
+  test('manual retry grants one new finite cycle after an exhausted run',
+      () async {
+    await enqueue(1);
+    onFactory = (pipeline, _) async => pipeline.mode = 'fail';
+    expect((await run()).failed, 1);
+    final failed = await stored(1);
+    await f.repositories.downloadJobs.retry(failed, f.account, now: f.now);
+    final repeated = await run();
+    expect(repeated.failed, 1);
+    expect(pipelines.last.executedIds, ['1', '1', '1', '1']);
+    expect((await stored(1)).attemptCount, 8);
+    expect((await stored(1)).remainingAttempts, 0);
+  });
+  test('cancellation during the final pass prevents another final retry',
+      () async {
+    await enqueue(2);
+    final control = LibraryScanControl();
+    onFactory = (pipeline, _) async => pipeline.mode = 'fail';
+    final result = await run(
+        control: control,
+        progress: (value) {
+          if (value.isFinalAttempt) control.cancel();
+        });
+    expect(result.outcome, YandexDownloadRunOutcome.cancelled);
+    expect(pipelines.single.executedIds, ['1', '1', '1', '2', '2', '2', '1']);
+    expect((await stored(2)).attemptCount, 3);
+  });
+  for (final reason in [
+    DownloadFailure.network,
+    DownloadFailure.rateLimited,
+    DownloadFailure.invalidMedia,
+    DownloadFailure.accessDenied,
+  ]) {
+    test('persisted $reason thrown by the downloader is retried', () async {
+      await enqueue(2);
+      onFactory = (pipeline, _) async {
+        pipeline.throwFailed = true;
+        pipeline.failJob = (job, _) async =>
+            job.key.identity.externalId == '1' ? reason : null;
+      };
+      final result = await run();
+      expect(result.outcome, YandexDownloadRunOutcome.completedWithFailures);
+      expect(result.completed, 1);
+      expect(result.failed, 1);
+      expect(pipelines.single.executedIds, ['1', '1', '1', '2', '1']);
+    });
+  }
+  for (final reason in [
+    DownloadFailure.noSpace,
+    DownloadFailure.authorization,
+    DownloadFailure.subscription,
+    DownloadFailure.internalError,
+  ]) {
+    test('$reason stops the run without spending further attempts', () async {
+      await enqueue(2);
+      onFactory = (pipeline, _) async {
+        pipeline.failJob = (_, __) async => reason;
+      };
+      final result = await run();
+      expect(result.outcome, YandexDownloadRunOutcome.failed);
+      expect(result.jobFailure, reason);
+      expect(result.started, 1);
+      expect((await stored(1)).attemptCount, 1);
+      expect((await stored(2)).attemptCount, 0);
+    });
+  }
+  test(
+      'cancellation during a retry prevents subsequent tracks and the final pass',
+      () async {
+    await enqueue(2);
+    final control = LibraryScanControl();
+    onFactory = (pipeline, _) async {
+      pipeline.failJob = (job, _) async {
+        if (job.attemptCount == 2) control.cancel();
+        return DownloadFailure.network;
+      };
+    };
+    final result = await run(control: control);
+    expect(result.outcome, YandexDownloadRunOutcome.cancelled);
+    expect(pipelines.single.executedIds, ['1', '1']);
     expect((await stored(2)).attemptCount, 0);
-    expect(await f.count('tracks'), 0);
+  });
+  test('resuming a partial retry cycle preserves its already used budget',
+      () async {
+    await enqueue(2);
+    for (var i = 0; i < 2; i++) {
+      final current =
+          (await f.repositories.downloadJobs.claimNext(f.account, now: f.now))!;
+      final failed = (await f.repositories.downloadJobs
+          .fail(current, DownloadFailure.network, now: f.now))!;
+      await f.repositories.downloadJobs
+          .retryFailedAttempt(failed, f.account, now: f.now, maxAttempts: 4);
+    }
+    onFactory = (pipeline, _) async {
+      pipeline.failJob = (job, _) async =>
+          job.key.identity.externalId == '1' ? DownloadFailure.network : null;
+    };
+    final result = await run();
+    expect(result.failed, 1);
+    expect(result.completed, 1);
+    expect(pipelines.single.executedIds, ['1', '2', '1']);
+    expect((await stored(1)).attemptCount, 4);
+    expect((await stored(1)).remainingAttempts, 0);
   });
   for (final mode in ['busy', 'throw after renewal', 'reconciliation']) {
     test('$mode releases only the current latest attempt for reconciliation',
@@ -504,6 +686,9 @@ final class _Pipeline implements YandexDownloadPipeline {
   String mode = 'complete';
   int calls = 0, closes = 0;
   bool cleanup = false, failClose = false;
+  bool throwFailed = false;
+  final executedIds = <String>[];
+  Future<DownloadFailure?> Function(DownloadJob, LibraryScanControl)? failJob;
   @override
   Future<DownloadCoordinationResult> execute(DownloadJob job,
       RemoteLibraryAccount account, YandexAudioSelection selection,
@@ -511,6 +696,7 @@ final class _Pipeline implements YandexDownloadPipeline {
       required void Function(YandexDownloadRunStage, BinaryDownloadProgress?)
           onProgress}) async {
     calls++;
+    executedIds.add(job.key.identity.externalId);
     control.throwIfCancelled();
     onProgress(YandexDownloadRunStage.processing, null);
     if (mode == 'throw after renewal') {
@@ -532,13 +718,20 @@ final class _Pipeline implements YandexDownloadPipeline {
               ? DownloadCoordinationOutcome.busy
               : DownloadCoordinationOutcome.needsReconciliation);
     }
-    if (mode == 'fail') {
-      final failed = (await f.repositories.downloadJobs
-          .fail(job, DownloadFailure.unavailable, now: f.now))!;
+    final reason = mode == 'fail'
+        ? DownloadFailure.unavailable
+        : await failJob?.call(job, control);
+    control.throwIfCancelled();
+    if (reason != null) {
+      final failed =
+          (await f.repositories.downloadJobs.fail(job, reason, now: f.now))!;
+      if (throwFailed) {
+        throw const YandexDownloadException(YandexDownloadFailure.unavailable);
+      }
       return DownloadCoordinationResult(
           job: failed,
           outcome: DownloadCoordinationOutcome.failed,
-          failure: DownloadFailure.unavailable);
+          failure: reason);
     }
     var current = job;
     if (current.state == DownloadJobState.reconciling) {

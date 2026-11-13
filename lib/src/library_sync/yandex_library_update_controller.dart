@@ -435,6 +435,9 @@ final class YandexLibraryUpdateController extends ChangeNotifier {
         case YandexDownloadRunOutcome.limited:
           _message =
               'Добавлено треков: ${result.completed}. Достигнут выбранный лимит; можно продолжить обновление.';
+        case YandexDownloadRunOutcome.completedWithFailures:
+          _message =
+              'Добавлено треков: ${result.completed}. Не удалось скачать после повторов: ${result.failed}. Для нового запуска этих треков включи повтор неудачных загрузок.';
         case YandexDownloadRunOutcome.cancelled:
           _failure ??= YandexUpdateFailure.cancelled;
         case YandexDownloadRunOutcome.staleSession:

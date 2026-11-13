@@ -6,6 +6,7 @@ import '../domain/repositories/yandex_session_repository.dart';
 import '../library/library_scan_control.dart';
 import 'binary_download.dart';
 import 'download_coordination.dart';
+import 'downloaded_audio_validation.dart';
 import 'yandex_audio_selection.dart';
 import 'yandex_credential_store.dart';
 import 'yandex_download_protocol.dart';
@@ -26,7 +27,8 @@ enum YandexDownloadRunOutcome {
   cancelled,
   staleSession,
   failed,
-  cleanupFailed
+  cleanupFailed,
+  completedWithFailures
 }
 
 enum YandexDownloadRunFailure {
@@ -49,22 +51,29 @@ final class YandexDownloadRunException implements Exception {
 /// exception crosses the runner/UI boundary.
 final class YandexDownloadRunProgress {
   const YandexDownloadRunProgress(this.stage, this.started, this.completed,
-      {this.bytes});
+      {this.bytes,
+      this.attempt = 1,
+      this.isFinalAttempt = false,
+      this.deferred = 0});
   final YandexDownloadRunStage stage;
   final int started, completed;
   final BinaryDownloadProgress? bytes;
+  final int attempt, deferred;
+  final bool isFinalAttempt;
 }
 
 final class YandexDownloadRunResult {
   const YandexDownloadRunResult(this.outcome, this.started, this.completed,
       {this.failure,
       this.jobFailure,
+      this.failed = 0,
       this.cleanupFailed = false,
       this.needsReconciliation = false});
   final YandexDownloadRunOutcome outcome;
   final int started, completed;
   final YandexDownloadRunFailure? failure;
   final DownloadFailure? jobFailure;
+  final int failed;
   final bool cleanupFailed;
   final bool needsReconciliation;
 }
@@ -80,8 +89,8 @@ abstract interface class YandexDownloadPipeline {
   Future<void> close();
 }
 
-/// Explicit bounded run of already queued jobs. Never plans, enqueues, retries
-/// terminal jobs, switches credentials mid-run or starts work at application boot.
+/// Explicit bounded run of queued tracks, with three attempts per track followed
+/// by one final pass over failures. The limit counts distinct tracks.
 abstract interface class YandexDownloadRunService {
   bool get isBusy;
   Future<YandexDownloadRunResult> run(
@@ -96,6 +105,9 @@ abstract interface class YandexDownloadRunService {
 }
 
 final class YandexDownloadRunner implements YandexDownloadRunService {
+  static const attemptsPerTrack = 3;
+  static const totalAttemptsPerTrack = attemptsPerTrack + 1;
+
   YandexDownloadRunner(
       {required YandexSessionRepository sessions,
       required YandexCredentialStore credentials,
@@ -183,6 +195,9 @@ final class YandexDownloadRunner implements YandexDownloadRunService {
     Future<void>? checking;
     var stale = false, checkFailed = false, cleanupFailed = false;
     var started = 0, completed = 0;
+    var attempt = 1;
+    var isFinalAttempt = false;
+    final deferred = <int, DownloadJob>{};
     DownloadJob? claimed;
     var outcome = YandexDownloadRunOutcome.completed;
     var needsReconciliation = false;
@@ -191,8 +206,11 @@ final class YandexDownloadRunner implements YandexDownloadRunService {
     void progress(YandexDownloadRunStage stage,
         [BinaryDownloadProgress? bytes]) {
       try {
-        observer?.call(
-            YandexDownloadRunProgress(stage, started, completed, bytes: bytes));
+        observer?.call(YandexDownloadRunProgress(stage, started, completed,
+            bytes: bytes,
+            attempt: attempt,
+            isFinalAttempt: isFinalAttempt,
+            deferred: deferred.length));
       } on Object {/* Observers cannot abandon accepted work or cleanup. */}
     }
 
@@ -214,6 +232,78 @@ final class YandexDownloadRunner implements YandexDownloadRunService {
             YandexDownloadRunFailure.session);
       }
       control.throwIfCancelled();
+    }
+
+    Future<DownloadJob?> retryFailed(DownloadJob failed) async {
+      final used = failed.maxAttempts - failed.remainingAttempts;
+      if (used >= totalAttemptsPerTrack) return null;
+      await verifySession();
+      final requeued = await _jobs.retryFailedAttempt(failed, account,
+          now: _clock(), maxAttempts: totalAttemptsPerTrack);
+      if (requeued == null) {
+        throw const YandexDownloadRunException(
+            YandexDownloadRunFailure.pipeline);
+      }
+      await verifySession();
+      final next = await _jobs.claimNext(account,
+          now: _clock(),
+          leaseFor: const Duration(seconds: 60),
+          libraryFolderId: folder,
+          quality: selection.resourceQuality,
+          jobId: requeued.id);
+      if (next == null) {
+        throw const YandexDownloadRunException(
+            YandexDownloadRunFailure.pipeline);
+      }
+      claimed = next;
+      return next;
+    }
+
+    Future<bool> processTrack(DownloadJob job,
+        {bool finalAttempt = false}) async {
+      isFinalAttempt = finalAttempt;
+      final usedBeforeClaim = job.maxAttempts - job.remainingAttempts - 1;
+      final count = finalAttempt
+          ? 1
+          : (attemptsPerTrack - usedBeforeClaim).clamp(1, attemptsPerTrack);
+      for (var index = 0; index < count; index++) {
+        attempt = usedBeforeClaim + index + 1;
+        claimed = job;
+        await verifySession();
+        final result = await _executeAttempt(pipeline!, job, account, selection,
+            control: control, onProgress: progress);
+        claimed = result.job;
+        cleanupFailed = cleanupFailed || result.cleanupFailed;
+        if (result.outcome == DownloadCoordinationOutcome.completed) {
+          completed++;
+          deferred.remove(job.id);
+          claimed = null;
+          if (cleanupFailed) outcome = YandexDownloadRunOutcome.cleanupFailed;
+          return !cleanupFailed;
+        }
+        if (result.outcome != DownloadCoordinationOutcome.failed ||
+            result.job.state != DownloadJobState.failed ||
+            !_isTrackFailure(result.job) ||
+            cleanupFailed) {
+          needsReconciliation =
+              result.outcome == DownloadCoordinationOutcome.needsReconciliation;
+          jobFailure = result.failure;
+          outcome = result.outcome == DownloadCoordinationOutcome.cancelled
+              ? YandexDownloadRunOutcome.cancelled
+              : result.outcome == DownloadCoordinationOutcome.ownershipLost
+                  ? YandexDownloadRunOutcome.staleSession
+                  : YandexDownloadRunOutcome.failed;
+          failure = YandexDownloadRunFailure.pipeline;
+          return false;
+        }
+        deferred[job.id] = result.job;
+        claimed = null;
+        if (index == count - 1) break;
+        final next = await retryFailed(result.job);
+        if (next == null) break;
+        job = next;
+      }
+      return true;
     }
 
     try {
@@ -249,41 +339,35 @@ final class YandexDownloadRunner implements YandexDownloadRunService {
       control.throwIfCancelled();
       pipeline = await _pipelineFactory(reader, control);
       await verifySession();
+      var canContinue = true;
       while (started < maxJobs) {
         await verifySession();
-        claimed = await _jobs.claimNext(account,
+        final next = await _jobs.claimNext(account,
             now: _clock(),
             leaseFor: const Duration(seconds: 60),
             libraryFolderId: folder,
             quality: selection.resourceQuality);
-        if (claimed == null) break;
+        claimed = next;
+        if (next == null) break;
         started++;
-        await verifySession();
-        final result = await pipeline.execute(claimed, account, selection,
-            control: control, onProgress: progress);
-        claimed = result.job;
-        cleanupFailed = cleanupFailed || result.cleanupFailed;
-        if (result.outcome == DownloadCoordinationOutcome.completed) {
-          completed++;
-          claimed = null;
-          if (cleanupFailed) {
-            outcome = YandexDownloadRunOutcome.cleanupFailed;
-            break;
-          }
-        } else {
-          needsReconciliation =
-              result.outcome == DownloadCoordinationOutcome.needsReconciliation;
-          jobFailure = result.failure;
-          outcome = result.outcome == DownloadCoordinationOutcome.cancelled
-              ? YandexDownloadRunOutcome.cancelled
-              : result.outcome == DownloadCoordinationOutcome.ownershipLost
-                  ? YandexDownloadRunOutcome.staleSession
-                  : YandexDownloadRunOutcome.failed;
-          failure = YandexDownloadRunFailure.pipeline;
-          break; // No immediate reclaim/retry loop on busy or reconciliation.
+        canContinue = await processTrack(next);
+        if (!canContinue) break;
+      }
+      if (canContinue) {
+        for (final failed in deferred.values.toList()) {
+          final next = await retryFailed(failed);
+          if (next == null) continue;
+          canContinue = await processTrack(next, finalAttempt: true);
+          if (!canContinue) break;
         }
       }
-      if (completed == maxJobs) outcome = YandexDownloadRunOutcome.limited;
+      if (canContinue) {
+        if (deferred.isNotEmpty) {
+          outcome = YandexDownloadRunOutcome.completedWithFailures;
+        } else if (started == maxJobs) {
+          outcome = YandexDownloadRunOutcome.limited;
+        }
+      }
     } on Object catch (error) {
       if (stale) {
         outcome = YandexDownloadRunOutcome.staleSession;
@@ -315,13 +399,14 @@ final class YandexDownloadRunner implements YandexDownloadRunService {
       await checking;
       // A pipeline may have left a claimed attempt at a recoverable checkpoint,
       // or thrown after its heartbeat stopped. Do not use an old CAS snapshot.
-      if (claimed != null) {
+      final pending = claimed;
+      if (pending != null) {
         try {
-          final current = await _jobs.findByKey(claimed.key);
+          final current = await _jobs.findByKey(pending.key);
           jobFailure ??= current?.failure;
           if (current != null &&
               current.isExecuting &&
-              current.attemptToken == claimed.attemptToken &&
+              current.attemptToken == pending.attemptToken &&
               current.accountId == account.id &&
               current.accountRevision == account.revision) {
             await _jobs.interrupt(current, now: _clock());
@@ -353,16 +438,74 @@ final class YandexDownloadRunner implements YandexDownloadRunService {
     }
     if (cleanupFailed &&
         (outcome == YandexDownloadRunOutcome.completed ||
-            outcome == YandexDownloadRunOutcome.limited)) {
+            outcome == YandexDownloadRunOutcome.limited ||
+            outcome == YandexDownloadRunOutcome.completedWithFailures)) {
       outcome = YandexDownloadRunOutcome.cleanupFailed;
+    }
+    if (jobFailure == null && deferred.isNotEmpty) {
+      jobFailure = deferred.values.first.failure;
     }
     progress(YandexDownloadRunStage.finished);
     return YandexDownloadRunResult(outcome, started, completed,
         failure: failure,
         jobFailure: jobFailure,
+        failed: deferred.length,
         cleanupFailed: cleanupFailed,
         needsReconciliation: needsReconciliation);
   }
+
+  Future<DownloadCoordinationResult> _executeAttempt(
+      YandexDownloadPipeline pipeline,
+      DownloadJob job,
+      RemoteLibraryAccount account,
+      YandexAudioSelection selection,
+      {required LibraryScanControl control,
+      required void Function(YandexDownloadRunStage, BinaryDownloadProgress?)
+          onProgress}) async {
+    try {
+      return await pipeline.execute(job, account, selection,
+          control: control, onProgress: onProgress);
+    } on Object catch (error) {
+      control.throwIfCancelled();
+      // The downloader persists its failure before throwing. Only that finished
+      // attempt may be retried; an active or replacement owner is left alone.
+      if (error is! YandexDownloadException &&
+          error is! YandexLibraryException &&
+          error is! BinaryDownloadException &&
+          error is! AudioValidationException) {
+        rethrow;
+      }
+      if (error is BinaryDownloadException &&
+          (error.failure == BinaryDownloadFailure.storage ||
+              error.failure == BinaryDownloadFailure.unsafePath ||
+              error.failure == BinaryDownloadFailure.quotaExceeded)) {
+        rethrow;
+      }
+      final current = await _jobs.findByKey(job.key);
+      if (current == null ||
+          current.state != DownloadJobState.failed ||
+          current.attemptCount != job.attemptCount ||
+          current.accountId != account.id ||
+          current.accountRevision != account.revision ||
+          !_isTrackFailure(current)) {
+        rethrow;
+      }
+      return DownloadCoordinationResult(
+          outcome: DownloadCoordinationOutcome.failed,
+          job: current,
+          failure: current.failure);
+    }
+  }
+
+  static bool _isTrackFailure(DownloadJob job) => switch (job.failure) {
+        DownloadFailure.network ||
+        DownloadFailure.rateLimited ||
+        DownloadFailure.unavailable ||
+        DownloadFailure.invalidMedia =>
+          true,
+        DownloadFailure.accessDenied => job.stage == DownloadJobStage.download,
+        _ => false,
+      };
 
   @override
   void cancel() => _control?.cancel();

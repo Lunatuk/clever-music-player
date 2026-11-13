@@ -175,6 +175,16 @@ class _YandexLibraryUpdateSettingsState
                 if (c.stage == YandexUpdateStage.running && progress != null)
                   Text(
                       'Добавлено: ${progress.completed}. Обрабатываю: ${progress.started}. Запланировано треков: ${c.planned}.'),
+                if (c.stage == YandexUpdateStage.running && progress != null)
+                  if (progress.isFinalAttempt)
+                    const Text('Заключительная попытка для отложенного трека.')
+                  else if (progress.attempt > 1)
+                    Text(
+                        'Попытка ${progress.attempt} из ${YandexDownloadRunner.attemptsPerTrack}.'),
+                if (c.stage == YandexUpdateStage.running &&
+                    progress != null &&
+                    progress.deferred > 0)
+                  Text('Отложено треков: ${progress.deferred}.'),
               ],
               if (c.message != null)
                 Padding(

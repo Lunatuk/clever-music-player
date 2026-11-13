@@ -262,6 +262,46 @@ void main() {
     expect(find.textContaining('Обновление остановлено.'), findsOneWidget);
     expect(field('cancel'), findsNothing);
   });
+  for (final finalAttempt in [false, true]) {
+    testWidgets('retry progress explains the attempt, final=$finalAttempt',
+        (tester) async {
+      final entered = Completer<void>(), release = Completer<void>();
+      x.fakeRunner.onRun = (control, progress) async {
+        progress!(YandexDownloadRunProgress(
+            YandexDownloadRunStage.downloading, 2, 1,
+            attempt: 2, isFinalAttempt: finalAttempt, deferred: 1));
+        entered.complete();
+        control.addCancellationListener(release.complete);
+        await release.future;
+        return const YandexDownloadRunResult(
+            YandexDownloadRunOutcome.cancelled, 2, 1);
+      };
+      await pump(tester);
+      await tap(tester, field('start'));
+      await until(tester, () => entered.isCompleted);
+      await tester.pump();
+      expect(
+          find.text(finalAttempt
+              ? 'Заключительная попытка для отложенного трека.'
+              : 'Попытка 2 из 3.'),
+          findsOneWidget);
+      expect(find.text('Отложено треков: 1.'), findsOneWidget);
+      await tap(tester, field('cancel'));
+      await settle(tester);
+    });
+  }
+  testWidgets('a finished batch displays successes and exhausted failures',
+      (tester) async {
+    x.fakeRunner.onRun = (_, __) async => const YandexDownloadRunResult(
+        YandexDownloadRunOutcome.completedWithFailures, 2, 1,
+        failed: 1);
+    await pump(tester);
+    await tap(tester, field('start'));
+    await settle(tester);
+    expect(find.textContaining('Добавлено треков: 1.'), findsOneWidget);
+    expect(find.textContaining('после повторов: 1.'), findsOneWidget);
+    expect(field('error'), findsNothing);
+  });
   testWidgets('leaving settings preserves an accepted background update',
       (tester) async {
     final entered = Completer<void>(), release = Completer<void>();

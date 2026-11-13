@@ -25,7 +25,8 @@ abstract interface class DownloadJobRepository implements PublicationJobAccess {
       {required DateTime now,
       Duration leaseFor = const Duration(seconds: 30),
       int? libraryFolderId,
-      String? quality});
+      String? quality,
+      int? jobId});
   Future<DownloadJob?> renewLease(DownloadJob expected,
       {required DateTime now, Duration leaseFor = const Duration(seconds: 30)});
   Future<DownloadJob?> advance(DownloadJob expected, DownloadJobStage next,
@@ -51,6 +52,13 @@ abstract interface class DownloadJobRepository implements PublicationJobAccess {
   /// explicit repair intent and still goes through physical reconciliation.
   Future<DownloadJob?> retry(DownloadJob expected, RemoteLibraryAccount account,
       {required DateTime now, bool repairCompleted = false});
+
+  /// Requeue a failed attempt in the same session without resetting attempts
+  /// already used in this retry cycle. Older budgets are adjusted to the given
+  /// finite total. Reconciliation still precedes any new physical work.
+  Future<DownloadJob?> retryFailedAttempt(
+      DownloadJob expected, RemoteLibraryAccount account,
+      {required DateTime now, required int maxAttempts});
 
   /// Only expired leases: startup never steals work from another live runner.
   Future<int> recoverExpired({required DateTime now});

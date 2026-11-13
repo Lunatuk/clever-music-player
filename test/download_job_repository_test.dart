@@ -104,6 +104,113 @@ void main() {
       expect((await f.repo.listAttempts(claimed.id)).single.token,
           claimed.attemptToken);
     });
+    test('an exact retry claim respects destination, quality and live owners',
+        () async {
+      final jobs = await f.repo
+          .enqueue(f.account, [f.key(), f.key(id: 'next')], now: f.now);
+      expect(
+          await f.repo.claimNext(f.account,
+              now: f.now, jobId: jobs.last.id, quality: 'wrong'),
+          isNull);
+      final selected = (await f.repo.claimNext(f.account,
+          now: f.now,
+          jobId: jobs.last.id,
+          libraryFolderId: f.folderId,
+          quality: jobs.last.key.quality))!;
+      expect(selected.id, jobs.last.id);
+      expect(await f.repo.claimNext(f.account, now: f.now, jobId: selected.id),
+          isNull);
+      expect((await f.find(jobs.first)).attemptCount, 0);
+      expect((await f.claim())!.id, jobs.first.id);
+    });
+    test(
+        'automatic retry expands a legacy budget while preserving used attempts',
+        () async {
+      await f.enqueue();
+      final claimed = (await f.claim())!;
+      final failed =
+          (await f.repo.fail(claimed, DownloadFailure.network, now: f.tick()))!;
+      final requeued = (await f.repo.retryFailedAttempt(failed, f.account,
+          now: f.tick(), maxAttempts: 4))!;
+      expect(requeued.maxAttempts, 4);
+      expect(requeued.remainingAttempts, 3);
+      expect(requeued.attemptCount, 1);
+      expect(requeued.stage, failed.stage);
+      expect(requeued.state, DownloadJobState.needsReconciliation);
+      expect(await f.repo.listAttempts(failed.id), hasLength(1));
+      expect(
+          await f.repo.retryFailedAttempt(failed, f.account,
+              now: f.tick(), maxAttempts: 4),
+          isNull);
+      final next = (await f.claim())!;
+      expect(next.state, DownloadJobState.reconciling);
+      expect(next.remainingAttempts, 2);
+      expect(next.attemptCount, 2);
+    });
+    test(
+        'automatic retries exhaust their budget and manual retry starts a cycle',
+        () async {
+      await f.enqueue();
+      DownloadJob? last;
+      for (var i = 1; i <= 4; i++) {
+        final claimed = (await f.claim())!;
+        last = (await f.repo
+            .fail(claimed, DownloadFailure.unavailable, now: f.tick()))!;
+        final requeued = await f.repo
+            .retryFailedAttempt(last, f.account, now: f.tick(), maxAttempts: 4);
+        if (i < 4) {
+          expect(requeued!.remainingAttempts, 4 - i);
+        } else {
+          expect(requeued, isNull);
+        }
+      }
+      expect(await f.claim(), isNull);
+      expect(
+          await f.repo.retryFailedAttempt(last!, f.account,
+              now: f.tick(), maxAttempts: 4),
+          isNull);
+      final manual = (await f.repo.retry(last, f.account, now: f.tick()))!;
+      expect(manual.remainingAttempts, 4);
+      expect(manual.attemptCount, 4);
+    });
+    test('automatic retry cannot revive cancellation or a disabled destination',
+        () async {
+      final original = await f.enqueue();
+      final cancelled = (await f.repo.cancel(original, now: f.tick()))!;
+      expect(
+          await f.repo.retryFailedAttempt(cancelled, f.account,
+              now: f.tick(), maxAttempts: 4),
+          isNull);
+      await f.repo.retry(cancelled, f.account, now: f.tick());
+      final claimed = (await f.claim())!;
+      final failed =
+          (await f.repo.fail(claimed, DownloadFailure.network, now: f.tick()))!;
+      await f.repositories.libraryFolders
+          .setFolderEnabled(f.folderId, isEnabled: false, updatedAt: f.tick());
+      expect(
+          await f.repo.retryFailedAttempt(failed, f.account,
+              now: f.tick(), maxAttempts: 4),
+          isNull);
+    });
+    test('automatic retry rejects changed sessions and invalid budgets',
+        () async {
+      await f.enqueue();
+      final claimed = (await f.claim())!;
+      final failed =
+          (await f.repo.fail(claimed, DownloadFailure.network, now: f.tick()))!;
+      final changed = await f.repositories.remoteLibrary
+          .activateAccount(f.account.identity);
+      expect(
+          await f.repo.retryFailedAttempt(failed, changed,
+              now: f.tick(), maxAttempts: 4),
+          isNull);
+      for (final budget in [0, 11]) {
+        expect(
+            () => f.repo.retryFailedAttempt(failed, f.account,
+                now: f.now, maxAttempts: budget),
+            throwsArgumentError);
+      }
+    });
     test('quality variants serialize one target while unrelated work proceeds',
         () async {
       final jobs = await f.repo.enqueue(

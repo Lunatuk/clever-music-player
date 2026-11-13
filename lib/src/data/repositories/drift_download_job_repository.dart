@@ -141,12 +141,16 @@ final class DriftDownloadJobRepository implements DownloadJobRepository {
       {required DateTime now,
       Duration leaseFor = const Duration(seconds: 30),
       int? libraryFolderId,
-      String? quality}) {
+      String? quality,
+      int? jobId}) {
     _lease(leaseFor);
     if (libraryFolderId != null && libraryFolderId <= 0) {
       throw ArgumentError('Требуется папка назначения.');
     }
     if (quality != null) validateAssetQuality(quality);
+    if (jobId != null && jobId <= 0) {
+      throw ArgumentError('Требуется ID задания.');
+    }
     return database.transaction(() async {
       if (!await _currentAccount(account)) return null;
       await _recover(now);
@@ -155,6 +159,7 @@ final class DriftDownloadJobRepository implements DownloadJobRepository {
           "WHERE j.account_id = ? AND j.account_revision = ? AND j.state IN ('queued', 'needsReconciliation') "
           '${libraryFolderId == null ? '' : 'AND j.library_folder_id = ? '}'
           '${quality == null ? '' : 'AND j.quality = ? '}'
+          '${jobId == null ? '' : 'AND j.id = ? '}'
           'AND j.remaining_attempts > 0 AND f.is_enabled = 1 AND j.updated_at_micros <= ? '
           'AND (j.retry_at_micros IS NULL OR j.retry_at_micros <= ?) '
           'AND NOT EXISTS (SELECT 1 FROM download_jobs busy WHERE busy.library_folder_id = j.library_folder_id '
@@ -165,6 +170,7 @@ final class DriftDownloadJobRepository implements DownloadJobRepository {
             Variable.withInt(account.revision),
             if (libraryFolderId != null) Variable.withInt(libraryFolderId),
             if (quality != null) Variable.withString(quality),
+            if (jobId != null) Variable.withInt(jobId),
             for (var i = 0; i < 3; i++)
               Variable.withInt(now.microsecondsSinceEpoch)
           ],
@@ -390,6 +396,38 @@ final class DriftDownloadJobRepository implements DownloadJobRepository {
                 failure: const Value(null),
                 completedTrackId: const Value(null)));
       });
+
+  @override
+  Future<DownloadJob?> retryFailedAttempt(
+      DownloadJob expected, RemoteLibraryAccount account,
+      {required DateTime now, required int maxAttempts}) {
+    if (maxAttempts < 1 || maxAttempts > 10) {
+      throw ArgumentError('От 1 до 10 попыток.');
+    }
+    return database.transaction(() async {
+      final usedAttempts = expected.maxAttempts - expected.remainingAttempts;
+      final remainingAttempts = maxAttempts - usedAttempts;
+      if (expected.state != DownloadJobState.failed ||
+          remainingAttempts <= 0 ||
+          expected.accountId != account.id ||
+          expected.accountRevision != account.revision ||
+          account.identity.provider != expected.key.identity.provider ||
+          !await _currentAccount(account) ||
+          !await _enabledFolder(expected.key.libraryFolderId) ||
+          !await _matches(expected, now)) {
+        return null;
+      }
+      return _write(
+          expected,
+          now,
+          DownloadJobsCompanion(
+              state: Value(DownloadJobState.needsReconciliation.name),
+              maxAttempts: Value(maxAttempts),
+              remainingAttempts: Value(remainingAttempts),
+              retryAtMicros: const Value(null),
+              failure: const Value(null)));
+    });
+  }
 
   @override
   Future<int> recoverExpired({required DateTime now}) =>

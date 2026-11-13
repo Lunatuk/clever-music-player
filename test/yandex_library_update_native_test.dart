@@ -168,7 +168,13 @@ void main() {
     };
     try {
       await x.updates.start();
-      expect(x.updates.failure, YandexUpdateFailure.download);
+      expect(x.updates.failure, isNull);
+      expect(x.updates.result!.outcome,
+          YandexDownloadRunOutcome.completedWithFailures);
+      expect(x.updates.result!.failed, 1);
+      expect(
+          (await x.f.repositories.downloadJobs.listJobs()).single.attemptCount,
+          4);
       expect(x.updates.result!.completed, 0);
       expect(await x.f.count('tracks'), 0);
       expect(await x.f.count('downloaded_assets'), 0);
@@ -186,7 +192,13 @@ void main() {
         return value;
       };
       await x.updates.start();
-      expect(x.updates.failure, YandexUpdateFailure.download);
+      expect(x.updates.failure, isNull);
+      expect(x.updates.result!.outcome,
+          YandexDownloadRunOutcome.completedWithFailures);
+      expect(x.updates.result!.failed, 1);
+      expect(
+          (await x.f.repositories.downloadJobs.listJobs()).single.attemptCount,
+          4);
       expect(x.updates.result!.jobFailure, DownloadFailure.unavailable);
       expect(
           server.requests.any((r) => r.path.startsWith('/music-v2/')), isFalse);

@@ -175,6 +175,44 @@ void main() {
       }
     }, skip: skip);
   }
+  for (final successAt in [3, 4, null]) {
+    test('real HTTP failures retry with recovery, success at $successAt',
+        () async {
+      await configure('mp3');
+      var calls = 0;
+      try {
+        server.onAudio = (request) async {
+          calls++;
+          if (successAt == null || calls < successAt) {
+            request.response.statusCode = 503;
+          } else {
+            request.response.headers.contentType = ContentType.binary;
+            request.response.contentLength = await f.raw.length();
+            await request.response.addStream(f.raw.openRead());
+          }
+          await request.response.close();
+        };
+        final result = await run();
+        final succeeded = successAt != null;
+        expect(calls, successAt ?? 4);
+        expect(result.started, 1);
+        expect(result.completed, succeeded ? 1 : 0);
+        expect(result.failed, succeeded ? 0 : 1);
+        expect(
+            result.outcome,
+            succeeded
+                ? YandexDownloadRunOutcome.limited
+                : YandexDownloadRunOutcome.completedWithFailures);
+        expect((await job()).attemptCount, successAt ?? 4);
+        expect(await f.count('tracks'), succeeded ? 1 : 0);
+        expect(result.cleanupFailed, isFalse);
+        expect(events.any((e) => e.isFinalAttempt), successAt != 3);
+        await released();
+      } finally {
+        await close();
+      }
+    }, skip: skip);
+  }
   test('helper qualification fails before claim, then a fresh run succeeds',
       () async {
     await configure('mp3');

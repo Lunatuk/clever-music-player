@@ -352,6 +352,19 @@ void main() {
     expect(entry.fields.values.every((v) => v is num || v is bool), isTrue);
     expect(entry.fields[DiagnosticField.addedTracks], 1);
   });
+  test(
+      'partial completion reports failed track count without a stopped-run error',
+      () async {
+    await x.ready();
+    x.fakeRunner.onRun = (_, __) async => const YandexDownloadRunResult(
+        YandexDownloadRunOutcome.completedWithFailures, 2, 1,
+        failed: 1);
+    await x.updates.start();
+    expect(x.updates.failure, isNull);
+    expect(x.updates.message, contains('Добавлено треков: 1.'));
+    expect(x.updates.message, contains('после повторов: 1.'));
+    expect(x.updates.result!.failed, 1);
+  });
   test('unsupported platform performs no folder, settings or update network IO',
       () async {
     await x.close();
