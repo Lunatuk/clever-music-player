@@ -5,6 +5,7 @@ import '../domain/models/audio_source_reference.dart';
 import '../domain/models/track.dart';
 import '../domain/repositories/track_repository.dart';
 import '../library/artwork_cache_service.dart';
+import '../library/embedded_yandex_identity.dart';
 import '../library/metadata_enrichment.dart';
 import 'audio_documents.dart';
 import 'android_folder_bookmarks.dart';
@@ -37,6 +38,7 @@ final class AndroidImportController extends ChangeNotifier {
       _folderImport = false;
   int _processed = 0, _total = 0, _visited = 0, _imported = 0, _failed = 0;
   int _failedFolders = 0;
+  int _sourceIdentities = 0;
   String? _message;
   int? _folderSession;
   Future<void>? _processing, _closing, _folderClosing;
@@ -72,6 +74,7 @@ final class AndroidImportController extends ChangeNotifier {
     _folderImport = folder;
     _processed = _total = _visited = _imported = _failed = 0;
     _failedFolders = 0;
+    _sourceIdentities = 0;
     _message = null;
     var started = false;
     notifyListeners();
@@ -126,6 +129,7 @@ final class AndroidImportController extends ChangeNotifier {
       if (started && !_closed && _message == null) {
         _message = '${_cancelRequested ? 'Импорт остановлен. ' : ''}'
             'Добавлено в библиотеку: $_imported.'
+            '${_sourceIdentities == 0 ? '' : ' Ссылок Яндекса: $_sourceIdentities.'}'
             '${_failed == 0 ? '' : ' Не добавлено: $_failed. Выберите эти файлы заново.'}'
             '${_failedFolders == 0 ? '' : ' Не удалось обновить папок: $_failedFolders. Проверьте доступ на экране «Папки».'}';
       }
@@ -216,6 +220,9 @@ final class AndroidImportController extends ChangeNotifier {
       try {
         final metadata = await documents.readAudio(source);
         if (_stopped) break;
+        final comments = metadata.sourceComments;
+        final identity =
+            comments == null ? null : embeddedYandexIdentity(comments);
         final merged = mergeAudioDocumentMetadata(metadata);
         CachedArtwork? artwork;
         try {
@@ -249,8 +256,11 @@ final class AndroidImportController extends ChangeNotifier {
             updatedAt: now,
             lastSeenAt: now,
           )
-        ]);
+        ], embeddedYandexIdentities: {
+          if (comments != null) source.storageValue: identity,
+        });
         _imported++;
+        if (identity != null) _sourceIdentities++;
       } on Object {
         _failed++;
       }

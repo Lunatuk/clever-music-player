@@ -61,6 +61,7 @@ android {
         }
     }
     sourceSets.getByName("main").assets.srcDir(mediaAssets)
+    sourceSets.getByName("test").resources.srcDir("../../test/fixtures/source_comments")
 }
 
 tasks.named("preBuild").configure { dependsOn(prepareMediaAssets) }

@@ -39,6 +39,6 @@ jobs:
       - name: Native lint
         working-directory: android
         run: ./gradlew -Ptarget-platform=android-arm64 :app:lintRelease
-      - name: Native traversal and streaming fingerprint tests
+      - name: Native traversal, source tags and streaming fingerprint tests
         working-directory: android
         run: ./gradlew -Ptarget-platform=android-arm64 :app:testReleaseUnitTest -x compileFlutterBuildRelease

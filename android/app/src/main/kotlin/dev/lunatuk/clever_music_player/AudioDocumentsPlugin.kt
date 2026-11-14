@@ -285,8 +285,20 @@ class AudioDocumentsPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activi
         val documentId = runCatching { DocumentsContract.getDocumentId(uri) }.getOrNull()
         check(!AudioPublicationVisibility.hidden(publicationsDirectory, uri.authority, name, documentId))
         check(size != 0L)
-        contentResolver.openAssetFileDescriptor(uri, "r").use { check(it != null && it.declaredLength != 0L) }
-        val metadata = mutableMapOf<String, Any?>("name" to name, "size" to size)
+        val sourceComments = contentResolver.openAssetFileDescriptor(uri, "r").use { asset ->
+            check(asset != null && asset.declaredLength != 0L)
+            // Use only this granted descriptor, including its declared subrange.
+            // Unsupported/non-seekable tags must not prevent normal audio import.
+            runCatching {
+                val offset = asset.startOffset
+                val length = asset.declaredLength
+                asset.createInputStream().use { input ->
+                    AudioSourceComments.read(input.channel, offset, length)
+                }
+            }.getOrNull()
+        }
+        val metadata = mutableMapOf<String, Any?>("name" to name, "size" to size,
+            "sourceComments" to sourceComments)
         val reader = MediaMetadataRetriever()
         try {
             reader.setDataSource(appContext, uri)

@@ -1,6 +1,10 @@
 # Clever Music Player
 
-Current release: **0.3.0 (build 2065)**. Release versions now come from
+Current release: **0.4.0 (build 2066)**. Android imports now preserve embedded
+Yandex source IDs from MP3/M4A/FLAC comments, including existing folders on
+rescan. This prepares quality-aware download checks; those follow separately.
+See [source identity contracts](docs/architecture/embedded-yandex-identities.md).
+Release versions come from
 `pubspec.yaml`, are embedded in Windows/Android metadata and displayed in the
 app. See [release policy and commands](docs/RELEASING.md) and
 [targeted manual checks](docs/MANUAL_CHECKS.md).

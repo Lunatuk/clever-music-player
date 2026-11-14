@@ -21,11 +21,15 @@ final class AudioDocumentMetadata {
       this.artwork,
       this.trackNumber,
       this.discNumber,
-      this.year});
+      this.year,
+      this.sourceComments});
   final String? name, title, artist, album, albumArtist, genre;
   final Duration? duration;
   final int? size, trackNumber, discNumber, year;
   final Uint8List? artwork;
+
+  /// null: no reliable read; empty: comments were read and absent.
+  final List<String>? sourceComments;
 }
 
 abstract interface class AudioDocuments {
@@ -206,6 +210,13 @@ final class AndroidAudioDocuments
     final milliseconds = int.tryParse(tag('durationMs') ?? '');
     final size = data['size'];
     final artwork = data['artwork'];
+    final rawComments = data['sourceComments'];
+    final comments = rawComments is List &&
+            rawComments.length <= 32 &&
+            rawComments
+                .every((value) => value is String && value.length <= 4096)
+        ? List<String>.unmodifiable(rawComments.cast<String>())
+        : null;
     return AudioDocumentMetadata(
       name: tag('name'),
       title: tag('title'),
@@ -220,6 +231,7 @@ final class AndroidAudioDocuments
       trackNumber: number('trackNumber', 1000000),
       discNumber: number('discNumber', 1000000),
       year: number('year', 9999),
+      sourceComments: comments,
       artwork:
           artwork is Uint8List && artwork.length <= 256 * 1024 ? artwork : null,
     );
