@@ -127,8 +127,7 @@ final class YandexHttpTransport
       pending.maxRedirects = 0;
       pending.headers.set(HttpHeaders.acceptHeader, 'application/json');
       pending.headers.set(HttpHeaders.acceptLanguageHeader, 'ru');
-      pending.headers
-          .set(HttpHeaders.userAgentHeader, 'CleverMusicPlayer/0.2.1');
+      pending.headers.set(HttpHeaders.userAgentHeader, 'CleverMusicPlayer');
       pending.headers.set('X-Yandex-Music-Client', request.clientHeader);
       token?.authorize((value) =>
           pending!.headers.set(HttpHeaders.authorizationHeader, value));

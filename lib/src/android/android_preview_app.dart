@@ -9,6 +9,7 @@ import '../appearance/appearance_settings_screen.dart';
 import '../appearance/appearance_theme.dart';
 import '../core/async_lifecycle.dart';
 import '../diagnostics/diagnostics_service.dart';
+import '../ui/app_version_info.dart';
 import '../domain/models/track.dart';
 import '../domain/repositories/track_repository.dart';
 import '../library/artwork_cache_service.dart';
@@ -255,7 +256,13 @@ final class _AndroidLibraryScreenState extends State<AndroidLibraryScreen> {
                   builder: (dialogContext) => AlertDialog(
                         title: const Text('Clever Music Preview'),
                         content: const SingleChildScrollView(
-                            child: Text(
+                            child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            AppVersionInfo(),
+                            SizedBox(height: 16),
+                            Text(
                                 'Android-версия для проверки музыки на телефоне. '
                                 'Можно выбирать отдельные файлы или папку с музыкой и вложенными каталогами. '
                                 'Импорт можно остановить; уже добавленные треки сохранятся.\n\n'
@@ -264,7 +271,9 @@ final class _AndroidLibraryScreenState extends State<AndroidLibraryScreen> {
                                 'Музыка продолжает играть при блокировке экрана. '
                                 'Управление доступно в уведомлении и на экране блокировки.\n\n'
                                 'После прерывания или отключения наушников музыка ставится на паузу. '
-                                'Нажми Play, чтобы продолжить.')),
+                                'Нажми Play, чтобы продолжить.'),
+                          ],
+                        )),
                         actions: [
                           TextButton(
                               onPressed: () {

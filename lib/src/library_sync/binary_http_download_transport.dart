@@ -219,8 +219,7 @@ final class BinaryHttpDownloadTransport {
               ? 'image/jpeg, image/png, application/octet-stream'
               : 'application/octet-stream, audio/*');
       request.headers.set(HttpHeaders.acceptEncodingHeader, 'identity');
-      request.headers
-          .set(HttpHeaders.userAgentHeader, 'CleverMusicPlayer/0.2.1');
+      request.headers.set(HttpHeaders.userAgentHeader, 'CleverMusicPlayer');
       stage = BinaryDownloadStage.waitingForResponse;
       headers = request.close();
       final response = await headers.timeout(idleTimeout);

@@ -33,6 +33,12 @@ jobs:
           flutter-version: '3.41.9'
       - name: Install locked dependencies
         run: flutter pub get --enforce-lockfile
+      - name: Check release version on Windows
+        if: runner.os == 'Windows'
+        run: python tool/release_version.py check
+      - name: Test release version tooling on Windows
+        if: runner.os == 'Windows'
+        run: python -m unittest discover -s tool -p test_release_version.py
       - name: Verify native Windows audio protocol
         if: runner.os == 'Windows'
         shell: pwsh
@@ -82,6 +88,9 @@ jobs:
       - name: Build Windows release
         if: runner.os == 'Windows'
         run: flutter build windows --release --no-pub
+      - name: Verify Windows executable version
+        if: runner.os == 'Windows'
+        run: python tool/release_version.py verify-windows build/windows/x64/runner/Release/clever_music_player.exe
       - name: Verify helper installed in the Windows release
         if: runner.os == 'Windows'
         shell: pwsh

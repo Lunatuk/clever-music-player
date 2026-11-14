@@ -18,6 +18,7 @@ import '../../queue/playback_queue_service.dart';
 import '../../queue/playlist_queue_actions.dart';
 import '../../queue/queue_state.dart';
 import '../diagnostics_settings.dart';
+import '../app_version_info.dart';
 import '../yandex_settings.dart';
 import '../playback_transition_settings.dart';
 import '../player/bottom_player_bar.dart';
@@ -1618,15 +1619,7 @@ final class _DevInfoPanel extends StatelessWidget {
           children: [
             Text('Информация о приложении', style: textTheme.titleMedium),
             const SizedBox(height: 8),
-            Text(
-              'Жидкая волна, интерфейс v1. Пользовательские фоны, GIF, история '
-              'предыдущих треков, импорт и экспорт плейлистов, а также '
-              'синхронизация с сервером намеренно не реализованы в этой '
-              'итерации.',
-              style: textTheme.bodySmall?.copyWith(
-                color: colorScheme.onSurfaceVariant,
-              ),
-            ),
+            const AppVersionInfo(),
           ],
         ),
       ),

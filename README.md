@@ -1,5 +1,10 @@
 # Clever Music Player
 
+Current release: **0.3.0 (build 2065)**. Release versions now come from
+`pubspec.yaml`, are embedded in Windows/Android metadata and displayed in the
+app. See [release policy and commands](docs/RELEASING.md) and
+[targeted manual checks](docs/MANUAL_CHECKS.md).
+
 Package 62 adds shared appearance preferences and an Android editor: system/light/
 dark theme, preset or custom HEX accent, motion speed/off, density and cover radius.
 Changes apply immediately and persist through the settings repository. The new

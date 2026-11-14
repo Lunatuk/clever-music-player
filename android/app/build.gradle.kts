@@ -46,6 +46,12 @@ android {
         release {
             // Local prototype only; production signing is a separate release step.
             signingConfig = signingConfigs.getByName("debug")
+            // Flutter defaults also include other ABIs from dependency AARs.
+            // Keep the unsplit release ARM64-only without changing versionCode.
+            ndk {
+                abiFilters.clear()
+                abiFilters += listOf("arm64-v8a")
+            }
         }
     }
     externalNativeBuild {
