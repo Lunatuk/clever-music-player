@@ -6,6 +6,7 @@ import 'package:drift/drift.dart';
 import '../data/drift/app_database.dart';
 import '../domain/models/audio_document_identity.dart';
 import '../domain/models/audio_source_reference.dart';
+import '../domain/repositories/track_repository.dart';
 import '../library/artwork_cache_service.dart';
 import 'audio_documents.dart';
 
@@ -20,6 +21,43 @@ abstract interface class AndroidImportMetadataCache {
   /// updates commit together. A cache-write failure rolls both back explicitly.
   Future<T> commit<T>(
       List<CachedAndroidAudio> entries, Future<T> Function() importTracks);
+}
+
+/// An optional bounded prefetch. Provider inspection remains per document.
+abstract interface class AndroidImportMetadataCachePages {
+  Future<AndroidMetadataCachePage> prepareSources(
+      List<ContentUriAudioSource> sources);
+}
+
+final class AndroidCacheLookupResult {
+  const AndroidCacheLookupResult(this.value,
+      {this.decodeUs = 0, this.artworkStatUs = 0});
+  final CachedAndroidAudio? value;
+  final int decodeUs, artworkStatUs;
+}
+
+final class AndroidMetadataCachePage {
+  AndroidMetadataCachePage(
+      Map<AudioDocumentIdentity, AndroidAudioCacheRow> rows,
+      {required this.databaseUs,
+      required this.databaseQueries})
+      : _rows = Map.unmodifiable(rows);
+  final Map<AudioDocumentIdentity, AndroidAudioCacheRow> _rows;
+  final int databaseUs, databaseQueries;
+
+  bool mayContain(ContentUriAudioSource source) {
+    final identity = audioDocumentIdentity(source.storageValue);
+    return identity != null &&
+        _rows[identity]?.readerVersion == androidMetadataReaderVersion;
+  }
+
+  Future<AndroidCacheLookupResult> lookup(AudioDocumentRevision revision) =>
+      _resolveCachedAudio(
+          revision,
+          _rows[(
+            authority: revision.authority,
+            documentId: revision.documentId
+          )]);
 }
 
 final class AndroidMetadataCacheWriteFailure implements Exception {
@@ -143,9 +181,44 @@ final class CachedAndroidAudio {
 }
 
 final class DriftAndroidImportMetadataCache
-    implements AndroidImportMetadataCache {
+    implements AndroidImportMetadataCache, AndroidImportMetadataCachePages {
   const DriftAndroidImportMetadataCache(this.database);
   final AppDatabase database;
+
+  @override
+  Future<AndroidMetadataCachePage> prepareSources(
+      List<ContentUriAudioSource> sources) async {
+    if (sources.length > TrackImportRepository.maxBatchSize) {
+      throw ArgumentError.value(sources.length, 'sources.length');
+    }
+    final identities = sources
+        .map((source) => audioDocumentIdentity(source.storageValue))
+        .nonNulls
+        .toSet();
+    if (identities.isEmpty) {
+      return AndroidMetadataCachePage({}, databaseUs: 0, databaseQueries: 0);
+    }
+    final timer = Stopwatch()..start();
+    final table = database.androidAudioCaches;
+    final byAuthority = <String, List<String>>{};
+    for (final id in identities) {
+      (byAuthority[id.authority] ??= []).add(id.documentId);
+    }
+    final rows = await (database.select(table)
+          ..where((t) {
+            final matches = byAuthority.entries
+                .map((group) =>
+                    t.authority.equals(group.key) &
+                    t.documentId.isIn(group.value))
+                .reduce((left, right) => left | right);
+            return matches & t.payload.length.isSmallerOrEqualValue(262144);
+          }))
+        .get();
+    return AndroidMetadataCachePage({
+      for (final row in rows)
+        (authority: row.authority, documentId: row.documentId): row,
+    }, databaseUs: timer.elapsedMicroseconds, databaseQueries: 1);
+  }
 
   @override
   Future<void> invalidateSource(ContentUriAudioSource source) async {
@@ -166,20 +239,7 @@ final class DriftAndroidImportMetadataCache
               t.authority.equals(revision.authority) &
               t.documentId.equals(revision.documentId)))
         .getSingleOrNull();
-    if (row == null ||
-        row.readerVersion != androidMetadataReaderVersion ||
-        row.name != revision.name ||
-        row.sizeBytes != revision.size ||
-        row.modifiedMs != revision.modifiedMs) {
-      return null;
-    }
-    final cached = CachedAndroidAudio.decode(revision, row.payload);
-    final cover = cached?.artwork;
-    if (cover != null) {
-      final stat = await File(cover.path).stat();
-      if (stat.type != FileSystemEntityType.file || stat.size <= 0) return null;
-    }
-    return cached;
+    return (await _resolveCachedAudio(revision, row)).value;
   }
 
   @override
@@ -208,4 +268,31 @@ final class DriftAndroidImportMetadataCache
         }
         return result;
       });
+}
+
+Future<AndroidCacheLookupResult> _resolveCachedAudio(
+    AudioDocumentRevision revision, AndroidAudioCacheRow? row) async {
+  if (row == null ||
+      row.readerVersion != androidMetadataReaderVersion ||
+      row.name != revision.name ||
+      row.sizeBytes != revision.size ||
+      row.modifiedMs != revision.modifiedMs) {
+    return const AndroidCacheLookupResult(null);
+  }
+  final decodeTimer = Stopwatch()..start();
+  final cached = CachedAndroidAudio.decode(revision, row.payload);
+  final decodeUs = decodeTimer.elapsedMicroseconds;
+  final cover = cached?.artwork;
+  if (cover != null) {
+    final statTimer = Stopwatch()..start();
+    final stat = await File(cover.path).stat();
+    final statUs = statTimer.elapsedMicroseconds;
+    if (stat.type != FileSystemEntityType.file || stat.size <= 0) {
+      return AndroidCacheLookupResult(null,
+          decodeUs: decodeUs, artworkStatUs: statUs);
+    }
+    return AndroidCacheLookupResult(cached,
+        decodeUs: decodeUs, artworkStatUs: statUs);
+  }
+  return AndroidCacheLookupResult(cached, decodeUs: decodeUs);
 }

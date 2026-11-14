@@ -97,6 +97,56 @@ abstract interface class AudioDocumentInspection {
   Future<AudioDocumentRevision?> inspectAudio(ContentUriAudioSource source);
 }
 
+abstract interface class ProfiledAudioDocumentInspection {
+  Future<AudioDocumentInspectionResult> inspectProfiledAudio(
+      ContentUriAudioSource source);
+}
+
+final class AudioDocumentInspectionResult {
+  const AudioDocumentInspectionResult(this.revision, {this.timings});
+  final AudioDocumentRevision? revision;
+  final AudioDocumentInspectionTimings? timings;
+}
+
+/// Revision time includes visibility checks. Do not sum those two fields.
+final class AudioDocumentInspectionTimings {
+  const AudioDocumentInspectionTimings(
+      {required this.totalUs,
+      required this.permissionUs,
+      required this.revisionUs,
+      required this.visibilityUs,
+      required this.descriptorUs});
+  final int totalUs, permissionUs, revisionUs, visibilityUs, descriptorUs;
+
+  static AudioDocumentInspectionTimings? parse(Object? value) {
+    if (value is! Map || value['version'] != 1) return null;
+    const keys = [
+      'totalUs',
+      'permissionUs',
+      'revisionUs',
+      'visibilityUs',
+      'descriptorUs'
+    ];
+    for (final key in keys) {
+      final v = value[key];
+      if (v is! int || v < 0 || v > 3600000000) return null;
+    }
+    if ((value['permissionUs'] as int) +
+                (value['revisionUs'] as int) +
+                (value['descriptorUs'] as int) >
+            (value['totalUs'] as int) ||
+        (value['visibilityUs'] as int) > (value['revisionUs'] as int)) {
+      return null;
+    }
+    return AudioDocumentInspectionTimings(
+        totalUs: value['totalUs'] as int,
+        permissionUs: value['permissionUs'] as int,
+        revisionUs: value['revisionUs'] as int,
+        visibilityUs: value['visibilityUs'] as int,
+        descriptorUs: value['descriptorUs'] as int);
+  }
+}
+
 /// Optional native measurements; these are subsets of the Dart channel time.
 final class AudioDocumentReadTimings {
   const AudioDocumentReadTimings(
@@ -171,7 +221,8 @@ final class AndroidAudioDocuments
         AudioDocuments,
         AudioDocumentFolders,
         AudioDocumentFolderAccess,
-        AudioDocumentInspection {
+        AudioDocumentInspection,
+        ProfiledAudioDocumentInspection {
   const AndroidAudioDocuments({MethodChannel? channel})
       : _channel = channel ??
             const MethodChannel(
@@ -181,8 +232,17 @@ final class AndroidAudioDocuments
   @override
   Future<AudioDocumentRevision?> inspectAudio(
           ContentUriAudioSource source) async =>
-      AudioDocumentRevision.parse(await _channel
-          .invokeMethod<Object?>('inspectAudio', {'uri': source.storageValue}));
+      (await inspectProfiledAudio(source)).revision;
+
+  @override
+  Future<AudioDocumentInspectionResult> inspectProfiledAudio(
+      ContentUriAudioSource source) async {
+    final value = await _channel
+        .invokeMethod<Object?>('inspectAudio', {'uri': source.storageValue});
+    return AudioDocumentInspectionResult(AudioDocumentRevision.parse(value),
+        timings: AudioDocumentInspectionTimings.parse(
+            value is Map ? value['inspectionTimings'] : null));
+  }
 
   @override
   Future<List<ContentUriAudioSource>> listAudioFolderGrants() async {

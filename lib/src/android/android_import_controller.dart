@@ -144,14 +144,13 @@ final class AndroidImportController extends ChangeNotifier {
     } on Object {
       if (!_stopped) {
         _profile?.interrupted = true;
-        _message =
-            'Не удалось завершить импорт. Добавлено в библиотеку: $_imported. '
+        _message = 'Не удалось завершить импорт. Обработано: $_imported. '
             'Проверьте доступ и повторите выбор.';
       }
     } finally {
       if (started && !_closed && _message == null) {
         _message = '${_cancelRequested ? 'Импорт остановлен. ' : ''}'
-            'Добавлено в библиотеку: $_imported.'
+            'Обработано: $_imported.'
             '${_sourceIdentities == 0 ? '' : ' Ссылок Яндекса: $_sourceIdentities.'}'
             '${_failed == 0 ? '' : ' Не добавлено: $_failed. Выберите эти файлы заново.'}'
             '${_failedFolders == 0 ? '' : ' Не удалось обновить папок: $_failedFolders. Проверьте доступ на экране «Папки».'}'
@@ -251,14 +250,36 @@ final class AndroidImportController extends ChangeNotifier {
 
   Future<void> _importSources(Iterable<ContentUriAudioSource> sources,
       {int? libraryFolderId}) async {
+    final pageSources = sources.toSet().toList(growable: false);
     final pending = <_PreparedImport>[];
     var batchAt = _tick();
     try {
-      for (final source in sources.toSet()) {
+      AndroidMetadataCachePage? cachePage;
+      final cache = metadataCache;
+      if (!_stopped &&
+          documents is AudioDocumentInspection &&
+          !_forceRead &&
+          !_cacheDisabled &&
+          cache is AndroidImportMetadataCachePages &&
+          pageSources.length <= TrackImportRepository.maxBatchSize) {
+        final at = _tick();
+        try {
+          cachePage = await (cache as AndroidImportMetadataCachePages)
+              .prepareSources(pageSources);
+          _profile!.cacheDatabaseUs += cachePage.databaseUs;
+          _profile!.cacheDatabaseQueries += cachePage.databaseQueries;
+        } on Object {
+          _profile!.cacheFailures++;
+          _cacheDisabled = true;
+        } finally {
+          _profile!.cacheUs += _tick() - at;
+        }
+      }
+      for (final source in pageSources) {
         if (_stopped) break;
         try {
           late final AudioDocumentMetadata metadata;
-          final cached = await _cachedAudio(source);
+          final cached = await _cachedAudio(source, cachePage);
           if (_stopped) break;
           if (cached != null) {
             metadata = cached.metadata;
@@ -351,7 +372,8 @@ final class AndroidImportController extends ChangeNotifier {
     }
   }
 
-  Future<CachedAndroidAudio?> _cachedAudio(ContentUriAudioSource source) async {
+  Future<CachedAndroidAudio?> _cachedAudio(
+      ContentUriAudioSource source, AndroidMetadataCachePage? page) async {
     if (metadataCache == null) return null;
     if (_forceRead && !_cacheDisabled) {
       final at = _tick();
@@ -368,24 +390,52 @@ final class AndroidImportController extends ChangeNotifier {
       _profile!.cacheMisses++;
       return null;
     }
+    if (page != null && !page.mayContain(source)) {
+      // No usable snapshot exists. The ordinary reader performs its own fresh
+      // permission/descriptor/stamp checks; avoid a duplicate preliminary call.
+      _profile!.cacheMisses++;
+      _profile!.cacheInspectionSkipped++;
+      return null;
+    }
     final at = _tick();
     _profile!.cacheChecks++;
     try {
       AudioDocumentRevision? revision;
+      final inspectAt = _tick();
       try {
-        revision =
-            await (documents as AudioDocumentInspection).inspectAudio(source);
+        if (documents is ProfiledAudioDocumentInspection) {
+          final result = await (documents as ProfiledAudioDocumentInspection)
+              .inspectProfiledAudio(source);
+          revision = result.revision;
+          _profile!.addInspection(result.timings);
+        } else {
+          revision =
+              await (documents as AudioDocumentInspection).inspectAudio(source);
+        }
       } on Object {
         _profile!.cacheFailures++;
+      } finally {
+        _profile!.cacheInspectionUs += _tick() - inspectAt;
       }
       if (_stopped) return null;
       CachedAndroidAudio? cached;
       if (revision != null) {
+        final lookupAt = _tick();
         try {
-          cached = await metadataCache!.lookup(revision);
+          if (page != null) {
+            final result = await page.lookup(revision);
+            cached = result.value;
+            _profile!.cacheDecodeUs += result.decodeUs;
+            _profile!.cacheArtworkStatUs += result.artworkStatUs;
+          } else {
+            _profile!.cacheLegacyLookups++;
+            cached = await metadataCache!.lookup(revision);
+          }
         } on Object {
           _profile!.cacheFailures++;
           _cacheDisabled = true;
+        } finally {
+          _profile!.cacheLookupUs += _tick() - lookupAt;
         }
       }
       if (cached == null) {
@@ -502,6 +552,26 @@ final class AndroidImportController extends ChangeNotifier {
         DiagnosticField.metadataForceRead: _forceRead,
         DiagnosticField.metadataCacheWrites: profile.cacheWrites,
         DiagnosticField.metadataCacheIneligible: profile.cacheIneligible,
+        DiagnosticField.metadataCacheDatabaseUs: profile.cacheDatabaseUs,
+        DiagnosticField.metadataCacheDatabaseQueries:
+            profile.cacheDatabaseQueries,
+        DiagnosticField.metadataCacheInspectionUs: profile.cacheInspectionUs,
+        DiagnosticField.metadataCacheLookupUs: profile.cacheLookupUs,
+        DiagnosticField.metadataCacheDecodeUs: profile.cacheDecodeUs,
+        DiagnosticField.metadataCacheArtworkStatUs: profile.cacheArtworkStatUs,
+        DiagnosticField.metadataCacheLegacyLookups: profile.cacheLegacyLookups,
+        DiagnosticField.metadataCacheInspectionSkipped:
+            profile.cacheInspectionSkipped,
+        DiagnosticField.nativeInspectionReads: profile.inspectionReads,
+        DiagnosticField.nativeInspectionUs: profile.inspectionUs,
+        DiagnosticField.nativeInspectionPermissionUs:
+            profile.inspectionPermissionUs,
+        DiagnosticField.nativeInspectionRevisionUs:
+            profile.inspectionRevisionUs,
+        DiagnosticField.nativeInspectionVisibilityUs:
+            profile.inspectionVisibilityUs,
+        DiagnosticField.nativeInspectionDescriptorUs:
+            profile.inspectionDescriptorUs,
       });
     } on Object {
       // Diagnostics must not affect import completion or shutdown.
@@ -558,6 +628,16 @@ final class _ImportProfile {
   _ImportProfile(this.startedUs);
   final int startedUs;
   bool interrupted = false;
+  int cacheInspectionSkipped = 0;
+  int cacheDatabaseUs = 0, cacheDatabaseQueries = 0, cacheInspectionUs = 0;
+  int cacheLookupUs = 0,
+      cacheDecodeUs = 0,
+      cacheArtworkStatUs = 0,
+      cacheLegacyLookups = 0;
+  int inspectionReads = 0, inspectionUs = 0, inspectionPermissionUs = 0;
+  int inspectionRevisionUs = 0,
+      inspectionVisibilityUs = 0,
+      inspectionDescriptorUs = 0;
   int cacheWrites = 0, cacheIneligible = 0;
   int metadataReads = 0, metadataUs = 0, artworkUs = 0, folderUs = 0;
   int databaseUs = 0, batches = 0, fallbackRows = 0, progressUpdates = 0;
@@ -568,6 +648,16 @@ final class _ImportProfile {
       cacheChecks = 0,
       cacheUs = 0,
       cacheFailures = 0;
+
+  void addInspection(AudioDocumentInspectionTimings? timings) {
+    if (timings == null) return;
+    inspectionReads++;
+    inspectionUs += timings.totalUs;
+    inspectionPermissionUs += timings.permissionUs;
+    inspectionRevisionUs += timings.revisionUs;
+    inspectionVisibilityUs += timings.visibilityUs;
+    inspectionDescriptorUs += timings.descriptorUs;
+  }
 
   void addNative(AudioDocumentReadTimings? timings) {
     if (timings == null) return;

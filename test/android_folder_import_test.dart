@@ -146,7 +146,7 @@ void main() {
       expect(await f.rows(), isEmpty);
       expect(f.documents.reads, 0);
       expect(f.documents.closes, 1);
-      expect(f.importer.message, contains('Добавлено в библиотеку: 0'));
+      expect(f.importer.message, contains('Обработано: 0'));
     });
 
     test('picker cancellation never opens a traversal', () async {

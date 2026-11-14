@@ -134,16 +134,30 @@ class AudioDocumentsPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activi
                         }
                     }
                     "inspectAudio" -> onWorker(result) {
+                        val startedAt = System.nanoTime()
+                        val timings = AudioInspectionTimings()
                         val uri = call.argument<String>("uri")?.let(Uri::parse) ?: error("invalid_source")
-                        check(uri.scheme == "content" && hasPersistentRead(uri))
-                        val revision = documentRevision(uri)
+                        val permissionAt = System.nanoTime()
+                        try {
+                            check(uri.scheme == "content" && hasPersistentRead(uri))
+                        } finally {
+                            timings.permissionNs = System.nanoTime() - permissionAt
+                        }
+                        val revision = documentRevision(uri, timings)
                         if (revision != null) {
                             // Metadata can be queryable even when audio access is lost.
-                            contentResolver.openAssetFileDescriptor(uri, "r").use { asset ->
-                                check(asset != null && asset.declaredLength != 0L)
+                            val descriptorAt = System.nanoTime()
+                            try {
+                                contentResolver.openAssetFileDescriptor(uri, "r").use { asset ->
+                                    check(asset != null && asset.declaredLength != 0L)
+                                }
+                            } finally {
+                                timings.descriptorNs = System.nanoTime() - descriptorAt
                             }
                         }
-                        revision?.message()
+                        val response = revision?.message()?.toMutableMap() ?: mutableMapOf()
+                        response["inspectionTimings"] = timings.message(System.nanoTime() - startedAt)
+                        response
                     }
                     "readAudio" -> {
                         val address = call.argument<String>("uri")
@@ -281,29 +295,39 @@ class AudioDocumentsPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activi
                 DocumentsContract.getTreeDocumentId(it.uri) == DocumentsContract.getTreeDocumentId(uri)))
     }
 
-    private fun documentRevision(uri: Uri): AudioDocumentRevision? {
+    private fun documentRevision(uri: Uri, timings: AudioInspectionTimings? = null): AudioDocumentRevision? {
         if (uri.authority != "com.android.externalstorage.documents" ||
             uri.query != null || uri.fragment != null) return null
-        return runCatching {
-            val id = DocumentsContract.getDocumentId(uri)
-            val columns = arrayOf(
-                DocumentsContract.Document.COLUMN_DISPLAY_NAME,
-                DocumentsContract.Document.COLUMN_SIZE,
-                DocumentsContract.Document.COLUMN_LAST_MODIFIED,
-                DocumentsContract.Document.COLUMN_FLAGS)
-            contentResolver.query(uri, columns, null, null, null)?.use { cursor ->
-                if (!cursor.moveToFirst()) return@use null
-                val indexes = columns.map { cursor.getColumnIndex(it) }
-                if (indexes.any { it < 0 || cursor.isNull(it) }) return@use null
-                val name = cursor.getString(indexes[0])
-                check(!AudioPublicationVisibility.hidden(publicationsDirectory, uri.authority, name, id))
-                val flags = cursor.getInt(indexes[3])
-                val partial = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
-                    flags and DocumentsContract.Document.FLAG_PARTIAL != 0
-                AudioDocumentRevision.create(uri.authority, id, name, cursor.getLong(indexes[1]), cursor.getLong(indexes[2]),
-                    flags and DocumentsContract.Document.FLAG_VIRTUAL_DOCUMENT == 0 && !partial)
-            }
-        }.getOrNull()
+        val startedAt = System.nanoTime()
+        return try {
+            runCatching {
+                val id = DocumentsContract.getDocumentId(uri)
+                val columns = arrayOf(
+                    DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                    DocumentsContract.Document.COLUMN_SIZE,
+                    DocumentsContract.Document.COLUMN_LAST_MODIFIED,
+                    DocumentsContract.Document.COLUMN_FLAGS)
+                contentResolver.query(uri, columns, null, null, null)?.use { cursor ->
+                    if (!cursor.moveToFirst()) return@use null
+                    val indexes = columns.map { cursor.getColumnIndex(it) }
+                    if (indexes.any { it < 0 || cursor.isNull(it) }) return@use null
+                    val name = cursor.getString(indexes[0])
+                    val visibilityAt = System.nanoTime()
+                    try {
+                        check(!AudioPublicationVisibility.hidden(publicationsDirectory, uri.authority, name, id))
+                    } finally {
+                        timings?.visibilityNs = System.nanoTime() - visibilityAt
+                    }
+                    val flags = cursor.getInt(indexes[3])
+                    val partial = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+                        flags and DocumentsContract.Document.FLAG_PARTIAL != 0
+                    AudioDocumentRevision.create(uri.authority, id, name, cursor.getLong(indexes[1]), cursor.getLong(indexes[2]),
+                        flags and DocumentsContract.Document.FLAG_VIRTUAL_DOCUMENT == 0 && !partial)
+                }
+            }.getOrNull()
+        } finally {
+            timings?.revisionNs = System.nanoTime() - startedAt
+        }
     }
 
     private fun readAudio(uri: Uri): Map<String, Any?> {

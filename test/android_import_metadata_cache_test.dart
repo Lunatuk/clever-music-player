@@ -14,6 +14,8 @@ import 'package:clever_music_player/src/domain/repositories/track_repository.dar
 import 'package:clever_music_player/src/library/artwork_cache_service.dart';
 import 'package:clever_music_player/src/library/metadata_enrichment.dart';
 import 'package:drift/native.dart';
+import 'package:drift/drift.dart'
+    show ApplyInterceptor, QueryExecutor, QueryInterceptor, Variable;
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -33,12 +35,18 @@ void main() {
       expect(f.documents.reads, 130);
       expect(f.artwork.calls, 130);
       expect(await f.cacheCount(), 130);
+      expect(f.sql.cacheSelects, 3);
       expect(f.profile[DiagnosticField.metadataCacheWrites], 130);
       final before = await f.rows();
       f.documents.reads = f.artwork.calls = 0;
+      f.sql.cacheSelects = 0;
+      f.documents.inspections = 0;
       await f.importer.importFolder();
       expect(f.documents.reads, 0);
       expect(f.artwork.calls, 0);
+      expect(f.sql.cacheSelects, 3);
+      expect(f.documents.inspections, 130);
+      expect(f.profile[DiagnosticField.metadataCacheDatabaseQueries], 3);
       expect(f.profile[DiagnosticField.metadataReads], 0);
       expect(f.profile[DiagnosticField.metadataCacheHits], 130);
       expect(f.profile[DiagnosticField.metadataCacheWrites], 0);
@@ -46,6 +54,130 @@ void main() {
       expect(f.importer.message, contains('Без повторного чтения: 130'));
       expect({for (final t in await f.rows()) t.filePath: t.id},
           {for (final t in before) t.filePath: t.id});
+    });
+
+    test('cold misses use the ordinary reader without duplicate inspection',
+        () async {
+      await f.importer.importFolder();
+      expect(f.documents.inspections, 0);
+      expect(f.documents.reads, 3);
+      expect(f.profile[DiagnosticField.metadataCacheInspectionSkipped], 3);
+      expect(f.profile[DiagnosticField.metadataCacheWrites], 3);
+    });
+
+    test('prefetch query uses the composite identity index', () async {
+      await f.importer.importFolder();
+      final statement = f.sql.lastStatement!;
+      final args = List<Object?>.of(f.sql.lastArgs);
+      final plan = await f.database.customSelect(
+          'EXPLAIN QUERY PLAN $statement',
+          variables: [for (final arg in args) Variable<Object>(arg)]).get();
+      final detail = plan.map((row) => row.read<String>('detail')).join(' ');
+      expect(detail, contains('INDEX'));
+      expect(detail, isNot(contains('SCAN android_audio_caches')));
+    });
+
+    test('a mutation after prefetch still invalidates the cached snapshot',
+        () async {
+      await f.importer.importFolder();
+      f.documents.reads = 0;
+      f.documents.inspectAction = (i) async {
+        if (i == 0) {
+          final old = f.documents.revision(1);
+          f.documents.revisions[1] = AudioDocumentRevision(
+              authority: old.authority,
+              documentId: old.documentId,
+              name: old.name,
+              size: old.size,
+              modifiedMs: old.modifiedMs + 1);
+        }
+        return f.documents.revision(i);
+      };
+      await f.importer.importFolder();
+      expect(f.documents.reads, 1);
+      expect(f.profile[DiagnosticField.metadataCacheHits], 2);
+    });
+
+    test('thumbnail removal after prefetch is checked at that document',
+        () async {
+      await f.importer.importFolder();
+      final track = (await f.rows())[1];
+      f.documents.reads = 0;
+      f.documents.inspectAction = (i) async {
+        if (i == 0) await File(track.artworkPath!).delete();
+        return f.documents.revision(i);
+      };
+      await f.importer.importFolder();
+      expect(f.documents.reads, 1);
+      expect(f.profile[DiagnosticField.metadataCacheHits], 2);
+    });
+
+    test('grant revocation after prefetch cannot become a cached import',
+        () async {
+      await f.importer.importFolder();
+      f.documents.inspectAction = (i) async {
+        if (i == 0) f.documents.revoked.add(1);
+        return f.documents.revision(i);
+      };
+      await f.importer.importFolder();
+      expect(f.profile[DiagnosticField.importRows], 2);
+      expect(f.profile[DiagnosticField.errorCount], 1);
+    });
+
+    test('prefetch is bounded and ignores sources without document identities',
+        () async {
+      final cache = DriftAndroidImportMetadataCache(f.database);
+      await expectLater(
+          cache.prepareSources(List.filled(65, f.documents.source(0))),
+          throwsArgumentError);
+      final page = await cache.prepareSources(
+          [ContentUriAudioSource('content://test/not-a-document')]);
+      expect(page.databaseQueries, 0);
+      expect((await page.lookup(f.documents.revision(0))).value, isNull);
+    });
+
+    for (final closing in [false, true]) {
+      test(
+          '${closing ? 'close' : 'cancel'} drains a pending prefetch without reading files',
+          () async {
+        final entered = Completer<void>(), release = Completer<void>();
+        f.sql.beforeCacheSelect = () async {
+          entered.complete();
+          await release.future;
+        };
+        final running = f.importer.importFolder();
+        await entered.future;
+        Future<void>? closed;
+        if (closing) {
+          closed = f.importer.close();
+        } else {
+          await f.importer.cancel();
+        }
+        release.complete();
+        await running;
+        await closed;
+        expect(f.documents.reads, 0);
+        expect(f.documents.inspections, 0);
+        expect(await f.rows(), isEmpty);
+        expect(await f.cacheCount(), 0);
+      });
+    }
+
+    test('inspection profiles aggregate and reset without exposing metadata',
+        () async {
+      await f.importer.importFolder();
+      expect(f.profile[DiagnosticField.nativeInspectionReads], 0);
+      await f.importer.importFolder();
+      expect(f.profile[DiagnosticField.nativeInspectionReads], 3);
+      expect(f.profile[DiagnosticField.nativeInspectionUs], 300);
+      expect(f.profile[DiagnosticField.nativeInspectionPermissionUs], 30);
+      expect(f.profile[DiagnosticField.nativeInspectionRevisionUs], 150);
+      expect(f.profile[DiagnosticField.nativeInspectionVisibilityUs], 60);
+      expect(f.profile[DiagnosticField.nativeInspectionDescriptorUs], 90);
+      await f.importer.importFolder();
+      expect(f.profile[DiagnosticField.nativeInspectionReads], 3);
+      expect(f.profile.toString(), isNot(contains('content:')));
+      expect(f.profile.toString(), isNot(contains('primary:')));
     });
 
     test('reliable absence of artwork is cached without repeated reader work',
@@ -466,13 +598,15 @@ final class _Fixture {
   final Directory directory;
   final documents = _Documents();
   final diagnostics = RecordingDiagnostics();
+  final sql = _CacheSql();
   late _Artwork artwork;
   late AppDatabase database;
   late DriftRepositories repositories;
   late AndroidImportController importer;
   void open() {
-    database =
-        AppDatabase(NativeDatabase(File('${directory.path}/cache.sqlite')));
+    database = AppDatabase(
+        NativeDatabase(File('${directory.path}/cache.sqlite'))
+            .interceptWith(sql));
     repositories = DriftRepositories(database);
     importer = AndroidImportController(
         documents: documents,
@@ -504,8 +638,31 @@ final class _Fixture {
   }
 }
 
+final class _CacheSql extends QueryInterceptor {
+  int cacheSelects = 0;
+  String? lastStatement;
+  List<Object?> lastArgs = [];
+  Future<void> Function()? beforeCacheSelect;
+  @override
+  Future<List<Map<String, Object?>>> runSelect(
+      QueryExecutor executor, String statement, List<Object?> args) async {
+    if (statement.startsWith('SELECT') &&
+        statement.contains('FROM "android_audio_caches"')) {
+      cacheSelects++;
+      lastStatement = statement;
+      lastArgs = List.of(args);
+      await beforeCacheSelect?.call();
+    }
+    return executor.runSelect(statement, args);
+  }
+}
+
 final class _Documents
-    implements AudioDocuments, AudioDocumentFolders, AudioDocumentInspection {
+    implements
+        AudioDocuments,
+        AudioDocumentFolders,
+        AudioDocumentInspection,
+        ProfiledAudioDocumentInspection {
   String treeName = 'root';
   ContentUriAudioSource get tree => ContentUriAudioSource(
       'content://com.android.externalstorage.documents/tree/$treeName');
@@ -547,6 +704,17 @@ final class _Documents
     return inspectAction?.call(i) ??
         Future.value(unsupported.contains(i) ? null : revision(i));
   }
+
+  @override
+  Future<AudioDocumentInspectionResult> inspectProfiledAudio(
+          ContentUriAudioSource source) async =>
+      AudioDocumentInspectionResult(await inspectAudio(source),
+          timings: const AudioDocumentInspectionTimings(
+              totalUs: 100,
+              permissionUs: 10,
+              revisionUs: 50,
+              visibilityUs: 20,
+              descriptorUs: 30));
 
   @override
   Future<AudioDocumentMetadata> readAudio(ContentUriAudioSource source) {

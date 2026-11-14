@@ -248,7 +248,7 @@ void main() {
       f.diagnostics.fail = true;
       await f.importer.importFolder();
       expect(await f.rows(), hasLength(5));
-      expect(f.importer.message, contains('Добавлено в библиотеку: 5'));
+      expect(f.importer.message, contains('Обработано: 5'));
       expect(f.importer.busy, isFalse);
     });
   });

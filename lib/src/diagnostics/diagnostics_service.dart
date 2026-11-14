@@ -191,6 +191,20 @@ enum DiagnosticField {
   metadataForceRead,
   metadataCacheWrites,
   metadataCacheIneligible,
+  metadataCacheDatabaseUs,
+  metadataCacheDatabaseQueries,
+  metadataCacheInspectionUs,
+  metadataCacheLookupUs,
+  metadataCacheDecodeUs,
+  metadataCacheArtworkStatUs,
+  metadataCacheLegacyLookups,
+  metadataCacheInspectionSkipped,
+  nativeInspectionReads,
+  nativeInspectionUs,
+  nativeInspectionPermissionUs,
+  nativeInspectionRevisionUs,
+  nativeInspectionVisibilityUs,
+  nativeInspectionDescriptorUs,
 }
 
 /// Only fixed event/field names and numeric/boolean values enter the journal.
