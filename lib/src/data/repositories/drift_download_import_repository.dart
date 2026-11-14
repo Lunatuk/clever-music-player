@@ -149,7 +149,7 @@ final class DriftDownloadImportRepository implements DownloadImportRepository {
         track.isMissing ||
         track.libraryFolderId != current.key.libraryFolderId ||
         track.filePath != publication.track.filePath ||
-        track.contentHash != publication.verification.contentHash ||
+        !publication.verification.matchesContentHash(track.contentHash) ||
         track.fileSizeBytes != publication.verification.fileSizeBytes ||
         asset == null ||
         asset.state != DownloadedAssetState.verified ||

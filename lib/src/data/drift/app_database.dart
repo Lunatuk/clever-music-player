@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../../diagnostics/diagnostics_service.dart';
+import '../../domain/models/file_content_identity.dart';
 
 part 'app_database.g.dart';
 
@@ -294,7 +295,7 @@ class AppDatabase extends _$AppDatabase {
       AppDatabase(_openConnection(diagnostics), diagnostics: diagnostics);
 
   @override
-  int get schemaVersion => 13;
+  int get schemaVersion => 14;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -371,6 +372,33 @@ class AppDatabase extends _$AppDatabase {
                   if (from < 13) {
                     await migrator.createTable(downloadJobs);
                     await migrator.createTable(downloadAttempts);
+                  }
+                  if (from < 14) {
+                    // A bare legacy value is ambiguous. Promote only a known
+                    // available download with matching source, size and proof.
+                    // No media IO, row merges, user metadata or proof changes.
+                    await customStatement('''
+UPDATE tracks
+SET content_hash = '${FileContentIdentity.keyPrefix}' || file_size_bytes || ':' || content_hash
+WHERE is_missing = 0
+  AND typeof(file_size_bytes) = 'integer' AND file_size_bytes > 0
+  AND typeof(content_hash) = 'text'
+  AND length(CAST(content_hash AS BLOB)) = 64
+  AND content_hash NOT GLOB '*[^0-9a-f]*'
+  AND EXISTS (
+    SELECT 1 FROM downloaded_assets AS asset
+    WHERE asset.track_id = tracks.id AND asset.state = 'verified'
+      AND asset.source = tracks.file_path
+      AND asset.file_size_bytes = tracks.file_size_bytes
+      AND asset.content_hash = tracks.content_hash
+      AND asset.duration_ms > 0 AND asset.revision > 0
+      AND EXISTS (
+        SELECT 1 FROM external_track_refs AS ref
+        WHERE ref.track_id = asset.track_id AND ref.provider = asset.provider
+          AND ref.external_id = asset.external_id AND ref.variant_key = asset.variant_key
+      )
+  )
+''');
                   }
                   await _createIndexes();
                   // Commit the version marker with the DDL so an interruption cannot

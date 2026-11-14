@@ -10,7 +10,8 @@ List<Track> withoutExactTrackCopies(Iterable<Track> tracks) {
   final result = <Track>[];
   final indexesByContent = <String, int>{};
   for (final track in withoutRepeatedAudioSources(tracks)) {
-    final key = verifiedFileContentKey(track.contentHash);
+    final key = verifiedFileContentKey(track.contentHash,
+        expectedSizeBytes: track.fileSizeBytes);
     if (key == null) {
       result.add(track);
       continue;

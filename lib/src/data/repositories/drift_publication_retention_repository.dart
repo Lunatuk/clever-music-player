@@ -79,7 +79,7 @@ final class DriftPublicationRetentionRepository
                   destination: folder.path,
                   fileName: fileName,
                   documentLocation: request.documentLocation) ||
-              track.contentHash != proof.contentHash ||
+              !proof.matchesContentHash(track.contentHash) ||
               track.fileSizeBytes != proof.fileSizeBytes ||
               asset == null ||
               asset.state != DownloadedAssetState.verified ||

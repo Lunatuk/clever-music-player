@@ -26,10 +26,10 @@ final class DownloadedTrackImport {
     required this.jobId,
     required this.key,
     required this.publicationId,
-    required this.track,
+    required Track track,
     required this.verification,
     this.documentLocation,
-  }) {
+  }) : track = _canonicalDownloadedTrack(track, verification) {
     if (jobId <= 0 ||
         publicationId.length != 64 ||
         !RegExp(r'^[a-f0-9]{64}$').hasMatch(publicationId) ||
@@ -45,7 +45,7 @@ final class DownloadedTrackImport {
                 documentLocation!.document != track.source ||
                 documentLocation!.displayName != fileName
             : documentLocation != null) ||
-        track.contentHash != verification.contentHash ||
+        !verification.matchesContentHash(track.contentHash) ||
         track.fileSizeBytes != verification.fileSizeBytes ||
         track.duration != verification.duration ||
         track.codec != verification.container ||
@@ -66,6 +66,17 @@ final class DownloadedTrackImport {
   final DocumentPublicationLocation? documentLocation;
   String get fileName => 'cmp-${downloadPublicationResourceKey(key)}-'
       '$publicationId.${verification.container}';
+}
+
+Track _canonicalDownloadedTrack(
+    Track track, DownloadedAssetVerification proof) {
+  if (!proof.matchesContentHash(track.contentHash) ||
+      track.fileSizeBytes != proof.fileSizeBytes) {
+    throw ArgumentError('Хэш трека не соответствует проверенному файлу.');
+  }
+  return track.contentHash == proof.fileContentKey
+      ? track
+      : track.copyWith(contentHash: proof.fileContentKey);
 }
 
 final class DownloadImportResult {

@@ -1,5 +1,6 @@
 import 'audio_source_reference.dart';
 import 'external_track_ref.dart';
+import 'file_content_identity.dart';
 
 enum DownloadedAssetState {
   verified,
@@ -95,6 +96,17 @@ final class DownloadedAssetVerification {
   final int fileSizeBytes;
   final Duration duration;
   final DateTime checkedAt;
+
+  /// Tracks use the same versioned key as the local scanner. Protocols and
+  /// persisted verification evidence keep [contentHash] as a bare SHA-256.
+  String get fileContentKey =>
+      FileContentIdentity(sizeBytes: fileSizeBytes, sha256: contentHash)
+          .storageKey;
+
+  /// Legacy bare values are compared only against explicit file evidence,
+  /// never promoted by the general exact-copy filter.
+  bool matchesContentHash(String? value) =>
+      value == fileContentKey || value == contentHash;
 
   bool describesSameBytes(DownloadedAssetVerification other) =>
       actualQuality == other.actualQuality &&

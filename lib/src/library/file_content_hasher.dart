@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
 
+import '../domain/models/file_content_identity.dart';
 import 'library_scan_control.dart';
 import 'sha256_digest.dart';
 
@@ -69,7 +70,8 @@ final class FileContentFingerprint {
           backend: backend,
           timings: timings._withParent(totalUs, startupUs, starts));
 
-  String get storageKey => 'file-sha256-v1:$sizeBytes:$digest';
+  String get storageKey =>
+      FileContentIdentity(sizeBytes: sizeBytes, sha256: digest).storageKey;
 
   Future<bool> matchesFile(File file) async {
     final stat = await file.stat();
@@ -335,10 +337,11 @@ Future<FileContentFingerprint> _hashFile(
           digestUs: compute.elapsedMicroseconds));
 }
 
-final _verifiedFileHash =
-    RegExp(r'^file-sha256-v1:(0|[1-9][0-9]*):[0-9a-f]{64}$');
-
 /// Ignore legacy, imported or incomplete values whose identity is unknown.
-String? verifiedFileContentKey(String? value) {
-  return value != null && _verifiedFileHash.hasMatch(value) ? value : null;
+String? verifiedFileContentKey(String? value, {int? expectedSizeBytes}) {
+  final identity = FileContentIdentity.tryParse(value);
+  return identity != null &&
+          (expectedSizeBytes == null || expectedSizeBytes == identity.sizeBytes)
+      ? identity.storageKey
+      : null;
 }

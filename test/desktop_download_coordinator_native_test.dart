@@ -129,9 +129,10 @@ void main() {
             sha256.convert((await cover()).bytes).toString());
         expect(await File(track.artworkPath!).exists(), isTrue);
         expect(await File(track.filePath).length(), track.fileSizeBytes);
-        expect(
-            sha256.convert(await File(track.filePath).readAsBytes()).toString(),
-            track.contentHash);
+        final bytes = await File(track.filePath).readAsBytes();
+        final digest = sha256.convert(bytes).toString();
+        expect(track.contentHash, 'file-sha256-v1:${bytes.length}:$digest');
+        expect(result.imported!.asset.verification.contentHash, digest);
         expect(result.imported!.asset.publication.identity, job.key.identity);
         expect(await f.count('tracks'), 1);
         expect(await f.count('external_track_refs'), 1);

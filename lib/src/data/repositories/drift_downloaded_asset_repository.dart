@@ -3,6 +3,7 @@ import 'package:drift/drift.dart';
 import '../../domain/models/audio_source_reference.dart';
 import '../../domain/models/downloaded_asset.dart';
 import '../../domain/models/external_track_ref.dart';
+import '../../domain/models/file_content_identity.dart';
 import '../../domain/repositories/downloaded_asset_repository.dart';
 import '../drift/app_database.dart';
 
@@ -38,6 +39,9 @@ final class DriftDownloadedAssetRepository
               !current.verification.describesSameBytes(verification)) {
             throw StateError('Повтор ID публикации с другими данными файла.');
           }
+          if (current.state == DownloadedAssetState.verified) {
+            await _recordVerifiedIdentity(publication, verification);
+          }
           return current;
         }
         if (current == null
@@ -63,6 +67,7 @@ final class DriftDownloadedAssetRepository
                 ..where((t) => t.trackId.equals(publication.trackId)))
               .write(values);
         }
+        await _recordVerifiedIdentity(publication, verification);
         return DownloadedAsset(
             publication: publication,
             verification: verification,
@@ -99,6 +104,10 @@ final class DriftDownloadedAssetRepository
       String quality, int? libraryFolderId) async {
     final assets = database.downloadedAssets, tracks = database.tracks;
     final folders = database.libraryFolders;
+    final canonicalHash = const Constant(FileContentIdentity.keyPrefix) +
+        assets.fileSizeBytes.cast<String>() +
+        const Constant(':') +
+        assets.contentHash;
     final query = database.select(assets).join([
       innerJoin(tracks, tracks.id.equalsExp(assets.trackId)),
       leftOuterJoin(folders, folders.id.equalsExp(tracks.libraryFolderId)),
@@ -110,7 +119,8 @@ final class DriftDownloadedAssetRepository
           (tracks.fileSizeBytes.isNull() |
               tracks.fileSizeBytes.equalsExp(assets.fileSizeBytes)) &
           (tracks.contentHash.isNull() |
-              tracks.contentHash.equalsExp(assets.contentHash)) &
+              tracks.contentHash.equalsExp(assets.contentHash) |
+              tracks.contentHash.equalsExp(canonicalHash)) &
           (tracks.libraryFolderId.isNull() | folders.isEnabled.equals(true)) &
           (libraryFolderId == null
               ? tracks.libraryFolderId.isNull()
@@ -163,8 +173,10 @@ final class DriftDownloadedAssetRepository
         }
         if (current.state == DownloadedAssetState.verified &&
             current.verification == verification) {
+          await _recordVerifiedIdentity(current.publication, verification);
           return true;
         }
+        await _recordVerifiedIdentity(current.publication, verification);
         await (database.update(database.downloadedAssets)
               ..where((t) => t.trackId.equals(current.publication.trackId)))
             .write(DownloadedAssetsCompanion(
@@ -185,7 +197,34 @@ final class DriftDownloadedAssetRepository
         (track.fileSizeBytes == null ||
             track.fileSizeBytes == verification.fileSizeBytes) &&
         (track.contentHash == null ||
-            track.contentHash == verification.contentHash);
+            verification.matchesContentHash(track.contentHash));
+  }
+
+  /// Normalize a matching legacy hash only after accepted physical verification.
+  /// Unknown Track hashes stay unknown; registration does not invent scan data.
+  /// Avoid writes/stream notifications when the Track already uses the key.
+  Future<void> _recordVerifiedIdentity(DownloadedAssetPublication publication,
+      DownloadedAssetVerification verification) async {
+    final table = database.tracks;
+    final track = await (database.select(table)
+          ..where((t) => t.id.equals(publication.trackId)))
+        .getSingle();
+    if (track.contentHash == null ||
+        track.contentHash == verification.fileContentKey) {
+      return;
+    }
+    final changed = await (database.update(table)
+          ..where((t) =>
+              t.id.equals(publication.trackId) &
+              t.filePath.equals(publication.source.storageValue) &
+              (t.fileSizeBytes.isNull() |
+                  t.fileSizeBytes.equals(verification.fileSizeBytes)) &
+              t.contentHash.equals(verification.contentHash)))
+        .write(
+            TracksCompanion(contentHash: Value(verification.fileContentKey)));
+    if (changed != 1) {
+      throw StateError('Трек изменился во время регистрации файла.');
+    }
   }
 
   // Compare the complete snapshot as well: a removed/recreated slot must not

@@ -87,7 +87,7 @@ final class AndroidPublishedTrackReader {
         year: metadata.year,
         duration: proof.duration,
         codec: proof.container,
-        contentHash: proof.contentHash,
+        contentHash: proof.fileContentKey,
         fileSizeBytes: proof.fileSizeBytes,
         artworkPath: art?.path,
         artworkHash: art?.hash,

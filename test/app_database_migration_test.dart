@@ -31,7 +31,7 @@ typedef _Snapshot = Map<String, List<Map<String, Object?>>>;
 void main() {
   final schemaV7 = File('test/fixtures/schema_v7.sql').readAsStringSync();
 
-  for (var version = 1; version <= 12; version++) {
+  for (var version = 1; version <= 13; version++) {
     test('schema v$version upgrades without changing existing rows or IDs',
         () async {
       late _Snapshot before;
@@ -213,11 +213,11 @@ void main() {
       expect(
           (await retry.customSelect('PRAGMA user_version').getSingle())
               .read<int>('user_version'),
-          13);
+          14);
     });
   }
 
-  test('schema v13 remains valid after closing and reopening a migrated file',
+  test('schema v14 remains valid after closing and reopening a migrated file',
       () async {
     final directory =
         await Directory.systemTemp.createTemp('clever_schema_reopen_');
@@ -242,7 +242,7 @@ void main() {
     expect(
         (await reopened.customSelect('PRAGMA user_version').getSingle())
             .read<int>('user_version'),
-        13);
+        14);
     final repositories = DriftRepositories(reopened);
     final original = (await repositories.tracks.findById(41))!;
     await repositories.tracks.upsertTrack(
@@ -260,7 +260,7 @@ void main() {
         hasLength(1));
   });
 
-  for (final version in [1, 7, 8, 9, 10, 11, 12]) {
+  for (final version in [1, 7, 8, 9, 10, 11, 12, 13]) {
     for (final failurePoint in [
       'index',
       'operation-index',
@@ -348,14 +348,177 @@ void main() {
         expect(hasExternalRefsAfterFailure, version >= 10);
         expect(hasAssetsAfterFailure, version >= 11);
         expect(hasRemoteTablesAfterFailure, version >= 12);
-        expect(hasJobsAfterFailure, isFalse);
+        expect(hasJobsAfterFailure, version >= 13);
         expect(
             (await retry.customSelect('PRAGMA user_version').getSingle())
                 .read<int>('user_version'),
-            13);
+            14);
       });
     }
   }
+
+  for (final source in [
+    '/music/original.mp3',
+    'content://music.documents/document/original'
+  ]) {
+    test('v13 verified legacy evidence normalizes only its Track hash: $source',
+        () async {
+      late _Snapshot before;
+      final database = AppDatabase(NativeDatabase.memory(setup: (raw) {
+        _createHistoricalSchema(raw.execute, schemaV7, 13);
+        _seedHistoricalData(raw.execute, 13);
+        raw.execute("UPDATE tracks SET file_path = '$source'");
+        raw.execute(
+            "UPDATE downloaded_assets SET state = 'verified', source = '$source'");
+        // Equal legacy values without that file's own proof remain unknown.
+        raw.execute(
+            "INSERT INTO tracks (id, library_folder_id, file_path, title, content_hash, file_size_bytes, added_at, updated_at) VALUES (42, 3, '/music/unverified.mp3', 'Original', '${'a' * 64}', 123, 1, 2)");
+        before = _snapshot((sql) =>
+            [for (final row in raw.select(sql)) Map<String, Object?>.of(row)]);
+        before['tracks']!
+                .singleWhere((row) => row['id'] == 41)['content_hash'] =
+            'file-sha256-v1:123:${'a' * 64}';
+      }));
+      addTearDown(database.close);
+      await _verifyUpgrade(database, () => before);
+      final rows = await database
+          .customSelect('SELECT content_hash FROM tracks ORDER BY id')
+          .get();
+      expect(rows[0].read<String>('content_hash'),
+          'file-sha256-v1:123:${'a' * 64}');
+      expect(rows[1].read<String>('content_hash'), 'a' * 64);
+      expect(
+          (await database
+                  .customSelect('SELECT content_hash FROM downloaded_assets')
+                  .getSingle())
+              .read<String>('content_hash'),
+          'a' * 64);
+    });
+  }
+
+  for (final (label, mutations) in <(String, List<String>)>[
+    ('missing asset', ["UPDATE downloaded_assets SET state = 'missing'"]),
+    ('denied asset', ["UPDATE downloaded_assets SET state = 'accessDenied'"]),
+    ('invalid asset', ["UPDATE downloaded_assets SET state = 'invalid'"]),
+    ('missing track', ['UPDATE tracks SET is_missing = 1']),
+    ('unknown size', ['UPDATE tracks SET file_size_bytes = NULL']),
+    ('changed size', ['UPDATE tracks SET file_size_bytes = 124']),
+    (
+      'different proof size',
+      ['UPDATE downloaded_assets SET file_size_bytes = 124']
+    ),
+    (
+      'different source',
+      ["UPDATE downloaded_assets SET source = '/music/another.mp3'"]
+    ),
+    (
+      'different digest',
+      ["UPDATE downloaded_assets SET content_hash = '${'b' * 64}'"]
+    ),
+    (
+      'unknown legacy hash',
+      ["UPDATE tracks SET content_hash = 'metadata-signature'"]
+    ),
+    (
+      'malformed equal hashes',
+      [
+        "UPDATE tracks SET content_hash = '${'A' * 64}'",
+        "UPDATE downloaded_assets SET content_hash = '${'A' * 64}'"
+      ]
+    ),
+    (
+      'NUL suffixes',
+      [
+        'UPDATE tracks SET content_hash = content_hash || char(0)',
+        'UPDATE downloaded_assets SET content_hash = content_hash || char(0)'
+      ]
+    ),
+    (
+      'binary hash values',
+      [
+        'UPDATE tracks SET content_hash = CAST(content_hash AS BLOB)',
+        'UPDATE downloaded_assets SET content_hash = CAST(content_hash AS BLOB)',
+      ]
+    ),
+    ('no verification row', ['DELETE FROM downloaded_assets']),
+    (
+      'invalid proof duration',
+      ['UPDATE downloaded_assets SET duration_ms = 0']
+    ),
+    ('invalid proof revision', ['UPDATE downloaded_assets SET revision = 0']),
+    (
+      'already canonical',
+      ["UPDATE tracks SET content_hash = 'file-sha256-v1:123:${'a' * 64}'"]
+    ),
+  ]) {
+    test('v14 preserves ambiguous or unavailable evidence: $label', () async {
+      late _Snapshot before;
+      final database = AppDatabase(NativeDatabase.memory(setup: (raw) {
+        _createHistoricalSchema(raw.execute, schemaV7, 13);
+        _seedHistoricalData(raw.execute, 13);
+        raw.execute("UPDATE downloaded_assets SET state = 'verified'");
+        for (final mutation in mutations) {
+          raw.execute(mutation);
+        }
+        before = _snapshot((sql) =>
+            [for (final row in raw.select(sql)) Map<String, Object?>.of(row)]);
+      }));
+      addTearDown(database.close);
+      await _verifyUpgrade(database, () => before);
+    });
+  }
+
+  test('v14 identity updates roll back with the version marker and retry once',
+      () async {
+    final directory =
+        await Directory.systemTemp.createTemp('cmp_hash_migration_');
+    addTearDown(() => directory.delete(recursive: true));
+    final file = File(p.join(directory.path, 'state.sqlite'));
+    final failed = _FailingMigrationDatabase(
+        NativeDatabase(file, setup: (raw) {
+          _createHistoricalSchema(raw.execute, schemaV7, 13);
+          _seedHistoricalData(raw.execute, 13);
+          raw.execute("UPDATE downloaded_assets SET state = 'verified'");
+        }),
+        failurePoint: 'version');
+    try {
+      await expectLater(
+          failed.customSelect('SELECT * FROM tracks').get(), throwsStateError);
+    } finally {
+      await failed.close();
+    }
+    final retried = AppDatabase(NativeDatabase(file, setup: (raw) {
+      expect(raw.select('PRAGMA user_version').single['user_version'], 13);
+      expect(
+          raw.select('SELECT content_hash FROM tracks').single['content_hash'],
+          'a' * 64);
+    }));
+    try {
+      expect(
+          (await retried
+                  .customSelect('SELECT content_hash FROM tracks')
+                  .getSingle())
+              .read<String>('content_hash'),
+          'file-sha256-v1:123:${'a' * 64}');
+    } finally {
+      await retried.close();
+    }
+    final reopened = AppDatabase(NativeDatabase(file));
+    try {
+      expect(
+          (await reopened
+                  .customSelect('SELECT content_hash FROM tracks')
+                  .getSingle())
+              .read<String>('content_hash'),
+          'file-sha256-v1:123:${'a' * 64}');
+      expect(
+          (await reopened.customSelect('PRAGMA user_version').getSingle())
+              .read<int>('user_version'),
+          14);
+    } finally {
+      await reopened.close();
+    }
+  });
 
   // Optional developer check: always migrates a temporary COPY, never the input.
   // The normal suite uses the frozen schema above and requires no personal data.
@@ -452,7 +615,7 @@ Future<void> _verifyUpgrade(
   expect(
       (await database.customSelect('PRAGMA user_version').getSingle())
           .read<int>('user_version'),
-      13);
+      14);
   for (final entry in getBefore().entries) {
     final table = entry.key;
     final oldRows = entry.value;
@@ -601,6 +764,12 @@ void _seedHistoricalData(void Function(String) execute, int version) {
         "INSERT INTO remote_collections (id, account_id, kind, external_id, owner_id, title, is_selected, revision, item_count, remote_revision, completed_at_micros) VALUES (71, 61, 'liked', '', '', 'Liked', 1, 8, 2, 'remote-v1', 1792020000123456)");
     execute(
         "INSERT INTO remote_collection_items (collection_id, position, external_id, variant_key) VALUES (71, 0, '00041', 'album:live'), (71, 1, '00041', 'album:live')");
+  }
+  if (version >= 13) {
+    execute(
+        "INSERT INTO download_jobs (id, library_folder_id, provider, external_id, variant_key, quality, account_id, account_revision, state, stage, revision, attempt_count, max_attempts, remaining_attempts, attempt_token, lease_until_micros, created_at_micros, updated_at_micros) VALUES (81, 3, 'yandex_music', '00041', 'album:live', 'high', 61, 5, 'running', 'download', 3, 1, 4, 3, 'legacy-running', 1792020001123456, 1792020000123456, 1792020000123456)");
+    execute(
+        "INSERT INTO download_attempts (job_id, number, token, account_id, account_revision, stage, outcome, started_at_micros) VALUES (81, 1, 'legacy-running', 61, 5, 'download', 'running', 1792020000123456)");
   }
   if (version >= 9) {
     execute("UPDATE playback_events SET operation_id = 'legacy-event-9'");

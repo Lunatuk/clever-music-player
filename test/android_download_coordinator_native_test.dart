@@ -111,7 +111,9 @@ void main() {
         expect(track.discNumber, 1);
         expect(track.year, 2026);
         final bytes = await provider.files[track.filePath]!.readAsBytes();
-        expect(sha256.convert(bytes).toString(), track.contentHash);
+        final digest = sha256.convert(bytes).toString();
+        expect(track.contentHash, 'file-sha256-v1:${bytes.length}:$digest');
+        expect(result.imported!.asset.verification.contentHash, digest);
         expect(track.source, isA<ContentUriAudioSource>());
         expect(working.reservedBytes, 0);
         expect(working.reservedEntries, 0);

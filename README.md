@@ -1,6 +1,12 @@
 # Clever Music Player
 
-Current release: **0.4.0 (build 2066)**. Android imports now preserve embedded
+Current release: **0.4.1 (build 2067)**. Scans and verified download imports now
+share one full-file content key; eligible verified legacy records are normalized
+in schema 14 without a media rescan. See [file identity contracts](docs/architecture/full-file-identities.md).
+[Android import performance](docs/architecture/android-import-performance.md)
+is the next separate stage, ahead of quality-aware local-file checks.
+
+Release 0.4.0: Android imports preserve embedded
 Yandex source IDs from MP3/M4A/FLAC comments, including existing folders on
 rescan. This prepares quality-aware download checks; those follow separately.
 See [source identity contracts](docs/architecture/embedded-yandex-identities.md).

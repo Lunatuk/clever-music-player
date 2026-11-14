@@ -340,7 +340,7 @@ final class DesktopDownloadCoordinator {
               album: metadata.album,
               fileSizeBytes: proof.fileSizeBytes,
               durationMs: proof.duration.inMilliseconds),
-          contentHash: proof.contentHash,
+          contentHash: proof.fileContentKey,
           fileSizeBytes: proof.fileSizeBytes,
           codec: proof.container,
           duration: proof.duration,

@@ -2,6 +2,7 @@ export 'app_setting.dart';
 export 'audio_source_reference.dart';
 export 'external_track_ref.dart';
 export 'downloaded_asset.dart';
+export 'file_content_identity.dart';
 export 'remote_library.dart';
 export 'download_job.dart';
 export 'library_sync_plan.dart';
