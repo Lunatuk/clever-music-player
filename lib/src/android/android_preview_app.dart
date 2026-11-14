@@ -18,6 +18,7 @@ import '../player/player_service.dart';
 import '../player/player_state.dart';
 import '../ui/design_preview/design_preview_screen.dart';
 import 'android_import_controller.dart';
+import 'android_import_metadata_cache.dart';
 import 'android_download_storage_controller.dart';
 import 'android_media_check_controller.dart';
 import 'audio_documents.dart';
@@ -91,6 +92,8 @@ final class _AndroidPreviewAppState extends State<AndroidPreviewApp> {
         imports:
             widget.dependencies.repositories.tracks as TrackImportRepository,
         artworkCache: AppSupportArtworkCacheService(),
+        metadataCache:
+            DriftAndroidImportMetadataCache(widget.dependencies.database),
         diagnostics: widget.dependencies.diagnostics,
         bookmarks: _bookmarks);
   }

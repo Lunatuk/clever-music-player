@@ -31,7 +31,7 @@ typedef _Snapshot = Map<String, List<Map<String, Object?>>>;
 void main() {
   final schemaV7 = File('test/fixtures/schema_v7.sql').readAsStringSync();
 
-  for (var version = 1; version <= 13; version++) {
+  for (var version = 1; version <= 14; version++) {
     test('schema v$version upgrades without changing existing rows or IDs',
         () async {
       late _Snapshot before;
@@ -213,11 +213,11 @@ void main() {
       expect(
           (await retry.customSelect('PRAGMA user_version').getSingle())
               .read<int>('user_version'),
-          14);
+          15);
     });
   }
 
-  test('schema v14 remains valid after closing and reopening a migrated file',
+  test('schema v15 remains valid after closing and reopening a migrated file',
       () async {
     final directory =
         await Directory.systemTemp.createTemp('clever_schema_reopen_');
@@ -242,7 +242,7 @@ void main() {
     expect(
         (await reopened.customSelect('PRAGMA user_version').getSingle())
             .read<int>('user_version'),
-        14);
+        15);
     final repositories = DriftRepositories(reopened);
     final original = (await repositories.tracks.findById(41))!;
     await repositories.tracks.upsertTrack(
@@ -260,7 +260,7 @@ void main() {
         hasLength(1));
   });
 
-  for (final version in [1, 7, 8, 9, 10, 11, 12, 13]) {
+  for (final version in [1, 7, 8, 9, 10, 11, 12, 13, 14]) {
     for (final failurePoint in [
       'index',
       'operation-index',
@@ -303,6 +303,7 @@ void main() {
         late bool hasAssetsAfterFailure;
         late bool hasRemoteTablesAfterFailure;
         late bool hasJobsAfterFailure;
+        late bool hasCacheAfterFailure;
         final retry = AppDatabase(NativeDatabase(
           file,
           setup: (raw) {
@@ -331,6 +332,10 @@ void main() {
                 .select(
                     "SELECT name FROM sqlite_master WHERE name IN ('remote_accounts', 'remote_collections', 'remote_collection_items')")
                 .isNotEmpty;
+            hasCacheAfterFailure = raw
+                .select(
+                    "SELECT name FROM sqlite_master WHERE name = 'android_audio_caches'")
+                .isNotEmpty;
             hasJobsAfterFailure = raw
                 .select(
                     "SELECT name FROM sqlite_master WHERE name IN ('download_jobs', 'download_attempts')")
@@ -349,10 +354,11 @@ void main() {
         expect(hasAssetsAfterFailure, version >= 11);
         expect(hasRemoteTablesAfterFailure, version >= 12);
         expect(hasJobsAfterFailure, version >= 13);
+        expect(hasCacheAfterFailure, isFalse);
         expect(
             (await retry.customSelect('PRAGMA user_version').getSingle())
                 .read<int>('user_version'),
-            14);
+            15);
       });
     }
   }
@@ -514,7 +520,7 @@ void main() {
       expect(
           (await reopened.customSelect('PRAGMA user_version').getSingle())
               .read<int>('user_version'),
-          14);
+          15);
     } finally {
       await reopened.close();
     }
@@ -615,7 +621,10 @@ Future<void> _verifyUpgrade(
   expect(
       (await database.customSelect('PRAGMA user_version').getSingle())
           .read<int>('user_version'),
-      14);
+      15);
+  expect(
+      await database.customSelect('SELECT * FROM android_audio_caches').get(),
+      isEmpty);
   for (final entry in getBefore().entries) {
     final table = entry.key;
     final oldRows = entry.value;

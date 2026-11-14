@@ -41,11 +41,12 @@ final class _AndroidFoldersScreenState extends State<AndroidFoldersScreen> {
     }
   }
 
-  Future<void> _refresh(SavedAudioFolder folder, {bool restore = false}) async {
+  Future<void> _refresh(SavedAudioFolder folder,
+      {bool restore = false, bool forceRead = false}) async {
     if (restore) {
       await widget.importer.restoreFolderAccess(folder);
     } else {
-      await widget.importer.refreshFolder(folder);
+      await widget.importer.refreshFolder(folder, forceRead: forceRead);
     }
     await widget.bookmarks.refreshAccess();
   }
@@ -162,6 +163,17 @@ final class _AndroidFoldersScreenState extends State<AndroidFoldersScreen> {
                                                   () => _refresh(folder)),
                                           icon: const Icon(Icons.sync_rounded),
                                           label: const Text('Обновить')),
+                                      if (access?.readable != false)
+                                        TextButton.icon(
+                                            onPressed: blocked
+                                                ? null
+                                                : () => _command(() => _refresh(
+                                                    folder,
+                                                    forceRead: true)),
+                                            icon: const Icon(
+                                                Icons.manage_search_rounded),
+                                            label: const Text(
+                                                'Перечитать теги и обложки')),
                                       if (access?.readable == false)
                                         TextButton.icon(
                                             onPressed: blocked

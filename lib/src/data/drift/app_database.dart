@@ -266,6 +266,20 @@ class DownloadAttempts extends Table {
   Set<Column> get primaryKey => {jobId, number};
 }
 
+/// Derived Android reader results. No user-owned metadata lives here.
+@DataClassName('AndroidAudioCacheRow')
+class AndroidAudioCaches extends Table {
+  TextColumn get authority => text()();
+  TextColumn get documentId => text()();
+  IntColumn get readerVersion => integer()();
+  TextColumn get name => text()();
+  IntColumn get sizeBytes => integer()();
+  IntColumn get modifiedMs => integer()();
+  TextColumn get payload => text()();
+  @override
+  Set<Column> get primaryKey => {authority, documentId};
+}
+
 @DriftDatabase(
   tables: [
     LibraryFolders,
@@ -282,6 +296,7 @@ class DownloadAttempts extends Table {
     RemoteCollectionItems,
     DownloadJobs,
     DownloadAttempts,
+    AndroidAudioCaches,
   ],
 )
 class AppDatabase extends _$AppDatabase {
@@ -295,7 +310,7 @@ class AppDatabase extends _$AppDatabase {
       AppDatabase(_openConnection(diagnostics), diagnostics: diagnostics);
 
   @override
-  int get schemaVersion => 14;
+  int get schemaVersion => 15;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -399,6 +414,9 @@ WHERE is_missing = 0
       )
   )
 ''');
+                  }
+                  if (from < 15) {
+                    await migrator.createTable(androidAudioCaches);
                   }
                   await _createIndexes();
                   // Commit the version marker with the DDL so an interruption cannot

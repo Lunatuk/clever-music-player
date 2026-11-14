@@ -23,7 +23,8 @@ final class AudioDocumentMetadata {
       this.discNumber,
       this.year,
       this.sourceComments,
-      this.readTimings});
+      this.readTimings,
+      this.cacheRevision});
   final String? name, title, artist, album, albumArtist, genre;
   final Duration? duration;
   final int? size, trackNumber, discNumber, year;
@@ -32,6 +33,68 @@ final class AudioDocumentMetadata {
   /// null: no reliable read; empty: comments were read and absent.
   final List<String>? sourceComments;
   final AudioDocumentReadTimings? readTimings;
+
+  /// Supplied only after complete reading with unchanged provider stamps.
+  final AudioDocumentRevision? cacheRevision;
+}
+
+final class AudioDocumentRevision {
+  const AudioDocumentRevision(
+      {required this.authority,
+      required this.documentId,
+      required this.name,
+      required this.size,
+      required this.modifiedMs});
+  final String authority, documentId, name;
+  final int size, modifiedMs;
+
+  static AudioDocumentRevision? parse(Object? value) {
+    if (value is! Map || value['version'] != 1) return null;
+    final authority = value['authority'], id = value['documentId'];
+    final name = value['name'],
+        size = value['size'],
+        modified = value['modifiedMs'];
+    if (authority is! String ||
+        authority.isEmpty ||
+        authority.length > 512 ||
+        id is! String ||
+        id.isEmpty ||
+        id.length > 4096 ||
+        name is! String ||
+        name.isEmpty ||
+        name.length > 4096 ||
+        size is! int ||
+        size <= 0 ||
+        size > 9007199254740991 ||
+        modified is! int ||
+        modified <= 0 ||
+        modified > 8640000000000000) {
+      return null;
+    }
+    return AudioDocumentRevision(
+        authority: authority,
+        documentId: id,
+        name: name,
+        size: size,
+        modifiedMs: modified);
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is AudioDocumentRevision &&
+      authority == other.authority &&
+      documentId == other.documentId &&
+      name == other.name &&
+      size == other.size &&
+      modifiedMs == other.modifiedMs;
+  @override
+  int get hashCode =>
+      Object.hash(authority, documentId, name, size, modifiedMs);
+}
+
+abstract interface class AudioDocumentInspection {
+  /// Checks current permission/readability. Null means ordinary reading is needed.
+  Future<AudioDocumentRevision?> inspectAudio(ContentUriAudioSource source);
 }
 
 /// Optional native measurements; these are subsets of the Dart channel time.
@@ -104,12 +167,22 @@ abstract interface class AudioDocumentFolderAccess {
 }
 
 final class AndroidAudioDocuments
-    implements AudioDocuments, AudioDocumentFolders, AudioDocumentFolderAccess {
+    implements
+        AudioDocuments,
+        AudioDocumentFolders,
+        AudioDocumentFolderAccess,
+        AudioDocumentInspection {
   const AndroidAudioDocuments({MethodChannel? channel})
       : _channel = channel ??
             const MethodChannel(
                 'dev.lunatuk.clever_music_player/audio_documents');
   final MethodChannel _channel;
+
+  @override
+  Future<AudioDocumentRevision?> inspectAudio(
+          ContentUriAudioSource source) async =>
+      AudioDocumentRevision.parse(await _channel
+          .invokeMethod<Object?>('inspectAudio', {'uri': source.storageValue}));
 
   @override
   Future<List<ContentUriAudioSource>> listAudioFolderGrants() async {
@@ -266,6 +339,7 @@ final class AndroidAudioDocuments
       year: number('year', 9999),
       sourceComments: comments,
       readTimings: AudioDocumentReadTimings.parse(data['readTimings']),
+      cacheRevision: AudioDocumentRevision.parse(data['cacheRevision']),
       artwork:
           artwork is Uint8List && artwork.length <= 256 * 1024 ? artwork : null,
     );

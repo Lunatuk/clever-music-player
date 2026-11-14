@@ -7600,6 +7600,411 @@ class DownloadAttemptsCompanion extends UpdateCompanion<DownloadAttemptRow> {
   }
 }
 
+class $AndroidAudioCachesTable extends AndroidAudioCaches
+    with TableInfo<$AndroidAudioCachesTable, AndroidAudioCacheRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $AndroidAudioCachesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _authorityMeta =
+      const VerificationMeta('authority');
+  @override
+  late final GeneratedColumn<String> authority = GeneratedColumn<String>(
+      'authority', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _documentIdMeta =
+      const VerificationMeta('documentId');
+  @override
+  late final GeneratedColumn<String> documentId = GeneratedColumn<String>(
+      'document_id', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _readerVersionMeta =
+      const VerificationMeta('readerVersion');
+  @override
+  late final GeneratedColumn<int> readerVersion = GeneratedColumn<int>(
+      'reader_version', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: true);
+  static const VerificationMeta _nameMeta = const VerificationMeta('name');
+  @override
+  late final GeneratedColumn<String> name = GeneratedColumn<String>(
+      'name', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _sizeBytesMeta =
+      const VerificationMeta('sizeBytes');
+  @override
+  late final GeneratedColumn<int> sizeBytes = GeneratedColumn<int>(
+      'size_bytes', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: true);
+  static const VerificationMeta _modifiedMsMeta =
+      const VerificationMeta('modifiedMs');
+  @override
+  late final GeneratedColumn<int> modifiedMs = GeneratedColumn<int>(
+      'modified_ms', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: true);
+  static const VerificationMeta _payloadMeta =
+      const VerificationMeta('payload');
+  @override
+  late final GeneratedColumn<String> payload = GeneratedColumn<String>(
+      'payload', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  @override
+  List<GeneratedColumn> get $columns => [
+        authority,
+        documentId,
+        readerVersion,
+        name,
+        sizeBytes,
+        modifiedMs,
+        payload
+      ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'android_audio_caches';
+  @override
+  VerificationContext validateIntegrity(
+      Insertable<AndroidAudioCacheRow> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('authority')) {
+      context.handle(_authorityMeta,
+          authority.isAcceptableOrUnknown(data['authority']!, _authorityMeta));
+    } else if (isInserting) {
+      context.missing(_authorityMeta);
+    }
+    if (data.containsKey('document_id')) {
+      context.handle(
+          _documentIdMeta,
+          documentId.isAcceptableOrUnknown(
+              data['document_id']!, _documentIdMeta));
+    } else if (isInserting) {
+      context.missing(_documentIdMeta);
+    }
+    if (data.containsKey('reader_version')) {
+      context.handle(
+          _readerVersionMeta,
+          readerVersion.isAcceptableOrUnknown(
+              data['reader_version']!, _readerVersionMeta));
+    } else if (isInserting) {
+      context.missing(_readerVersionMeta);
+    }
+    if (data.containsKey('name')) {
+      context.handle(
+          _nameMeta, name.isAcceptableOrUnknown(data['name']!, _nameMeta));
+    } else if (isInserting) {
+      context.missing(_nameMeta);
+    }
+    if (data.containsKey('size_bytes')) {
+      context.handle(_sizeBytesMeta,
+          sizeBytes.isAcceptableOrUnknown(data['size_bytes']!, _sizeBytesMeta));
+    } else if (isInserting) {
+      context.missing(_sizeBytesMeta);
+    }
+    if (data.containsKey('modified_ms')) {
+      context.handle(
+          _modifiedMsMeta,
+          modifiedMs.isAcceptableOrUnknown(
+              data['modified_ms']!, _modifiedMsMeta));
+    } else if (isInserting) {
+      context.missing(_modifiedMsMeta);
+    }
+    if (data.containsKey('payload')) {
+      context.handle(_payloadMeta,
+          payload.isAcceptableOrUnknown(data['payload']!, _payloadMeta));
+    } else if (isInserting) {
+      context.missing(_payloadMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {authority, documentId};
+  @override
+  AndroidAudioCacheRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return AndroidAudioCacheRow(
+      authority: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}authority'])!,
+      documentId: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}document_id'])!,
+      readerVersion: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}reader_version'])!,
+      name: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}name'])!,
+      sizeBytes: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}size_bytes'])!,
+      modifiedMs: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}modified_ms'])!,
+      payload: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}payload'])!,
+    );
+  }
+
+  @override
+  $AndroidAudioCachesTable createAlias(String alias) {
+    return $AndroidAudioCachesTable(attachedDatabase, alias);
+  }
+}
+
+class AndroidAudioCacheRow extends DataClass
+    implements Insertable<AndroidAudioCacheRow> {
+  final String authority;
+  final String documentId;
+  final int readerVersion;
+  final String name;
+  final int sizeBytes;
+  final int modifiedMs;
+  final String payload;
+  const AndroidAudioCacheRow(
+      {required this.authority,
+      required this.documentId,
+      required this.readerVersion,
+      required this.name,
+      required this.sizeBytes,
+      required this.modifiedMs,
+      required this.payload});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['authority'] = Variable<String>(authority);
+    map['document_id'] = Variable<String>(documentId);
+    map['reader_version'] = Variable<int>(readerVersion);
+    map['name'] = Variable<String>(name);
+    map['size_bytes'] = Variable<int>(sizeBytes);
+    map['modified_ms'] = Variable<int>(modifiedMs);
+    map['payload'] = Variable<String>(payload);
+    return map;
+  }
+
+  AndroidAudioCachesCompanion toCompanion(bool nullToAbsent) {
+    return AndroidAudioCachesCompanion(
+      authority: Value(authority),
+      documentId: Value(documentId),
+      readerVersion: Value(readerVersion),
+      name: Value(name),
+      sizeBytes: Value(sizeBytes),
+      modifiedMs: Value(modifiedMs),
+      payload: Value(payload),
+    );
+  }
+
+  factory AndroidAudioCacheRow.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return AndroidAudioCacheRow(
+      authority: serializer.fromJson<String>(json['authority']),
+      documentId: serializer.fromJson<String>(json['documentId']),
+      readerVersion: serializer.fromJson<int>(json['readerVersion']),
+      name: serializer.fromJson<String>(json['name']),
+      sizeBytes: serializer.fromJson<int>(json['sizeBytes']),
+      modifiedMs: serializer.fromJson<int>(json['modifiedMs']),
+      payload: serializer.fromJson<String>(json['payload']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'authority': serializer.toJson<String>(authority),
+      'documentId': serializer.toJson<String>(documentId),
+      'readerVersion': serializer.toJson<int>(readerVersion),
+      'name': serializer.toJson<String>(name),
+      'sizeBytes': serializer.toJson<int>(sizeBytes),
+      'modifiedMs': serializer.toJson<int>(modifiedMs),
+      'payload': serializer.toJson<String>(payload),
+    };
+  }
+
+  AndroidAudioCacheRow copyWith(
+          {String? authority,
+          String? documentId,
+          int? readerVersion,
+          String? name,
+          int? sizeBytes,
+          int? modifiedMs,
+          String? payload}) =>
+      AndroidAudioCacheRow(
+        authority: authority ?? this.authority,
+        documentId: documentId ?? this.documentId,
+        readerVersion: readerVersion ?? this.readerVersion,
+        name: name ?? this.name,
+        sizeBytes: sizeBytes ?? this.sizeBytes,
+        modifiedMs: modifiedMs ?? this.modifiedMs,
+        payload: payload ?? this.payload,
+      );
+  AndroidAudioCacheRow copyWithCompanion(AndroidAudioCachesCompanion data) {
+    return AndroidAudioCacheRow(
+      authority: data.authority.present ? data.authority.value : this.authority,
+      documentId:
+          data.documentId.present ? data.documentId.value : this.documentId,
+      readerVersion: data.readerVersion.present
+          ? data.readerVersion.value
+          : this.readerVersion,
+      name: data.name.present ? data.name.value : this.name,
+      sizeBytes: data.sizeBytes.present ? data.sizeBytes.value : this.sizeBytes,
+      modifiedMs:
+          data.modifiedMs.present ? data.modifiedMs.value : this.modifiedMs,
+      payload: data.payload.present ? data.payload.value : this.payload,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('AndroidAudioCacheRow(')
+          ..write('authority: $authority, ')
+          ..write('documentId: $documentId, ')
+          ..write('readerVersion: $readerVersion, ')
+          ..write('name: $name, ')
+          ..write('sizeBytes: $sizeBytes, ')
+          ..write('modifiedMs: $modifiedMs, ')
+          ..write('payload: $payload')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(authority, documentId, readerVersion, name,
+      sizeBytes, modifiedMs, payload);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is AndroidAudioCacheRow &&
+          other.authority == this.authority &&
+          other.documentId == this.documentId &&
+          other.readerVersion == this.readerVersion &&
+          other.name == this.name &&
+          other.sizeBytes == this.sizeBytes &&
+          other.modifiedMs == this.modifiedMs &&
+          other.payload == this.payload);
+}
+
+class AndroidAudioCachesCompanion
+    extends UpdateCompanion<AndroidAudioCacheRow> {
+  final Value<String> authority;
+  final Value<String> documentId;
+  final Value<int> readerVersion;
+  final Value<String> name;
+  final Value<int> sizeBytes;
+  final Value<int> modifiedMs;
+  final Value<String> payload;
+  final Value<int> rowid;
+  const AndroidAudioCachesCompanion({
+    this.authority = const Value.absent(),
+    this.documentId = const Value.absent(),
+    this.readerVersion = const Value.absent(),
+    this.name = const Value.absent(),
+    this.sizeBytes = const Value.absent(),
+    this.modifiedMs = const Value.absent(),
+    this.payload = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  AndroidAudioCachesCompanion.insert({
+    required String authority,
+    required String documentId,
+    required int readerVersion,
+    required String name,
+    required int sizeBytes,
+    required int modifiedMs,
+    required String payload,
+    this.rowid = const Value.absent(),
+  })  : authority = Value(authority),
+        documentId = Value(documentId),
+        readerVersion = Value(readerVersion),
+        name = Value(name),
+        sizeBytes = Value(sizeBytes),
+        modifiedMs = Value(modifiedMs),
+        payload = Value(payload);
+  static Insertable<AndroidAudioCacheRow> custom({
+    Expression<String>? authority,
+    Expression<String>? documentId,
+    Expression<int>? readerVersion,
+    Expression<String>? name,
+    Expression<int>? sizeBytes,
+    Expression<int>? modifiedMs,
+    Expression<String>? payload,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (authority != null) 'authority': authority,
+      if (documentId != null) 'document_id': documentId,
+      if (readerVersion != null) 'reader_version': readerVersion,
+      if (name != null) 'name': name,
+      if (sizeBytes != null) 'size_bytes': sizeBytes,
+      if (modifiedMs != null) 'modified_ms': modifiedMs,
+      if (payload != null) 'payload': payload,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  AndroidAudioCachesCompanion copyWith(
+      {Value<String>? authority,
+      Value<String>? documentId,
+      Value<int>? readerVersion,
+      Value<String>? name,
+      Value<int>? sizeBytes,
+      Value<int>? modifiedMs,
+      Value<String>? payload,
+      Value<int>? rowid}) {
+    return AndroidAudioCachesCompanion(
+      authority: authority ?? this.authority,
+      documentId: documentId ?? this.documentId,
+      readerVersion: readerVersion ?? this.readerVersion,
+      name: name ?? this.name,
+      sizeBytes: sizeBytes ?? this.sizeBytes,
+      modifiedMs: modifiedMs ?? this.modifiedMs,
+      payload: payload ?? this.payload,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (authority.present) {
+      map['authority'] = Variable<String>(authority.value);
+    }
+    if (documentId.present) {
+      map['document_id'] = Variable<String>(documentId.value);
+    }
+    if (readerVersion.present) {
+      map['reader_version'] = Variable<int>(readerVersion.value);
+    }
+    if (name.present) {
+      map['name'] = Variable<String>(name.value);
+    }
+    if (sizeBytes.present) {
+      map['size_bytes'] = Variable<int>(sizeBytes.value);
+    }
+    if (modifiedMs.present) {
+      map['modified_ms'] = Variable<int>(modifiedMs.value);
+    }
+    if (payload.present) {
+      map['payload'] = Variable<String>(payload.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('AndroidAudioCachesCompanion(')
+          ..write('authority: $authority, ')
+          ..write('documentId: $documentId, ')
+          ..write('readerVersion: $readerVersion, ')
+          ..write('name: $name, ')
+          ..write('sizeBytes: $sizeBytes, ')
+          ..write('modifiedMs: $modifiedMs, ')
+          ..write('payload: $payload, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -7623,6 +8028,8 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $DownloadJobsTable downloadJobs = $DownloadJobsTable(this);
   late final $DownloadAttemptsTable downloadAttempts =
       $DownloadAttemptsTable(this);
+  late final $AndroidAudioCachesTable androidAudioCaches =
+      $AndroidAudioCachesTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -7641,7 +8048,8 @@ abstract class _$AppDatabase extends GeneratedDatabase {
         remoteCollections,
         remoteCollectionItems,
         downloadJobs,
-        downloadAttempts
+        downloadAttempts,
+        androidAudioCaches
       ];
   @override
   StreamQueryUpdateRules get streamUpdateRules => const StreamQueryUpdateRules(
@@ -13421,6 +13829,214 @@ typedef $$DownloadAttemptsTableProcessedTableManager = ProcessedTableManager<
     (DownloadAttemptRow, $$DownloadAttemptsTableReferences),
     DownloadAttemptRow,
     PrefetchHooks Function({bool jobId})>;
+typedef $$AndroidAudioCachesTableCreateCompanionBuilder
+    = AndroidAudioCachesCompanion Function({
+  required String authority,
+  required String documentId,
+  required int readerVersion,
+  required String name,
+  required int sizeBytes,
+  required int modifiedMs,
+  required String payload,
+  Value<int> rowid,
+});
+typedef $$AndroidAudioCachesTableUpdateCompanionBuilder
+    = AndroidAudioCachesCompanion Function({
+  Value<String> authority,
+  Value<String> documentId,
+  Value<int> readerVersion,
+  Value<String> name,
+  Value<int> sizeBytes,
+  Value<int> modifiedMs,
+  Value<String> payload,
+  Value<int> rowid,
+});
+
+class $$AndroidAudioCachesTableFilterComposer
+    extends Composer<_$AppDatabase, $AndroidAudioCachesTable> {
+  $$AndroidAudioCachesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get authority => $composableBuilder(
+      column: $table.authority, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get documentId => $composableBuilder(
+      column: $table.documentId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get readerVersion => $composableBuilder(
+      column: $table.readerVersion, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get name => $composableBuilder(
+      column: $table.name, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get sizeBytes => $composableBuilder(
+      column: $table.sizeBytes, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get modifiedMs => $composableBuilder(
+      column: $table.modifiedMs, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get payload => $composableBuilder(
+      column: $table.payload, builder: (column) => ColumnFilters(column));
+}
+
+class $$AndroidAudioCachesTableOrderingComposer
+    extends Composer<_$AppDatabase, $AndroidAudioCachesTable> {
+  $$AndroidAudioCachesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get authority => $composableBuilder(
+      column: $table.authority, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get documentId => $composableBuilder(
+      column: $table.documentId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get readerVersion => $composableBuilder(
+      column: $table.readerVersion,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get name => $composableBuilder(
+      column: $table.name, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get sizeBytes => $composableBuilder(
+      column: $table.sizeBytes, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get modifiedMs => $composableBuilder(
+      column: $table.modifiedMs, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get payload => $composableBuilder(
+      column: $table.payload, builder: (column) => ColumnOrderings(column));
+}
+
+class $$AndroidAudioCachesTableAnnotationComposer
+    extends Composer<_$AppDatabase, $AndroidAudioCachesTable> {
+  $$AndroidAudioCachesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get authority =>
+      $composableBuilder(column: $table.authority, builder: (column) => column);
+
+  GeneratedColumn<String> get documentId => $composableBuilder(
+      column: $table.documentId, builder: (column) => column);
+
+  GeneratedColumn<int> get readerVersion => $composableBuilder(
+      column: $table.readerVersion, builder: (column) => column);
+
+  GeneratedColumn<String> get name =>
+      $composableBuilder(column: $table.name, builder: (column) => column);
+
+  GeneratedColumn<int> get sizeBytes =>
+      $composableBuilder(column: $table.sizeBytes, builder: (column) => column);
+
+  GeneratedColumn<int> get modifiedMs => $composableBuilder(
+      column: $table.modifiedMs, builder: (column) => column);
+
+  GeneratedColumn<String> get payload =>
+      $composableBuilder(column: $table.payload, builder: (column) => column);
+}
+
+class $$AndroidAudioCachesTableTableManager extends RootTableManager<
+    _$AppDatabase,
+    $AndroidAudioCachesTable,
+    AndroidAudioCacheRow,
+    $$AndroidAudioCachesTableFilterComposer,
+    $$AndroidAudioCachesTableOrderingComposer,
+    $$AndroidAudioCachesTableAnnotationComposer,
+    $$AndroidAudioCachesTableCreateCompanionBuilder,
+    $$AndroidAudioCachesTableUpdateCompanionBuilder,
+    (
+      AndroidAudioCacheRow,
+      BaseReferences<_$AppDatabase, $AndroidAudioCachesTable,
+          AndroidAudioCacheRow>
+    ),
+    AndroidAudioCacheRow,
+    PrefetchHooks Function()> {
+  $$AndroidAudioCachesTableTableManager(
+      _$AppDatabase db, $AndroidAudioCachesTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$AndroidAudioCachesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$AndroidAudioCachesTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$AndroidAudioCachesTableAnnotationComposer(
+                  $db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<String> authority = const Value.absent(),
+            Value<String> documentId = const Value.absent(),
+            Value<int> readerVersion = const Value.absent(),
+            Value<String> name = const Value.absent(),
+            Value<int> sizeBytes = const Value.absent(),
+            Value<int> modifiedMs = const Value.absent(),
+            Value<String> payload = const Value.absent(),
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              AndroidAudioCachesCompanion(
+            authority: authority,
+            documentId: documentId,
+            readerVersion: readerVersion,
+            name: name,
+            sizeBytes: sizeBytes,
+            modifiedMs: modifiedMs,
+            payload: payload,
+            rowid: rowid,
+          ),
+          createCompanionCallback: ({
+            required String authority,
+            required String documentId,
+            required int readerVersion,
+            required String name,
+            required int sizeBytes,
+            required int modifiedMs,
+            required String payload,
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              AndroidAudioCachesCompanion.insert(
+            authority: authority,
+            documentId: documentId,
+            readerVersion: readerVersion,
+            name: name,
+            sizeBytes: sizeBytes,
+            modifiedMs: modifiedMs,
+            payload: payload,
+            rowid: rowid,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ));
+}
+
+typedef $$AndroidAudioCachesTableProcessedTableManager = ProcessedTableManager<
+    _$AppDatabase,
+    $AndroidAudioCachesTable,
+    AndroidAudioCacheRow,
+    $$AndroidAudioCachesTableFilterComposer,
+    $$AndroidAudioCachesTableOrderingComposer,
+    $$AndroidAudioCachesTableAnnotationComposer,
+    $$AndroidAudioCachesTableCreateCompanionBuilder,
+    $$AndroidAudioCachesTableUpdateCompanionBuilder,
+    (
+      AndroidAudioCacheRow,
+      BaseReferences<_$AppDatabase, $AndroidAudioCachesTable,
+          AndroidAudioCacheRow>
+    ),
+    AndroidAudioCacheRow,
+    PrefetchHooks Function()>;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -13453,4 +14069,6 @@ class $AppDatabaseManager {
       $$DownloadJobsTableTableManager(_db, _db.downloadJobs);
   $$DownloadAttemptsTableTableManager get downloadAttempts =>
       $$DownloadAttemptsTableTableManager(_db, _db.downloadAttempts);
+  $$AndroidAudioCachesTableTableManager get androidAudioCaches =>
+      $$AndroidAudioCachesTableTableManager(_db, _db.androidAudioCaches);
 }

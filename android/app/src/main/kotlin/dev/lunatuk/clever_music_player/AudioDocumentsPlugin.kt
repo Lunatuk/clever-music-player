@@ -133,6 +133,18 @@ class AudioDocumentsPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activi
                             }
                         }
                     }
+                    "inspectAudio" -> onWorker(result) {
+                        val uri = call.argument<String>("uri")?.let(Uri::parse) ?: error("invalid_source")
+                        check(uri.scheme == "content" && hasPersistentRead(uri))
+                        val revision = documentRevision(uri)
+                        if (revision != null) {
+                            // Metadata can be queryable even when audio access is lost.
+                            contentResolver.openAssetFileDescriptor(uri, "r").use { asset ->
+                                check(asset != null && asset.declaredLength != 0L)
+                            }
+                        }
+                        revision?.message()
+                    }
                     "readAudio" -> {
                         val address = call.argument<String>("uri")
                         val uri = address?.let(Uri::parse)
@@ -269,12 +281,38 @@ class AudioDocumentsPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activi
                 DocumentsContract.getTreeDocumentId(it.uri) == DocumentsContract.getTreeDocumentId(uri)))
     }
 
+    private fun documentRevision(uri: Uri): AudioDocumentRevision? {
+        if (uri.authority != "com.android.externalstorage.documents" ||
+            uri.query != null || uri.fragment != null) return null
+        return runCatching {
+            val id = DocumentsContract.getDocumentId(uri)
+            val columns = arrayOf(
+                DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                DocumentsContract.Document.COLUMN_SIZE,
+                DocumentsContract.Document.COLUMN_LAST_MODIFIED,
+                DocumentsContract.Document.COLUMN_FLAGS)
+            contentResolver.query(uri, columns, null, null, null)?.use { cursor ->
+                if (!cursor.moveToFirst()) return@use null
+                val indexes = columns.map { cursor.getColumnIndex(it) }
+                if (indexes.any { it < 0 || cursor.isNull(it) }) return@use null
+                val name = cursor.getString(indexes[0])
+                check(!AudioPublicationVisibility.hidden(publicationsDirectory, uri.authority, name, id))
+                val flags = cursor.getInt(indexes[3])
+                val partial = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+                    flags and DocumentsContract.Document.FLAG_PARTIAL != 0
+                AudioDocumentRevision.create(uri.authority, id, name, cursor.getLong(indexes[1]), cursor.getLong(indexes[2]),
+                    flags and DocumentsContract.Document.FLAG_VIRTUAL_DOCUMENT == 0 && !partial)
+            }
+        }.getOrNull()
+    }
+
     private fun readAudio(uri: Uri): Map<String, Any?> {
         val startedAt = System.nanoTime()
         check(hasPersistentRead(uri))
         var name: String? = null
         var size: Long? = null
         val queryAt = System.nanoTime()
+        val beforeRevision = documentRevision(uri)
         contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE),
             null, null, null)?.use { cursor ->
             if (cursor.moveToFirst()) {
@@ -287,7 +325,7 @@ class AudioDocumentsPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activi
         val documentId = runCatching { DocumentsContract.getDocumentId(uri) }.getOrNull()
         check(!AudioPublicationVisibility.hidden(publicationsDirectory, uri.authority, name, documentId))
         check(size != 0L)
-        val queryUs = (System.nanoTime() - queryAt) / 1000
+        var queryUs = (System.nanoTime() - queryAt) / 1000
         val sourceAt = System.nanoTime()
         val sourceComments = contentResolver.openAssetFileDescriptor(uri, "r").use { asset ->
             check(asset != null && asset.declaredLength != 0L)
@@ -307,6 +345,7 @@ class AudioDocumentsPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activi
         val reader = MediaMetadataRetriever()
         var tagsUs = 0L
         var artworkUs = 0L
+        var completeRead = false
         try {
             val tagsAt = System.nanoTime()
             try {
@@ -327,14 +366,25 @@ class AudioDocumentsPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activi
             }
             val artworkAt = System.nanoTime()
             try {
-                reader.embeddedPicture?.let { picture -> metadata["artwork"] = thumbnail(picture) }
+                val picture = reader.embeddedPicture
+                val cover = picture?.let { thumbnail(it) }
+                metadata["artwork"] = cover
+                completeRead = picture == null || cover != null
             } finally {
                 artworkUs = (System.nanoTime() - artworkAt) / 1000
             }
         } catch (_: Exception) {
+            completeRead = false
             // Missing/broken tags do not make readable audio unavailable.
         } finally {
             reader.release()
+        }
+        if (completeRead && sourceComments != null && beforeRevision != null) {
+            val checkedAt = System.nanoTime()
+            val afterRevision = documentRevision(uri)
+            queryUs += (System.nanoTime() - checkedAt) / 1000
+            metadata["cacheRevision"] = AudioDocumentRevision.confirm(beforeRevision,
+                afterRevision, completeRead)?.message()
         }
         metadata["readTimings"] = mapOf("version" to 1,
             "totalUs" to (System.nanoTime() - startedAt) / 1000,

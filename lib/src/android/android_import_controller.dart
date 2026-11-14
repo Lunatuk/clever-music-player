@@ -12,6 +12,7 @@ import '../library/metadata_enrichment.dart';
 import 'audio_documents.dart';
 import 'android_folder_bookmarks.dart';
 import 'android_audio_metadata.dart';
+import 'android_import_metadata_cache.dart';
 
 /// Owns explicit SAF imports. Cancellation flushes fully prepared tracks; close
 /// drains accepted provider/cache/DB work before the app closes SQLite.
@@ -22,6 +23,7 @@ final class AndroidImportController extends ChangeNotifier {
       required this.artworkCache,
       AudioDocumentFolders? folders,
       this.bookmarks,
+      this.metadataCache,
       this.diagnostics = const NoopDiagnosticsService(),
       DateTime Function()? clock,
       int Function()? monotonicMicroseconds})
@@ -36,6 +38,8 @@ final class AndroidImportController extends ChangeNotifier {
   final ArtworkCacheService artworkCache;
   final AudioDocumentFolders? _folders;
   final AndroidFolderBookmarks? bookmarks;
+  final AndroidImportMetadataCache? metadataCache;
+  bool _forceRead = false, _cacheDisabled = false;
   final DateTime Function() _clock;
   final DiagnosticsService diagnostics;
   final int Function() _tick;
@@ -66,8 +70,9 @@ final class AndroidImportController extends ChangeNotifier {
   Future<void> importSelection() => _run(folder: false);
   Future<void> importFolder() =>
       _folders == null ? Future.value() : _run(folder: true);
-  Future<void> refreshFolder(SavedAudioFolder folder) =>
-      _run(folder: true, savedTree: folder.source);
+  Future<void> refreshFolder(SavedAudioFolder folder,
+          {bool forceRead = false}) =>
+      _run(folder: true, savedTree: folder.source, forceRead: forceRead);
   Future<void> restoreFolderAccess(SavedAudioFolder folder) =>
       _run(folder: true, savedTree: folder.source, restore: true);
   Future<void> refreshSavedFolders() => _run(folder: true, allSaved: true);
@@ -76,7 +81,8 @@ final class AndroidImportController extends ChangeNotifier {
       {required bool folder,
       ContentUriAudioSource? savedTree,
       bool restore = false,
-      bool allSaved = false}) async {
+      bool allSaved = false,
+      bool forceRead = false}) async {
     if (_closed || _busy || (folder && _folders == null)) return;
     _busy = true;
     _cancelRequested = false;
@@ -84,6 +90,8 @@ final class AndroidImportController extends ChangeNotifier {
     _processed = _total = _visited = _imported = _failed = 0;
     _failedFolders = 0;
     _sourceIdentities = 0;
+    _forceRead = forceRead;
+    _cacheDisabled = false;
     _message = null;
     _profile = null;
     _lastProgressUs = null;
@@ -147,7 +155,8 @@ final class AndroidImportController extends ChangeNotifier {
             '${_sourceIdentities == 0 ? '' : ' Ссылок Яндекса: $_sourceIdentities.'}'
             '${_failed == 0 ? '' : ' Не добавлено: $_failed. Выберите эти файлы заново.'}'
             '${_failedFolders == 0 ? '' : ' Не удалось обновить папок: $_failedFolders. Проверьте доступ на экране «Папки».'}'
-            ' Время: ${((_tick() - _profile!.startedUs) / 1000000).toStringAsFixed(1)} с.';
+            ' Время: ${((_tick() - _profile!.startedUs) / 1000000).toStringAsFixed(1)} с.'
+            '${metadataCache == null ? '' : ' Без повторного чтения: ${_profile!.cacheHits}.'}';
       }
       // Record before the final notification can start another run or close us.
       _recordProfile();
@@ -248,35 +257,56 @@ final class AndroidImportController extends ChangeNotifier {
       for (final source in sources.toSet()) {
         if (_stopped) break;
         try {
-          final metadataAt = _tick();
           late final AudioDocumentMetadata metadata;
-          try {
-            metadata = await documents.readAudio(source);
-            _profile!.addNative(metadata.readTimings);
-          } finally {
-            _profile!.metadataReads++;
-            _profile!.metadataUs += _tick() - metadataAt;
+          final cached = await _cachedAudio(source);
+          if (_stopped) break;
+          if (cached != null) {
+            metadata = cached.metadata;
+          } else {
+            final readAt = _tick();
+            try {
+              metadata = await documents.readAudio(source);
+              _profile!.addNative(metadata.readTimings);
+            } finally {
+              _profile!.metadataReads++;
+              _profile!.metadataUs += _tick() - readAt;
+            }
           }
           if (_stopped) break;
           final comments = metadata.sourceComments;
           final identity =
               comments == null ? null : embeddedYandexIdentity(comments);
           final merged = mergeAudioDocumentMetadata(metadata);
-          CachedArtwork? artwork;
+          CachedArtwork? artwork = cached?.artwork;
+          var artworkSaved = true;
           final artworkAt = _tick();
           try {
-            artwork = await artworkCache.saveEmbeddedArtwork(
-                metadata.artwork == null
-                    ? null
-                    : EmbeddedArtwork(
-                        bytes: metadata.artwork!, mimeType: 'image/webp'));
+            if (cached == null) {
+              artwork = await artworkCache.saveEmbeddedArtwork(
+                  metadata.artwork == null
+                      ? null
+                      : EmbeddedArtwork(
+                          bytes: metadata.artwork!, mimeType: 'image/webp'));
+            }
           } on Object {
+            artworkSaved = false;
             /* A cover failure must not prevent importing readable music. */
           } finally {
             _profile!.artworkUs += _tick() - artworkAt;
           }
           if (_stopped) break;
           final now = _clock();
+          final revision = metadata.cacheRevision;
+          final cacheEntry = cached == null &&
+                  revision != null &&
+                  metadata.size == revision.size &&
+                  comments != null &&
+                  artworkSaved
+              ? CachedAndroidAudio.fromRead(revision, metadata, artwork)
+              : null;
+          if (cached == null && cacheEntry == null && metadataCache != null) {
+            _profile!.cacheIneligible++;
+          }
           pending.add(_PreparedImport(
               Track.fromSource(
                 source: source,
@@ -298,6 +328,7 @@ final class AndroidImportController extends ChangeNotifier {
                 lastSeenAt: now,
               ),
               identity: identity,
+              cacheEntry: cacheEntry,
               commentsRead: comments != null));
         } on Object {
           if (_stopped) break;
@@ -317,6 +348,54 @@ final class AndroidImportController extends ChangeNotifier {
       // These records no longer need the provider. Keep them on cancel/close,
       // while the controller still owns the database lifetime.
       await _flushPrepared(pending);
+    }
+  }
+
+  Future<CachedAndroidAudio?> _cachedAudio(ContentUriAudioSource source) async {
+    if (metadataCache == null) return null;
+    if (_forceRead && !_cacheDisabled) {
+      final at = _tick();
+      try {
+        await metadataCache!.invalidateSource(source);
+      } on Object {
+        _profile!.cacheFailures++;
+        _cacheDisabled = true;
+      } finally {
+        _profile!.cacheUs += _tick() - at;
+      }
+    }
+    if (_forceRead || _cacheDisabled || documents is! AudioDocumentInspection) {
+      _profile!.cacheMisses++;
+      return null;
+    }
+    final at = _tick();
+    _profile!.cacheChecks++;
+    try {
+      AudioDocumentRevision? revision;
+      try {
+        revision =
+            await (documents as AudioDocumentInspection).inspectAudio(source);
+      } on Object {
+        _profile!.cacheFailures++;
+      }
+      if (_stopped) return null;
+      CachedAndroidAudio? cached;
+      if (revision != null) {
+        try {
+          cached = await metadataCache!.lookup(revision);
+        } on Object {
+          _profile!.cacheFailures++;
+          _cacheDisabled = true;
+        }
+      }
+      if (cached == null) {
+        _profile!.cacheMisses++;
+      } else {
+        _profile!.cacheHits++;
+      }
+      return cached;
+    } finally {
+      _profile!.cacheUs += _tick() - at;
     }
   }
 
@@ -348,12 +427,29 @@ final class AndroidImportController extends ChangeNotifier {
     final at = _tick();
     _profile!.batches++;
     try {
-      await imports.upsertScannedTracks([
-        for (final row in batch) row.track
-      ], embeddedYandexIdentities: {
+      Future<List<int>> write() => imports.upsertScannedTracks([
+            for (final row in batch) row.track
+          ], embeddedYandexIdentities: {
+            for (final row in batch)
+              if (row.commentsRead) row.track.filePath: row.identity,
+          });
+      final entries = [
         for (final row in batch)
-          if (row.commentsRead) row.track.filePath: row.identity,
-      });
+          if (row.cacheEntry != null) row.cacheEntry!
+      ];
+      if (metadataCache != null && !_cacheDisabled && entries.isNotEmpty) {
+        try {
+          await metadataCache!.commit(entries, write);
+          _profile!.cacheWrites += entries.length;
+        } on AndroidMetadataCacheWriteFailure {
+          _cacheDisabled = true;
+          _profile!.cacheFailures++;
+          _profile!.batches++;
+          await write();
+        }
+      } else {
+        await write();
+      }
       _imported += batch.length;
       _sourceIdentities += batch.where((row) => row.identity != null).length;
     } finally {
@@ -398,6 +494,14 @@ final class AndroidImportController extends ChangeNotifier {
         DiagnosticField.nativeSourceUs: profile.nativeSourceUs,
         DiagnosticField.nativeTagsUs: profile.nativeTagsUs,
         DiagnosticField.nativeArtworkUs: profile.nativeArtworkUs,
+        DiagnosticField.metadataCacheHits: profile.cacheHits,
+        DiagnosticField.metadataCacheMisses: profile.cacheMisses,
+        DiagnosticField.metadataCacheChecks: profile.cacheChecks,
+        DiagnosticField.metadataCacheUs: profile.cacheUs,
+        DiagnosticField.metadataCacheFailures: profile.cacheFailures,
+        DiagnosticField.metadataForceRead: _forceRead,
+        DiagnosticField.metadataCacheWrites: profile.cacheWrites,
+        DiagnosticField.metadataCacheIneligible: profile.cacheIneligible,
       });
     } on Object {
       // Diagnostics must not affect import completion or shutdown.
@@ -443,20 +547,27 @@ int Function() _monotonicClock() {
 
 final class _PreparedImport {
   const _PreparedImport(this.track,
-      {required this.identity, required this.commentsRead});
+      {required this.identity, required this.commentsRead, this.cacheEntry});
   final Track track;
   final ExternalTrackIdentity? identity;
   final bool commentsRead;
+  final CachedAndroidAudio? cacheEntry;
 }
 
 final class _ImportProfile {
   _ImportProfile(this.startedUs);
   final int startedUs;
   bool interrupted = false;
+  int cacheWrites = 0, cacheIneligible = 0;
   int metadataReads = 0, metadataUs = 0, artworkUs = 0, folderUs = 0;
   int databaseUs = 0, batches = 0, fallbackRows = 0, progressUpdates = 0;
   int nativeReads = 0, nativeReadUs = 0, nativeQueryUs = 0;
   int nativeSourceUs = 0, nativeTagsUs = 0, nativeArtworkUs = 0;
+  int cacheHits = 0,
+      cacheMisses = 0,
+      cacheChecks = 0,
+      cacheUs = 0,
+      cacheFailures = 0;
 
   void addNative(AudioDocumentReadTimings? timings) {
     if (timings == null) return;

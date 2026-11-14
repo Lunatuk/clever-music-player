@@ -6,6 +6,7 @@ import 'package:clever_music_player/src/android/android_folders_screen.dart';
 import 'package:clever_music_player/src/android/android_import_controller.dart';
 import 'package:clever_music_player/src/android/android_preview_app.dart';
 import 'package:clever_music_player/src/domain/models/models.dart';
+import 'package:clever_music_player/src/diagnostics/diagnostics_service.dart';
 import 'package:clever_music_player/src/domain/repositories/track_repository.dart';
 import 'package:clever_music_player/src/library/artwork_cache_service.dart';
 import 'package:clever_music_player/src/player/player_service.dart';
@@ -14,8 +15,22 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/test_audio_folders.dart';
+import 'support/recording_diagnostics.dart';
 
 void main() {
+  testWidgets('force-read button bypasses ordinary refresh explicitly',
+      (tester) async {
+    final f = _Fixture();
+    addTearDown(f.close);
+    await tester.pumpWidget(f.sources());
+    await tester.pump();
+    await tester.tap(find.text('Перечитать теги и обложки'));
+    await tester.pump();
+    expect(f.native.metadataReads, 2);
+    expect(f.diagnostics.entries.last.fields[DiagnosticField.metadataForceRead],
+        isTrue);
+    await tester.pumpWidget(const SizedBox());
+  });
   testWidgets(
       'a captured forget callback checks current busy state before the next frame',
       (tester) async {
@@ -137,9 +152,11 @@ final class _Fixture {
         documents: native,
         imports: imports,
         artworkCache: const NoopArtworkCacheService(),
+        diagnostics: diagnostics,
         bookmarks: bookmarks);
   }
   final settings = TestFolderSettings();
+  final diagnostics = RecordingDiagnostics();
   final native = TestAudioFolders();
   final imports = _Imports();
   late final AndroidFolderBookmarks bookmarks;
