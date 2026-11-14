@@ -270,9 +270,11 @@ class AudioDocumentsPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activi
     }
 
     private fun readAudio(uri: Uri): Map<String, Any?> {
+        val startedAt = System.nanoTime()
         check(hasPersistentRead(uri))
         var name: String? = null
         var size: Long? = null
+        val queryAt = System.nanoTime()
         contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE),
             null, null, null)?.use { cursor ->
             if (cursor.moveToFirst()) {
@@ -285,6 +287,8 @@ class AudioDocumentsPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activi
         val documentId = runCatching { DocumentsContract.getDocumentId(uri) }.getOrNull()
         check(!AudioPublicationVisibility.hidden(publicationsDirectory, uri.authority, name, documentId))
         check(size != 0L)
+        val queryUs = (System.nanoTime() - queryAt) / 1000
+        val sourceAt = System.nanoTime()
         val sourceComments = contentResolver.openAssetFileDescriptor(uri, "r").use { asset ->
             check(asset != null && asset.declaredLength != 0L)
             // Use only this granted descriptor, including its declared subrange.
@@ -297,28 +301,45 @@ class AudioDocumentsPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activi
                 }
             }.getOrNull()
         }
+        val sourceUs = (System.nanoTime() - sourceAt) / 1000
         val metadata = mutableMapOf<String, Any?>("name" to name, "size" to size,
             "sourceComments" to sourceComments)
         val reader = MediaMetadataRetriever()
+        var tagsUs = 0L
+        var artworkUs = 0L
         try {
-            reader.setDataSource(appContext, uri)
-            for ((key, code) in mapOf(
-                "title" to MediaMetadataRetriever.METADATA_KEY_TITLE,
-                "artist" to MediaMetadataRetriever.METADATA_KEY_ARTIST,
-                "album" to MediaMetadataRetriever.METADATA_KEY_ALBUM,
-                "albumArtist" to MediaMetadataRetriever.METADATA_KEY_ALBUMARTIST,
-                "genre" to MediaMetadataRetriever.METADATA_KEY_GENRE,
-                "trackNumber" to MediaMetadataRetriever.METADATA_KEY_CD_TRACK_NUMBER,
-                "discNumber" to MediaMetadataRetriever.METADATA_KEY_DISC_NUMBER,
-                "year" to MediaMetadataRetriever.METADATA_KEY_YEAR,
-                "durationMs" to MediaMetadataRetriever.METADATA_KEY_DURATION
-            )) metadata[key] = reader.extractMetadata(code)
-            reader.embeddedPicture?.let { picture -> metadata["artwork"] = thumbnail(picture) }
+            val tagsAt = System.nanoTime()
+            try {
+                reader.setDataSource(appContext, uri)
+                for ((key, code) in mapOf(
+                    "title" to MediaMetadataRetriever.METADATA_KEY_TITLE,
+                    "artist" to MediaMetadataRetriever.METADATA_KEY_ARTIST,
+                    "album" to MediaMetadataRetriever.METADATA_KEY_ALBUM,
+                    "albumArtist" to MediaMetadataRetriever.METADATA_KEY_ALBUMARTIST,
+                    "genre" to MediaMetadataRetriever.METADATA_KEY_GENRE,
+                    "trackNumber" to MediaMetadataRetriever.METADATA_KEY_CD_TRACK_NUMBER,
+                    "discNumber" to MediaMetadataRetriever.METADATA_KEY_DISC_NUMBER,
+                    "year" to MediaMetadataRetriever.METADATA_KEY_YEAR,
+                    "durationMs" to MediaMetadataRetriever.METADATA_KEY_DURATION
+                )) metadata[key] = reader.extractMetadata(code)
+            } finally {
+                tagsUs = (System.nanoTime() - tagsAt) / 1000
+            }
+            val artworkAt = System.nanoTime()
+            try {
+                reader.embeddedPicture?.let { picture -> metadata["artwork"] = thumbnail(picture) }
+            } finally {
+                artworkUs = (System.nanoTime() - artworkAt) / 1000
+            }
         } catch (_: Exception) {
             // Missing/broken tags do not make readable audio unavailable.
         } finally {
             reader.release()
         }
+        metadata["readTimings"] = mapOf("version" to 1,
+            "totalUs" to (System.nanoTime() - startedAt) / 1000,
+            "queryUs" to queryUs, "sourceUs" to sourceUs,
+            "tagsUs" to tagsUs, "artworkUs" to artworkUs)
         return metadata
     }
 

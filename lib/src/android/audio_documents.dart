@@ -22,7 +22,8 @@ final class AudioDocumentMetadata {
       this.trackNumber,
       this.discNumber,
       this.year,
-      this.sourceComments});
+      this.sourceComments,
+      this.readTimings});
   final String? name, title, artist, album, albumArtist, genre;
   final Duration? duration;
   final int? size, trackNumber, discNumber, year;
@@ -30,6 +31,38 @@ final class AudioDocumentMetadata {
 
   /// null: no reliable read; empty: comments were read and absent.
   final List<String>? sourceComments;
+  final AudioDocumentReadTimings? readTimings;
+}
+
+/// Optional native measurements; these are subsets of the Dart channel time.
+final class AudioDocumentReadTimings {
+  const AudioDocumentReadTimings(
+      {required this.totalUs,
+      required this.queryUs,
+      required this.sourceUs,
+      required this.tagsUs,
+      required this.artworkUs});
+  final int totalUs, queryUs, sourceUs, tagsUs, artworkUs;
+
+  static AudioDocumentReadTimings? parse(Object? value) {
+    if (value is! Map || value['version'] != 1) return null;
+    const keys = ['totalUs', 'queryUs', 'sourceUs', 'tagsUs', 'artworkUs'];
+    for (final key in keys) {
+      final time = value[key];
+      if (time is! int || time < 0 || time > 3600000000) return null;
+    }
+    final total = value['totalUs'] as int;
+    if (keys.skip(1).fold<int>(0, (sum, key) => sum + (value[key] as int)) >
+        total) {
+      return null;
+    }
+    return AudioDocumentReadTimings(
+        totalUs: total,
+        queryUs: value['queryUs'] as int,
+        sourceUs: value['sourceUs'] as int,
+        tagsUs: value['tagsUs'] as int,
+        artworkUs: value['artworkUs'] as int);
+  }
 }
 
 abstract interface class AudioDocuments {
@@ -232,6 +265,7 @@ final class AndroidAudioDocuments
       discNumber: number('discNumber', 1000000),
       year: number('year', 9999),
       sourceComments: comments,
+      readTimings: AudioDocumentReadTimings.parse(data['readTimings']),
       artwork:
           artwork is Uint8List && artwork.length <= 256 * 1024 ? artwork : null,
     );

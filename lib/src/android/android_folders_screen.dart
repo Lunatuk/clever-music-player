@@ -89,104 +89,101 @@ final class _AndroidFoldersScreenState extends State<AndroidFoldersScreen> {
                         onPressed: () => _command(importer.cancel),
                         child: const Text('Остановить импорт')),
                 ],
-                if (importer.message != null)
-                  Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Text(importer.message!)),
                 Expanded(
-                    child: store.loadFailed
-                        ? const Center(
+                    child: CustomScrollView(slivers: [
+                  if (importer.message != null)
+                    SliverToBoxAdapter(
+                        child: Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: Text(importer.message!))),
+                  if (store.loadFailed)
+                    const SliverToBoxAdapter(
+                        child: Padding(
+                            padding: EdgeInsets.all(24),
                             child: Text(
-                                'Не удалось открыть список папок. Существующая музыка остаётся доступной.'))
-                        : !store.loaded
-                            ? const Center(child: CircularProgressIndicator())
-                            : store.folders.isEmpty
-                                ? const Center(
-                                    child: Padding(
-                                        padding: EdgeInsets.all(24),
-                                        child: Text(
-                                            'Сохранённых папок нет. Добавьте папку с музыкой.',
-                                            textAlign: TextAlign.center)))
-                                : ListView.builder(
-                                    itemCount: store.folders.length,
-                                    itemBuilder: (context, index) {
-                                      final folder = store.folders[index];
-                                      final access = store.accessFor(folder);
-                                      final time =
-                                          folder.lastCompletedAt?.toLocal();
-                                      return Padding(
-                                          padding: const EdgeInsets.fromLTRB(
-                                              16, 12, 16, 8),
-                                          child: Column(
-                                              crossAxisAlignment:
-                                                  CrossAxisAlignment.start,
-                                              children: [
-                                                Row(children: [
-                                                  Expanded(
-                                                      child: Text(
-                                                          access?.name ??
-                                                              folder
-                                                                  .displayName,
-                                                          maxLines: 2,
-                                                          overflow: TextOverflow
-                                                              .ellipsis,
-                                                          style: Theme.of(
-                                                                  context)
-                                                              .textTheme
-                                                              .titleMedium)),
-                                                  IconButton(
-                                                      tooltip:
-                                                          'Убрать из библиотеки',
-                                                      onPressed: blocked
-                                                          ? null
-                                                          : () => _command(() =>
-                                                              _forget(folder)),
-                                                      icon: const Icon(Icons
-                                                          .folder_off_outlined)),
-                                                ]),
-                                                Text(access == null
-                                                    ? 'Доступ ещё не проверен'
-                                                    : access.readable
-                                                        ? 'Доступ есть'
-                                                        : 'Нет доступа. Выберите эту папку заново.'),
-                                                if (time != null)
-                                                  Text(
-                                                      'Последнее обновление: ${_timestamp(time)}',
-                                                      style: Theme.of(context)
-                                                          .textTheme
-                                                          .bodySmall),
-                                                Wrap(spacing: 8, children: [
-                                                  TextButton.icon(
-                                                      onPressed: blocked
-                                                          ? null
-                                                          : () => _command(() =>
-                                                              _refresh(folder)),
-                                                      icon: const Icon(
-                                                          Icons.sync_rounded),
-                                                      label: const Text(
-                                                          'Обновить')),
-                                                  if (access?.readable == false)
-                                                    TextButton.icon(
-                                                        onPressed: blocked
-                                                            ? null
-                                                            : () => _command(
-                                                                () => _refresh(
-                                                                    folder,
-                                                                    restore:
-                                                                        true)),
-                                                        icon: const Icon(Icons
-                                                            .folder_open_rounded),
-                                                        label: const Text(
-                                                            'Разрешить доступ')),
-                                                ]),
-                                                const Divider(),
-                                              ]));
-                                    })),
-                const Padding(
-                    padding: EdgeInsets.all(16),
-                    child: Text(
-                        '«Убрать из библиотеки» скрывает треки этой папки. Файлы и история сохраняются. Добавьте папку заново, чтобы вернуть её музыку.',
-                        textAlign: TextAlign.center)),
+                                'Не удалось открыть список папок. Существующая музыка остаётся доступной.')))
+                  else if (!store.loaded)
+                    const SliverToBoxAdapter(
+                        child: Center(child: CircularProgressIndicator()))
+                  else if (store.folders.isEmpty)
+                    const SliverToBoxAdapter(
+                        child: Padding(
+                            padding: EdgeInsets.all(24),
+                            child: Text(
+                                'Сохранённых папок нет. Добавьте папку с музыкой.',
+                                textAlign: TextAlign.center)))
+                  else
+                    SliverList.builder(
+                        itemCount: store.folders.length,
+                        itemBuilder: (context, index) {
+                          final folder = store.folders[index];
+                          final access = store.accessFor(folder);
+                          final time = folder.lastCompletedAt?.toLocal();
+                          return Padding(
+                              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                              child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(children: [
+                                      Expanded(
+                                          child: Text(
+                                              access?.name ??
+                                                  folder.displayName,
+                                              maxLines: 2,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: Theme.of(context)
+                                                  .textTheme
+                                                  .titleMedium)),
+                                      IconButton(
+                                          tooltip: 'Убрать из библиотеки',
+                                          onPressed: blocked
+                                              ? null
+                                              : () => _command(
+                                                  () => _forget(folder)),
+                                          icon: const Icon(
+                                              Icons.folder_off_outlined)),
+                                    ]),
+                                    Text(access == null
+                                        ? 'Доступ ещё не проверен'
+                                        : access.readable
+                                            ? 'Доступ есть'
+                                            : 'Нет доступа. Выберите эту папку заново.'),
+                                    if (time != null)
+                                      Text(
+                                          'Последнее обновление: ${_timestamp(time)}',
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .bodySmall),
+                                    Wrap(spacing: 8, children: [
+                                      TextButton.icon(
+                                          onPressed: blocked
+                                              ? null
+                                              : () => _command(
+                                                  () => _refresh(folder)),
+                                          icon: const Icon(Icons.sync_rounded),
+                                          label: const Text('Обновить')),
+                                      if (access?.readable == false)
+                                        TextButton.icon(
+                                            onPressed: blocked
+                                                ? null
+                                                : () => _command(() => _refresh(
+                                                    folder,
+                                                    restore: true)),
+                                            icon: const Icon(
+                                                Icons.folder_open_rounded),
+                                            label:
+                                                const Text('Разрешить доступ')),
+                                    ]),
+                                    const Divider(),
+                                  ]));
+                        }),
+                  const SliverToBoxAdapter(
+                      child: Padding(
+                          padding: EdgeInsets.all(16),
+                          child: Text(
+                              '«Убрать из библиотеки» скрывает треки этой папки. Файлы и история сохраняются. Добавьте папку заново, чтобы вернуть её музыку.',
+                              textAlign: TextAlign.center))),
+                ])),
               ])),
         );
       });

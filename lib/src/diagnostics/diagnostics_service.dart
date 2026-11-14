@@ -77,6 +77,7 @@ enum DiagnosticEvent {
   androidMediaCheckFailed,
   androidDownloadCoordinated,
   androidDownloadOpenFailed,
+  androidImportFinished,
 }
 
 enum DiagnosticField {
@@ -171,6 +172,17 @@ enum DiagnosticField {
   audioValidationOutcome,
   fingerprintStatus,
   needsReconciliation,
+  importCancelled,
+  importFailed,
+  importFolders,
+  importFallbackRows,
+  progressUpdates,
+  nativeMetadataReads,
+  nativeReadUs,
+  nativeQueryUs,
+  nativeSourceUs,
+  nativeTagsUs,
+  nativeArtworkUs,
 }
 
 /// Only fixed event/field names and numeric/boolean values enter the journal.

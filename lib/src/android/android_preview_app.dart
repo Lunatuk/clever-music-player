@@ -91,6 +91,7 @@ final class _AndroidPreviewAppState extends State<AndroidPreviewApp> {
         imports:
             widget.dependencies.repositories.tracks as TrackImportRepository,
         artworkCache: AppSupportArtworkCacheService(),
+        diagnostics: widget.dependencies.diagnostics,
         bookmarks: _bookmarks);
   }
 
