@@ -1,6 +1,8 @@
 import 'package:flutter/services.dart';
 
 import '../domain/models/audio_source_reference.dart';
+import 'audio_document_inspection.dart';
+export 'audio_document_inspection.dart';
 
 final class AudioDocumentSelection {
   const AudioDocumentSelection(this.sources, {this.skipped = 0});
@@ -36,115 +38,6 @@ final class AudioDocumentMetadata {
 
   /// Supplied only after complete reading with unchanged provider stamps.
   final AudioDocumentRevision? cacheRevision;
-}
-
-final class AudioDocumentRevision {
-  const AudioDocumentRevision(
-      {required this.authority,
-      required this.documentId,
-      required this.name,
-      required this.size,
-      required this.modifiedMs});
-  final String authority, documentId, name;
-  final int size, modifiedMs;
-
-  static AudioDocumentRevision? parse(Object? value) {
-    if (value is! Map || value['version'] != 1) return null;
-    final authority = value['authority'], id = value['documentId'];
-    final name = value['name'],
-        size = value['size'],
-        modified = value['modifiedMs'];
-    if (authority is! String ||
-        authority.isEmpty ||
-        authority.length > 512 ||
-        id is! String ||
-        id.isEmpty ||
-        id.length > 4096 ||
-        name is! String ||
-        name.isEmpty ||
-        name.length > 4096 ||
-        size is! int ||
-        size <= 0 ||
-        size > 9007199254740991 ||
-        modified is! int ||
-        modified <= 0 ||
-        modified > 8640000000000000) {
-      return null;
-    }
-    return AudioDocumentRevision(
-        authority: authority,
-        documentId: id,
-        name: name,
-        size: size,
-        modifiedMs: modified);
-  }
-
-  @override
-  bool operator ==(Object other) =>
-      other is AudioDocumentRevision &&
-      authority == other.authority &&
-      documentId == other.documentId &&
-      name == other.name &&
-      size == other.size &&
-      modifiedMs == other.modifiedMs;
-  @override
-  int get hashCode =>
-      Object.hash(authority, documentId, name, size, modifiedMs);
-}
-
-abstract interface class AudioDocumentInspection {
-  /// Checks current permission/readability. Null means ordinary reading is needed.
-  Future<AudioDocumentRevision?> inspectAudio(ContentUriAudioSource source);
-}
-
-abstract interface class ProfiledAudioDocumentInspection {
-  Future<AudioDocumentInspectionResult> inspectProfiledAudio(
-      ContentUriAudioSource source);
-}
-
-final class AudioDocumentInspectionResult {
-  const AudioDocumentInspectionResult(this.revision, {this.timings});
-  final AudioDocumentRevision? revision;
-  final AudioDocumentInspectionTimings? timings;
-}
-
-/// Revision time includes visibility checks. Do not sum those two fields.
-final class AudioDocumentInspectionTimings {
-  const AudioDocumentInspectionTimings(
-      {required this.totalUs,
-      required this.permissionUs,
-      required this.revisionUs,
-      required this.visibilityUs,
-      required this.descriptorUs});
-  final int totalUs, permissionUs, revisionUs, visibilityUs, descriptorUs;
-
-  static AudioDocumentInspectionTimings? parse(Object? value) {
-    if (value is! Map || value['version'] != 1) return null;
-    const keys = [
-      'totalUs',
-      'permissionUs',
-      'revisionUs',
-      'visibilityUs',
-      'descriptorUs'
-    ];
-    for (final key in keys) {
-      final v = value[key];
-      if (v is! int || v < 0 || v > 3600000000) return null;
-    }
-    if ((value['permissionUs'] as int) +
-                (value['revisionUs'] as int) +
-                (value['descriptorUs'] as int) >
-            (value['totalUs'] as int) ||
-        (value['visibilityUs'] as int) > (value['revisionUs'] as int)) {
-      return null;
-    }
-    return AudioDocumentInspectionTimings(
-        totalUs: value['totalUs'] as int,
-        permissionUs: value['permissionUs'] as int,
-        revisionUs: value['revisionUs'] as int,
-        visibilityUs: value['visibilityUs'] as int,
-        descriptorUs: value['descriptorUs'] as int);
-  }
 }
 
 /// Optional native measurements; these are subsets of the Dart channel time.
@@ -222,12 +115,29 @@ final class AndroidAudioDocuments
         AudioDocumentFolders,
         AudioDocumentFolderAccess,
         AudioDocumentInspection,
-        ProfiledAudioDocumentInspection {
+        ProfiledAudioDocumentInspection,
+        BatchedAudioDocumentInspection {
   const AndroidAudioDocuments({MethodChannel? channel})
       : _channel = channel ??
             const MethodChannel(
                 'dev.lunatuk.clever_music_player/audio_documents');
   final MethodChannel _channel;
+
+  @override
+  Future<AudioInspectionBatchResult> inspectAudioBatch(
+      int batch, List<AudioInspectionBatchRequest> items) async {
+    AudioInspectionBatchRequest.validate(batch, items);
+    final frozen = List<AudioInspectionBatchRequest>.unmodifiable(items);
+    final value = await _channel.invokeMethod<Object?>('inspectAudioBatch', {
+      'batch': batch,
+      'items': [for (final item in frozen) item.message()]
+    });
+    return AudioInspectionBatchResult.parse(value, frozen);
+  }
+
+  @override
+  Future<void> cancelAudioInspectionBatch(int batch) => _channel
+      .invokeMethod<void>('cancelAudioInspectionBatch', {'batch': batch});
 
   @override
   Future<AudioDocumentRevision?> inspectAudio(

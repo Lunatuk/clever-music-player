@@ -40,6 +40,9 @@ final class AndroidImportController extends ChangeNotifier {
   final AndroidFolderBookmarks? bookmarks;
   final AndroidImportMetadataCache? metadataCache;
   bool _forceRead = false, _cacheDisabled = false;
+  bool _batchDisabled = false;
+  static int _nextInspectionBatch = 0;
+  int? _activeInspectionBatch;
   final DateTime Function() _clock;
   final DiagnosticsService diagnostics;
   final int Function() _tick;
@@ -92,6 +95,7 @@ final class AndroidImportController extends ChangeNotifier {
     _sourceIdentities = 0;
     _forceRead = forceRead;
     _cacheDisabled = false;
+    _batchDisabled = false;
     _message = null;
     _profile = null;
     _lastProgressUs = null;
@@ -275,15 +279,42 @@ final class AndroidImportController extends ChangeNotifier {
           _profile!.cacheUs += _tick() - at;
         }
       }
-      for (final source in pageSources) {
+      Map<String, _NativeCachedCheck>? nativeChecks;
+      for (var index = 0; index < pageSources.length; index++) {
+        final source = pageSources[index];
         if (_stopped) break;
         try {
           late final AudioDocumentMetadata metadata;
-          final cached = await _cachedAudio(source, cachePage);
+          if (nativeChecks == null &&
+              !_batchDisabled &&
+              !_forceRead &&
+              !_cacheDisabled &&
+              cachePage != null &&
+              cachePage.mayContain(source) &&
+              documents is BatchedAudioDocumentInspection) {
+            nativeChecks =
+                await _prepareNativeChecks(pageSources, index, cachePage);
+          }
+          if (_stopped) break;
+          final checked = nativeChecks?.remove(source.storageValue);
+          if (nativeChecks?.isEmpty == true) nativeChecks = null;
+          CachedAndroidAudio? cached;
+          if (checked != null && checked.fresh(_tick())) {
+            cached = await _useNativeCheck(checked, cachePage!);
+          } else {
+            if (checked != null) {
+              _profile!.batchStale++;
+              _batchDisabled = true;
+              nativeChecks = null;
+            }
+            cached = await _cachedAudio(source, cachePage);
+          }
           if (_stopped) break;
           if (cached != null) {
             metadata = cached.metadata;
           } else {
+            // Do not hold proofs for following documents across a slow full read.
+            nativeChecks = null;
             final readAt = _tick();
             try {
               metadata = await documents.readAudio(source);
@@ -369,6 +400,142 @@ final class AndroidImportController extends ChangeNotifier {
       // These records no longer need the provider. Keep them on cancel/close,
       // while the controller still owns the database lifetime.
       await _flushPrepared(pending);
+    }
+  }
+
+  Future<Map<String, _NativeCachedCheck>?> _prepareNativeChecks(
+      List<ContentUriAudioSource> sources,
+      int first,
+      AndroidMetadataCachePage page) async {
+    final candidates = <CachedAndroidAudio>[];
+    final requests = <AudioInspectionBatchRequest>[];
+    final decodeAt = _tick();
+    try {
+      for (var i = first;
+          i < sources.length && requests.length < maxAudioInspectionBatchSize;
+          i++) {
+        if (_stopped || !page.mayContain(sources[i])) break;
+        final result = page.candidate(sources[i]);
+        _profile!.cacheDecodeUs += result.decodeUs;
+        if (result.value == null) break;
+        candidates.add(result.value!);
+        requests.add(AudioInspectionBatchRequest(sources[i],
+            artworkPath: result.value!.artwork?.path,
+            artworkHash: result.value!.artwork?.hash));
+      }
+    } finally {
+      final elapsed = _tick() - decodeAt;
+      _profile!.cacheUs += elapsed;
+      _profile!.cacheLookupUs += elapsed;
+    }
+    if (requests.isEmpty || _stopped) return null;
+    final id = ++_nextInspectionBatch;
+    final at = _tick();
+    _activeInspectionBatch = id;
+    _profile!.inspectionBatches++;
+    try {
+      final result = await (documents as BatchedAudioDocumentInspection)
+          .inspectAudioBatch(id, requests);
+      if (_stopped) return null;
+      if (result.cancelled ||
+          result.entries.isEmpty ||
+          result.entries.length > requests.length) {
+        throw const FormatException('Incomplete inspection batch');
+      }
+      for (var i = 0; i < result.entries.length; i++) {
+        if (result.entries[i].source != requests[i].source ||
+            result.entries[i].ageUs < 0) {
+          throw const FormatException(
+              'Inspection batch does not match request');
+        }
+        if (!result.entries[i].failed &&
+            ((requests[i].hasArtwork &&
+                    result.entries[i].artwork == AudioArtworkCheck.absent) ||
+                (!requests[i].hasArtwork &&
+                    result.entries[i].artwork != AudioArtworkCheck.absent))) {
+          throw const FormatException('Artwork proof does not match request');
+        }
+      }
+      _profile!.batchItems += result.entries.length;
+      _profile!.cacheChecks += result.entries.length;
+      for (final entry in result.entries) {
+        _profile!.addInspection(entry.inspection.timings);
+        if (!entry.failed && entry.artwork != AudioArtworkCheck.unchecked) {
+          _profile!.nativeArtworkChecks++;
+        }
+      }
+      return {
+        for (var i = 0; i < result.entries.length; i++)
+          requests[i].source.storageValue:
+              _NativeCachedCheck(candidates[i], result.entries[i], at),
+      };
+    } on Object {
+      if (!_stopped) {
+        _profile!.batchFallbacks++;
+        _batchDisabled = true;
+      }
+      return null;
+    } finally {
+      final elapsed = _tick() - at;
+      _profile!.cacheUs += elapsed;
+      _profile!.cacheInspectionUs += elapsed;
+      if (_activeInspectionBatch == id) _activeInspectionBatch = null;
+    }
+  }
+
+  Future<CachedAndroidAudio?> _useNativeCheck(
+      _NativeCachedCheck check, AndroidMetadataCachePage page) async {
+    final entry = check.entry;
+    CachedAndroidAudio? cached;
+    final at = _tick();
+    try {
+      final revision = entry.inspection.revision;
+      if (entry.failed) _profile!.cacheFailures++;
+      if (!entry.failed && revision == check.candidate.revision) {
+        switch (entry.artwork) {
+          case AudioArtworkCheck.available:
+          case AudioArtworkCheck.absent:
+            cached = check.candidate;
+            break;
+          case AudioArtworkCheck.missing:
+            break;
+          case AudioArtworkCheck.unchecked:
+            final result = await page.lookup(revision!);
+            _profile!.cacheDecodeUs += result.decodeUs;
+            _profile!.cacheArtworkStatUs += result.artworkStatUs;
+            cached = result.value;
+            break;
+        }
+      }
+      if (!check.fresh(_tick())) {
+        _profile!.batchStale++;
+        _batchDisabled = true;
+        cached = null;
+      }
+    } on Object {
+      _profile!.cacheFailures++;
+      _cacheDisabled = true;
+    } finally {
+      final elapsed = _tick() - at;
+      _profile!.cacheLookupUs += elapsed;
+      _profile!.cacheUs += elapsed;
+    }
+    if (cached == null) {
+      _profile!.cacheMisses++;
+    } else {
+      _profile!.cacheHits++;
+    }
+    return cached;
+  }
+
+  Future<void> _cancelNativeInspection() async {
+    final id = _activeInspectionBatch;
+    if (id == null || documents is! BatchedAudioDocumentInspection) return;
+    try {
+      await (documents as BatchedAudioDocumentInspection)
+          .cancelAudioInspectionBatch(id);
+    } on Object {
+      // Late results are still ignored and close drains the accepted call.
     }
   }
 
@@ -572,6 +739,14 @@ final class AndroidImportController extends ChangeNotifier {
             profile.inspectionVisibilityUs,
         DiagnosticField.nativeInspectionDescriptorUs:
             profile.inspectionDescriptorUs,
+        DiagnosticField.nativeInspectionArtworkUs: profile.inspectionArtworkUs,
+        DiagnosticField.metadataCacheInspectionBatches:
+            profile.inspectionBatches,
+        DiagnosticField.metadataCacheBatchItems: profile.batchItems,
+        DiagnosticField.metadataCacheBatchFallbacks: profile.batchFallbacks,
+        DiagnosticField.metadataCacheBatchStale: profile.batchStale,
+        DiagnosticField.metadataCacheNativeArtworkChecks:
+            profile.nativeArtworkChecks,
       });
     } on Object {
       // Diagnostics must not affect import completion or shutdown.
@@ -582,6 +757,7 @@ final class AndroidImportController extends ChangeNotifier {
     if (!canCancel) return;
     _cancelRequested = true;
     _notifyProgress(force: true);
+    await _cancelNativeInspection();
     await _releaseFolder();
   }
 
@@ -595,6 +771,7 @@ final class AndroidImportController extends ChangeNotifier {
     _closed = true;
     _cancelRequested = true;
     return _closing ??= finishCleanup([
+      _cancelNativeInspection,
       _releaseFolder,
       () async {
         await _processing;
@@ -624,10 +801,23 @@ final class _PreparedImport {
   final CachedAndroidAudio? cacheEntry;
 }
 
+final class _NativeCachedCheck {
+  const _NativeCachedCheck(this.candidate, this.entry, this.startedUs);
+  final CachedAndroidAudio candidate;
+  final AudioInspectionBatchEntry entry;
+  final int startedUs;
+  bool fresh(int now) =>
+      entry.ageUs <= audioInspectionProofLifetimeUs &&
+      now >= startedUs &&
+      now - startedUs <= audioInspectionProofLifetimeUs;
+}
+
 final class _ImportProfile {
   _ImportProfile(this.startedUs);
   final int startedUs;
   bool interrupted = false;
+  int inspectionBatches = 0, batchItems = 0, batchFallbacks = 0, batchStale = 0;
+  int nativeArtworkChecks = 0, inspectionArtworkUs = 0;
   int cacheInspectionSkipped = 0;
   int cacheDatabaseUs = 0, cacheDatabaseQueries = 0, cacheInspectionUs = 0;
   int cacheLookupUs = 0,
@@ -657,6 +847,7 @@ final class _ImportProfile {
     inspectionRevisionUs += timings.revisionUs;
     inspectionVisibilityUs += timings.visibilityUs;
     inspectionDescriptorUs += timings.descriptorUs;
+    inspectionArtworkUs += timings.artworkUs;
   }
 
   void addNative(AudioDocumentReadTimings? timings) {

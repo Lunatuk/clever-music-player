@@ -34,6 +34,8 @@ class AudioDocumentsPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activi
     private var documentsChannel: MethodChannel? = null
     private data class FolderSession(val uri: Uri, val cancel: CancellationSignal, val walker: DocumentTreeWalker)
     private val folders = ConcurrentHashMap<Int, FolderSession>()
+    private val inspectionBatches = ConcurrentHashMap<Long, CancellationSignal>()
+    private val artworkProbe by lazy { AudioArtworkProbe(java.io.File(appContext.filesDir, "CleverMusicPlayer/artwork")) }
     private var nextFolderId = 1
     @Volatile private var destroyed = false
 
@@ -133,6 +135,12 @@ class AudioDocumentsPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activi
                             }
                         }
                     }
+                    "inspectAudioBatch" -> startInspectionBatch(call.argument<Number>("batch")?.toLong(),
+                        call.argument<List<*>>("items"), result)
+                    "cancelAudioInspectionBatch" -> {
+                        call.argument<Number>("batch")?.toLong()?.let { inspectionBatches[it]?.cancel() }
+                        result.success(null)
+                    }
                     "inspectAudio" -> onWorker(result) {
                         val startedAt = System.nanoTime()
                         val timings = AudioInspectionTimings()
@@ -180,6 +188,84 @@ class AudioDocumentsPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activi
                 }
             }
         }
+    }
+
+    private fun startInspectionBatch(id: Long?, values: List<*>?, result: MethodChannel.Result) {
+        var registered: CancellationSignal? = null
+        try {
+            check(!destroyed && id != null && id > 0 && inspectionBatches.isEmpty())
+            require(values != null && values.isNotEmpty() && values.size <= AudioInspectionBatch.MAX_ITEMS)
+            val requests = values.map { value ->
+                val map = value as? Map<*, *> ?: error("invalid_item")
+                val source = map["source"] as? String ?: error("invalid_source")
+                val cover = map["hasArtwork"] as? Boolean ?: error("invalid_artwork")
+                require((map["artworkPath"] == null || map["artworkPath"] is String) &&
+                    (map["artworkHash"] == null || map["artworkHash"] is String))
+                val path = map["artworkPath"] as? String
+                val hash = map["artworkHash"] as? String
+                require(source.isNotEmpty() && source.length <= 16384 &&
+                    (if (cover) path != null && hash != null else path == null && hash == null))
+                AudioInspectionRequest(source, cover, path, hash)
+            }
+            require(requests.map { it.source }.toSet().size == requests.size)
+            val signal = CancellationSignal()
+            check(inspectionBatches.putIfAbsent(id, signal) == null)
+            registered = signal
+            worker.execute {
+                try {
+                    val response = AudioInspectionBatch.run(requests, { signal.isCanceled },
+                        { request -> inspectBatchItem(request, signal) })
+                    mainHandler.post { if (!destroyed) result.success(response) }
+                } catch (_: Exception) {
+                    mainHandler.post { if (!destroyed) result.error("inspection_unavailable", "Проверка файлов недоступна.", null) }
+                } finally {
+                    inspectionBatches.remove(id, signal)
+                }
+            }
+        } catch (_: Exception) {
+            if (id != null && registered != null) inspectionBatches.remove(id, registered)
+            result.error("invalid_inspection_batch", "Проверка файлов недоступна.", null)
+        }
+    }
+
+    private fun inspectBatchItem(request: AudioInspectionRequest, cancel: CancellationSignal): Map<String, Any?> {
+        val startedAt = System.nanoTime()
+        val timings = AudioInspectionTimings()
+        var revision: AudioDocumentRevision? = null
+        var artwork = 0
+        var failed = false
+        try {
+            cancel.throwIfCanceled()
+            val uri = request.source.let(Uri::parse)
+            require(uri.scheme == "content" && uri.authority == "com.android.externalstorage.documents" &&
+                uri.query == null && uri.fragment == null)
+            val permissionAt = System.nanoTime()
+            try { check(hasPersistentRead(uri)) }
+            finally { timings.permissionNs = System.nanoTime() - permissionAt }
+            val openAt = System.nanoTime()
+            val asset = try { contentResolver.openAssetFileDescriptor(uri, "r", cancel) }
+                finally { timings.descriptorNs += System.nanoTime() - openAt }
+            try {
+                check(asset != null && asset.declaredLength != 0L)
+                cancel.throwIfCanceled()
+                val artworkAt = System.nanoTime()
+                try { artwork = artworkProbe.check(request) }
+                finally { timings.artworkNs = System.nanoTime() - artworkAt }
+                // Stamps/visibility are queried last while current audio access
+                // is still held. A batch is a bounded scan, not an atomic FS snapshot.
+                revision = documentRevision(uri, timings, cancel)
+                cancel.throwIfCanceled()
+            } finally {
+                val closeAt = System.nanoTime()
+                try { asset?.close() }
+                finally { timings.descriptorNs += System.nanoTime() - closeAt }
+            }
+        } catch (_: Exception) { failed = true }
+        val response = (revision?.message()?.toMutableMap() ?: mutableMapOf<String, Any>())
+        response["failed"] = failed
+        response["artwork"] = artwork
+        response["inspectionTimings"] = timings.message(System.nanoTime() - startedAt)
+        return response
     }
 
     private fun onWorker(result: MethodChannel.Result, action: () -> Any?) {
@@ -295,7 +381,8 @@ class AudioDocumentsPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activi
                 DocumentsContract.getTreeDocumentId(it.uri) == DocumentsContract.getTreeDocumentId(uri)))
     }
 
-    private fun documentRevision(uri: Uri, timings: AudioInspectionTimings? = null): AudioDocumentRevision? {
+    private fun documentRevision(uri: Uri, timings: AudioInspectionTimings? = null,
+                                 cancel: CancellationSignal? = null): AudioDocumentRevision? {
         if (uri.authority != "com.android.externalstorage.documents" ||
             uri.query != null || uri.fragment != null) return null
         val startedAt = System.nanoTime()
@@ -307,7 +394,7 @@ class AudioDocumentsPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activi
                     DocumentsContract.Document.COLUMN_SIZE,
                     DocumentsContract.Document.COLUMN_LAST_MODIFIED,
                     DocumentsContract.Document.COLUMN_FLAGS)
-                contentResolver.query(uri, columns, null, null, null)?.use { cursor ->
+                contentResolver.query(uri, columns, null, null, null, cancel)?.use { cursor ->
                     if (!cursor.moveToFirst()) return@use null
                     val indexes = columns.map { cursor.getColumnIndex(it) }
                     if (indexes.any { it < 0 || cursor.isNull(it) }) return@use null
@@ -463,6 +550,7 @@ class AudioDocumentsPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activi
         documentsChannel?.setMethodCallHandler(null)
         detachActivity(true)
         folders.values.forEach { it.cancel.cancel() }
+        inspectionBatches.values.forEach { it.cancel() }
         worker.execute {
             folders.values.forEach { try { it.walker.close() } catch (_: Exception) {} }
             folders.clear()

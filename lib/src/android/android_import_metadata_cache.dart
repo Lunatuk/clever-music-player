@@ -51,6 +51,25 @@ final class AndroidMetadataCachePage {
         _rows[identity]?.readerVersion == androidMetadataReaderVersion;
   }
 
+  /// Only a candidate. It still needs a fresh native access/revision proof and
+  /// a thumbnail check before it can be used as an import result.
+  AndroidCacheLookupResult candidate(ContentUriAudioSource source) {
+    final row = _rows[audioDocumentIdentity(source.storageValue)];
+    if (row == null || row.readerVersion != androidMetadataReaderVersion) {
+      return const AndroidCacheLookupResult(null);
+    }
+    final timer = Stopwatch()..start();
+    final revision = AudioDocumentRevision(
+        authority: row.authority,
+        documentId: row.documentId,
+        name: row.name,
+        size: row.sizeBytes,
+        modifiedMs: row.modifiedMs);
+    return AndroidCacheLookupResult(
+        CachedAndroidAudio.decode(revision, row.payload),
+        decodeUs: timer.elapsedMicroseconds);
+  }
+
   Future<AndroidCacheLookupResult> lookup(AudioDocumentRevision revision) =>
       _resolveCachedAudio(
           revision,

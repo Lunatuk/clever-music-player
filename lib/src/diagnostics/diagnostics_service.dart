@@ -205,6 +205,12 @@ enum DiagnosticField {
   nativeInspectionRevisionUs,
   nativeInspectionVisibilityUs,
   nativeInspectionDescriptorUs,
+  nativeInspectionArtworkUs,
+  metadataCacheInspectionBatches,
+  metadataCacheBatchItems,
+  metadataCacheBatchFallbacks,
+  metadataCacheBatchStale,
+  metadataCacheNativeArtworkChecks,
 }
 
 /// Only fixed event/field names and numeric/boolean values enter the journal.

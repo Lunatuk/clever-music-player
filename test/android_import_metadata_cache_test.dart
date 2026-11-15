@@ -511,6 +511,204 @@ void main() {
     });
   });
 
+  group('native inspection batches', () {
+    late _Fixture f;
+    late _BatchDocuments batch;
+    setUp(() async {
+      f = await _Fixture.create(batched: true);
+      batch = f.documents as _BatchDocuments;
+    });
+    tearDown(() => f.close());
+
+    test(
+        '130 warm files use 17 native calls with per-item checks and no Dart stat',
+        () async {
+      batch.count = 130;
+      await f.importer.importFolder();
+      batch.reads = batch.inspections = 0;
+      await f.importer.importFolder();
+      expect(batch.calls, hasLength(17));
+      expect(batch.calls.every((items) => items.length <= 8), isTrue);
+      expect(batch.inspections, 130);
+      expect(batch.singleCalls, 0);
+      expect(batch.reads, 0);
+      expect(f.profile[DiagnosticField.metadataCacheHits], 130);
+      expect(f.profile[DiagnosticField.metadataCacheArtworkStatUs], 0);
+      expect(f.profile[DiagnosticField.metadataCacheNativeArtworkChecks], 130);
+      expect(f.profile[DiagnosticField.nativeInspectionArtworkUs], 650);
+    });
+
+    test('partial prefixes advance without losing or replaying documents',
+        () async {
+      batch.count = 9;
+      await f.importer.importFolder();
+      batch.limit = 2;
+      await f.importer.importFolder();
+      expect(batch.calls, hasLength(5));
+      expect(f.profile[DiagnosticField.metadataCacheHits], 9);
+      expect(batch.singleCalls, 0);
+    });
+
+    test(
+        'failed native call disables batches and keeps the ordinary cache path',
+        () async {
+      await f.importer.importFolder();
+      batch.action = (_, __) async => throw MissingPluginException();
+      await f.importer.importFolder();
+      expect(batch.calls, hasLength(1));
+      expect(batch.singleCalls, 3);
+      expect(f.profile[DiagnosticField.metadataCacheHits], 3);
+      expect(f.profile[DiagnosticField.metadataCacheBatchFallbacks], 1);
+    });
+
+    test('old proofs fall back once instead of looping on stale batches',
+        () async {
+      await f.importer.importFolder();
+      batch.ageUs = audioInspectionProofLifetimeUs + 1;
+      await f.importer.importFolder();
+      expect(batch.calls, hasLength(1));
+      expect(batch.singleCalls, 3);
+      expect(f.profile[DiagnosticField.metadataCacheHits], 3);
+      expect(f.profile[DiagnosticField.metadataCacheBatchStale], 1);
+    });
+
+    test('queue and channel delay count against the proof lifetime', () async {
+      await f.importer.importFolder();
+      batch.beforeBatch = () async {
+        f.us += audioInspectionProofLifetimeUs + 1;
+      };
+      await f.importer.importFolder();
+      expect(batch.calls, hasLength(1));
+      expect(batch.singleCalls, 3);
+      expect(f.profile[DiagnosticField.metadataCacheBatchStale], 1);
+      expect(f.profile[DiagnosticField.metadataCacheHits], 3);
+    });
+
+    test('a wrongly bound batch result cannot authorize cache reuse', () async {
+      await f.importer.importFolder();
+      batch.action = (_, __) async => AudioInspectionBatchResult([
+            AudioInspectionBatchEntry(
+                source: batch.source(1),
+                inspection: AudioDocumentInspectionResult(batch.revision(0)),
+                artwork: AudioArtworkCheck.available,
+                failed: false,
+                ageUs: 0)
+          ], cancelled: false);
+      await f.importer.importFolder();
+      expect(batch.singleCalls, 3);
+      expect(f.profile[DiagnosticField.metadataCacheBatchFallbacks], 1);
+      expect(f.profile[DiagnosticField.metadataCacheHits], 3);
+    });
+
+    test('forced rereading bypasses inspection batches', () async {
+      await f.importer.importFolder();
+      batch.reads = 0;
+      await f.importer
+          .refreshFolder(SavedAudioFolder(batch.tree), forceRead: true);
+      expect(batch.calls, isEmpty);
+      expect(batch.reads, 3);
+      expect(f.profile[DiagnosticField.metadataCacheInspectionBatches], 0);
+    });
+
+    test('deleted thumbnail is restored without discarding neighbouring music',
+        () async {
+      await f.importer.importFolder();
+      final track = (await f.rows())[1];
+      await File(track.artworkPath!).delete();
+      batch.reads = 0;
+      await f.importer.importFolder();
+      expect(batch.reads, 1);
+      expect(await File(track.artworkPath!).length(), greaterThan(0));
+      expect(f.profile[DiagnosticField.metadataCacheHits], 2);
+      expect(f.profile[DiagnosticField.errorCount], 0);
+    });
+
+    test('unsupported native thumbnail scope retains the per-file Dart check',
+        () async {
+      await f.importer.importFolder();
+      batch.unchecked = true;
+      await f.importer.importFolder();
+      expect(f.profile[DiagnosticField.metadataCacheHits], 3);
+      expect(f.profile[DiagnosticField.metadataCacheNativeArtworkChecks], 0);
+      expect(batch.singleCalls, 0);
+    });
+
+    test('one lost grant does not abort other batch positions', () async {
+      await f.importer.importFolder();
+      batch.revoked.add(1);
+      await f.importer.importFolder();
+      expect(f.profile[DiagnosticField.importRows], 2);
+      expect(f.profile[DiagnosticField.errorCount], 1);
+      expect(f.profile[DiagnosticField.metadataCacheHits], 2);
+    });
+
+    test('proofs for following files are discarded across a full read',
+        () async {
+      await f.importer.importFolder();
+      void change(int i) {
+        final old = batch.revision(i);
+        batch.revisions[i] = AudioDocumentRevision(
+            authority: old.authority,
+            documentId: old.documentId,
+            name: old.name,
+            size: old.size,
+            modifiedMs: old.modifiedMs + 1);
+      }
+
+      batch.beforeItem = (i) async {
+        if (i == 0) change(0);
+      };
+      batch.readAction = (i) async {
+        if (i == 0) change(1);
+        return batch.metadata(i);
+      };
+      batch.reads = 0;
+      await f.importer.importFolder();
+      expect(batch.reads, 2);
+      expect(batch.calls, hasLength(3));
+      expect(f.profile[DiagnosticField.metadataCacheHits], 1);
+    });
+
+    for (final closing in [false, true]) {
+      test(
+          '${closing ? 'close' : 'cancel'} signals the active token and ignores its late result',
+          () async {
+        await f.importer.importFolder();
+        final entered = Completer<void>(), release = Completer<void>();
+        batch.action = (_, requests) async {
+          entered.complete();
+          await release.future;
+          return AudioInspectionBatchResult([], cancelled: true);
+        };
+        final running = f.importer.importFolder();
+        await entered.future;
+        Future<void>? closed;
+        if (closing) {
+          closed = f.importer.close();
+        } else {
+          await f.importer.cancel();
+        }
+        await _until(() => batch.cancellations.isNotEmpty);
+        expect(batch.cancellations, hasLength(1));
+        release.complete();
+        await running;
+        await closed;
+        expect(f.profile[DiagnosticField.importRows], 0);
+        expect(f.profile[DiagnosticField.metadataCacheWrites], 0);
+        expect(await f.rows(), hasLength(3));
+      });
+    }
+
+    test('no-cover snapshots use native absence without a Dart file lookup',
+        () async {
+      batch.noArtwork = true;
+      await f.importer.importFolder();
+      await f.importer.importFolder();
+      expect(f.profile[DiagnosticField.metadataCacheHits], 3);
+      expect(f.profile[DiagnosticField.metadataCacheArtworkStatUs], 0);
+    });
+  });
+
   const channel = MethodChannel('test/document-revisions');
   const documents = AndroidAudioDocuments(channel: channel);
   final messenger =
@@ -586,19 +784,22 @@ final class _GatedCache implements AndroidImportMetadataCache {
 }
 
 final class _Fixture {
-  _Fixture(this.directory);
-  static Future<_Fixture> create() async {
+  _Fixture(this.directory, {bool batched = false})
+      : documents = batched ? _BatchDocuments() : _Documents();
+  static Future<_Fixture> create({bool batched = false}) async {
     final f = _Fixture(
-        await Directory.systemTemp.createTemp('cmp_android_metadata_'));
+        await Directory.systemTemp.createTemp('cmp_android_metadata_'),
+        batched: batched);
     f.artwork = _Artwork(f.directory);
     f.open();
     return f;
   }
 
   final Directory directory;
-  final documents = _Documents();
+  final _Documents documents;
   final diagnostics = RecordingDiagnostics();
   final sql = _CacheSql();
+  int us = 0;
   late _Artwork artwork;
   late AppDatabase database;
   late DriftRepositories repositories;
@@ -614,7 +815,7 @@ final class _Fixture {
         artworkCache: artwork,
         metadataCache: DriftAndroidImportMetadataCache(database),
         diagnostics: diagnostics,
-        monotonicMicroseconds: () => 0);
+        monotonicMicroseconds: () => us);
   }
 
   Future<void> restart() async {
@@ -657,7 +858,7 @@ final class _CacheSql extends QueryInterceptor {
   }
 }
 
-final class _Documents
+class _Documents
     implements
         AudioDocuments,
         AudioDocumentFolders,
@@ -743,6 +944,78 @@ final class _Documents
 
   @override
   Future<void> closeAudioFolder(int session) async {}
+}
+
+final class _BatchDocuments extends _Documents
+    implements BatchedAudioDocumentInspection {
+  final calls = <List<AudioInspectionBatchRequest>>[];
+  final cancellations = <int>[];
+  final cancelled = <int>{};
+  int limit = 8, ageUs = 0, singleCalls = 0;
+  bool unchecked = false;
+  Future<void> Function()? beforeBatch;
+  Future<void> Function(int)? beforeItem;
+  Future<AudioInspectionBatchResult> Function(
+      int, List<AudioInspectionBatchRequest>)? action;
+  @override
+  Future<AudioDocumentInspectionResult> inspectProfiledAudio(
+      ContentUriAudioSource source) {
+    singleCalls++;
+    return super.inspectProfiledAudio(source);
+  }
+
+  @override
+  Future<AudioInspectionBatchResult> inspectAudioBatch(
+      int id, List<AudioInspectionBatchRequest> items) async {
+    calls.add(List.of(items));
+    await beforeBatch?.call();
+    if (action != null) return action!(id, items);
+    final entries = <AudioInspectionBatchEntry>[];
+    for (final request in items.take(limit)) {
+      if (cancelled.contains(id)) break;
+      try {
+        await beforeItem?.call(index(request.source));
+        var artwork = AudioArtworkCheck.absent;
+        if (request.hasArtwork) {
+          final stat = await File(request.artworkPath!).stat();
+          artwork = unchecked
+              ? AudioArtworkCheck.unchecked
+              : stat.type == FileSystemEntityType.file && stat.size > 0
+                  ? AudioArtworkCheck.available
+                  : AudioArtworkCheck.missing;
+        }
+        final result = await super.inspectProfiledAudio(request.source);
+        entries.add(AudioInspectionBatchEntry(
+            source: request.source,
+            failed: false,
+            ageUs: ageUs,
+            artwork: artwork,
+            inspection: AudioDocumentInspectionResult(result.revision,
+                timings: const AudioDocumentInspectionTimings(
+                    totalUs: 105,
+                    permissionUs: 10,
+                    revisionUs: 50,
+                    visibilityUs: 20,
+                    descriptorUs: 30,
+                    artworkUs: 5))));
+      } on Object {
+        entries.add(AudioInspectionBatchEntry(
+            source: request.source,
+            failed: true,
+            ageUs: ageUs,
+            artwork: AudioArtworkCheck.unchecked,
+            inspection: const AudioDocumentInspectionResult(null)));
+      }
+    }
+    return AudioInspectionBatchResult(entries,
+        cancelled: cancelled.contains(id));
+  }
+
+  @override
+  Future<void> cancelAudioInspectionBatch(int batch) async {
+    cancellations.add(batch);
+    cancelled.add(batch);
+  }
 }
 
 final class _Artwork implements ArtworkCacheService {
