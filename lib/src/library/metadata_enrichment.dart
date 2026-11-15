@@ -144,8 +144,8 @@ MergedMetadata mergeMetadata({
   );
   final confidence = _mergedConfidence(
     source: source,
-    hasTagTitle: tagTitle != null,
-    hasTagArtist: tagArtist != null,
+    embeddedConfidence: embeddedMetadataConfidence(
+        title: tagTitle, artist: tagArtist, album: tagAlbum),
     filenameConfidence: filenameMetadata.confidence,
     fallbackConfidence: fallbackMetadata.confidence,
   );
@@ -190,17 +190,12 @@ MetadataSource _mergedSource({
 
 double _mergedConfidence({
   required MetadataSource source,
-  required bool hasTagTitle,
-  required bool hasTagArtist,
+  required double embeddedConfidence,
   required double filenameConfidence,
   required double fallbackConfidence,
 }) {
   final confidence = switch (source) {
-    MetadataSource.embeddedTags => hasTagTitle && hasTagArtist
-        ? 0.95
-        : hasTagTitle
-            ? 0.88
-            : 0.82,
+    MetadataSource.embeddedTags => embeddedConfidence,
     MetadataSource.filename => filenameConfidence,
     MetadataSource.fallback => fallbackConfidence,
     MetadataSource.manual => 1.0,
@@ -208,6 +203,14 @@ double _mergedConfidence({
   };
 
   return confidence.clamp(0.0, 1.0).toDouble();
+}
+
+/// Shared parsing heuristic, independent of import route and data completeness.
+/// It is not a calibrated probability or an audio/file preference score.
+double embeddedMetadataConfidence(
+    {String? title, String? artist, String? album}) {
+  if (isUsefulTag(title)) return isUsefulTag(artist) ? 0.95 : 0.88;
+  return isUsefulTag(artist) || isUsefulTag(album) ? 0.82 : 0.2;
 }
 
 final _domainNoisePattern = RegExp(

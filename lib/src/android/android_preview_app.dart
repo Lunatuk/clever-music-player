@@ -10,6 +10,7 @@ import '../appearance/appearance_theme.dart';
 import '../core/async_lifecycle.dart';
 import '../diagnostics/diagnostics_service.dart';
 import '../ui/app_version_info.dart';
+import '../ui/track_metadata_subtitle.dart';
 import '../domain/models/track.dart';
 import '../domain/repositories/track_repository.dart';
 import '../library/artwork_cache_service.dart';
@@ -377,7 +378,9 @@ final class _AndroidLibraryScreenState extends State<AndroidLibraryScreen> {
                                 LibraryTrackSortOption.title,
                                 LibraryTrackSortOption.artist,
                                 LibraryTrackSortOption.album,
-                                LibraryTrackSortOption.recentlyAdded
+                                LibraryTrackSortOption.recentlyAdded,
+                                LibraryTrackSortOption
+                                    .metadataCompletenessLowFirst,
                               ])
                                 CheckedPopupMenuItem(
                                     value: option,
@@ -498,6 +501,14 @@ final class _AndroidLibraryScreenState extends State<AndroidLibraryScreen> {
                                       track.artist ?? 'Неизвестный исполнитель',
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis),
+                                  trailing: Tooltip(
+                                      message: buildMetadataCompletenessTooltip(
+                                          track),
+                                      child: Text(
+                                          buildMetadataCompletenessLabel(track),
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .labelSmall)),
                                   onTap: () => _command(
                                       () => widget.playTrack(track, tracks)));
                             });

@@ -157,7 +157,8 @@ final class EmbeddedAudioMetadataReaderService
         title: tags.title!,
         codec: base.codec,
         metadataSource: MetadataSource.embeddedTags,
-        metadataConfidence: 1,
+        metadataConfidence: embeddedMetadataConfidence(
+            title: tags.title, artist: tags.artist, album: tags.album),
         artist: tags.artist,
         album: tags.album,
         albumArtist: tags.albumArtist,

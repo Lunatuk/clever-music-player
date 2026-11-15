@@ -56,6 +56,28 @@ void main() {
           {for (final t in before) t.filePath: t.id});
     });
 
+    test('warm snapshots restore year and numbers without rereading audio',
+        () async {
+      f.documents.numbered = true;
+      await f.importer.importFolder();
+      expect(
+          (await f.rows()).every(
+              (t) => t.year == 2019 && t.trackNumber == 2 && t.discNumber == 1),
+          isTrue);
+      // Simulate cards created before these fields were forwarded by Android.
+      await f.database.customStatement(
+          'UPDATE tracks SET year = NULL, track_number = NULL, disc_number = NULL');
+      f.documents.reads = 0;
+      await f.importer.importFolder();
+      expect(f.documents.reads, 0);
+      expect(f.profile[DiagnosticField.metadataCacheHits], 3);
+      expect(f.profile[DiagnosticField.metadataCacheWrites], 0);
+      expect(
+          (await f.rows()).every(
+              (t) => t.year == 2019 && t.trackNumber == 2 && t.discNumber == 1),
+          isTrue);
+    });
+
     test('cold misses use the ordinary reader without duplicate inspection',
         () async {
       await f.importer.importFolder();
@@ -942,6 +964,7 @@ class _Documents
       '${tree.storageValue}/document/${Uri.encodeComponent('primary:Music/$i')}');
   final revisions = <int, AudioDocumentRevision>{};
   final unsupported = <int>{}, revoked = <int>{};
+  bool numbered = false;
   int count = 3, reads = 0, inspections = 0, page = 0;
   String title = 'Title';
   bool unknownComments = false, noArtwork = false;
@@ -965,6 +988,9 @@ class _Documents
           ? null
           : ['https://music.yandex.ru/album/10/track/${100 + i}'],
       artwork: noArtwork ? null : Uint8List.fromList([i % 256, 1, 2]),
+      year: numbered ? 2019 : null,
+      trackNumber: numbered ? 2 : null,
+      discNumber: numbered ? 1 : null,
       cacheRevision: unsupported.contains(i) ? null : revision(i));
   int index(ContentUriAudioSource source) =>
       int.parse(source.uri.pathSegments.last.split('/').last);

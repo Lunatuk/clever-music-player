@@ -129,16 +129,30 @@ void main() {
       final file = File(p.join(dir.path, name));
       await file.writeAsBytes([0, 1]);
       final android = mergeAudioDocumentMetadata(AudioDocumentMetadata(
-          name: name, title: title, album: 'Альбом', genre: 'Rock'));
+          name: name,
+          title: title,
+          album: 'Альбом',
+          genre: 'Rock',
+          year: 2019,
+          trackNumber: 2,
+          discNumber: 1));
       final desktop = await AudioMetadataReaderService(
           embeddedMetadataReader: (_) async => EmbeddedAudioMetadata(
-              title: title, album: 'Альбом', genre: 'Rock')).read(file);
+              title: title,
+              album: 'Альбом',
+              genre: 'Rock',
+              year: 2019,
+              trackNumber: 2,
+              discNumber: 1)).read(file);
       expect(android.title, desktop.title);
       expect(android.artist, desktop.artist);
       expect(android.album, desktop.album);
       expect(android.genre, desktop.genre);
       expect(android.source, desktop.metadataSource);
       expect(android.confidence, desktop.metadataConfidence);
+      expect(android.year, desktop.year);
+      expect(android.trackNumber, desktop.trackNumber);
+      expect(android.discNumber, desktop.discNumber);
     }
   });
 

@@ -25,7 +25,10 @@ MergedMetadata mergeAudioDocumentMetadata(AudioDocumentMetadata document) {
           album: document.album,
           albumArtist: document.albumArtist,
           genre: document.genre,
-          duration: document.duration),
+          duration: document.duration,
+          trackNumber: document.trackNumber,
+          discNumber: document.discNumber,
+          year: document.year),
       filenameMetadata: hasName ? parser.parse(name) : fallback,
       fallbackMetadata: fallback);
 }

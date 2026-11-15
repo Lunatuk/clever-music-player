@@ -15,6 +15,30 @@ void main() {
         .writeAsString('abc');
   });
   tearDown(() => root.delete(recursive: true));
+
+  test(
+      'published and scanned copies use the same parsing confidence regardless of richness',
+      () async {
+    for (final rich in [false, true]) {
+      final tags = EmbeddedAudioMetadata(
+          title: 'Andromeda',
+          artist: 'LXST CXNTURY',
+          album: rich ? 'Andromeda' : null,
+          albumArtist: rich ? 'LXST CXNTURY' : null,
+          year: rich ? 2019 : null,
+          genre: rich ? 'Phonk' : null);
+      final published =
+          await EmbeddedAudioMetadataReaderService(reader: (_) async => tags)
+              .read(file);
+      final scanned = await AudioMetadataReaderService(
+          embeddedMetadataReader: (_) async => tags).read(file);
+      expect(published.metadataConfidence, 0.95);
+      expect(published.metadataConfidence, scanned.metadataConfidence);
+      expect(published.metadataSource, scanned.metadataSource);
+      expect(published.album, scanned.album);
+      expect(published.year, scanned.year);
+    }
+  });
   test(
       'reader uses embedded fields without inferring an artist from the opaque path',
       () async {

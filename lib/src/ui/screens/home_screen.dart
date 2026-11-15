@@ -4379,14 +4379,17 @@ final class _TrackListTile extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 3),
-                    Text(
-                      isPrototype ? ' ' : subtitle,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: textTheme.bodySmall?.copyWith(
-                        color: isMissing
-                            ? colorScheme.error
-                            : colorScheme.onSurfaceVariant,
+                    Tooltip(
+                      message: buildMetadataCompletenessTooltip(track),
+                      child: Text(
+                        isPrototype ? ' ' : subtitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: textTheme.bodySmall?.copyWith(
+                          color: isMissing
+                              ? colorScheme.error
+                              : colorScheme.onSurfaceVariant,
+                        ),
                       ),
                     ),
                   ],

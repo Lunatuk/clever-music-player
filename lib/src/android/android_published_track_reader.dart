@@ -93,7 +93,8 @@ final class AndroidPublishedTrackReader {
         artworkHash: art?.hash,
         artworkMimeType: art?.mimeType,
         metadataSource: MetadataSource.embeddedTags,
-        metadataConfidence: 1,
+        metadataConfidence: embeddedMetadataConfidence(
+            title: title, artist: artist, album: album),
         addedAt: now,
         updatedAt: now,
         lastSeenAt: now);

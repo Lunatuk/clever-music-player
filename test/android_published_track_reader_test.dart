@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:clever_music_player/src/android/android_published_track_reader.dart';
+import 'package:clever_music_player/src/android/android_audio_metadata.dart';
 import 'package:clever_music_player/src/android/audio_documents.dart';
 import 'package:clever_music_player/src/domain/models/models.dart';
 import 'package:clever_music_player/src/library/artwork_cache_service.dart';
@@ -14,6 +15,36 @@ import 'package:flutter_test/flutter_test.dart';
 import 'support/android_publication_fixture.dart';
 
 void main() {
+  test(
+      'published Android confidence matches ordinary import for rich and sparse tags',
+      () async {
+    final f = await androidPublicationFixture();
+    try {
+      final receipt = androidReceipt(f, await f.claim());
+      for (final rich in [false, true]) {
+        final document = AudioDocumentMetadata(
+            name: receipt.intent.fileName,
+            size: 3,
+            title: 'Andromeda',
+            artist: 'LXST CXNTURY',
+            album: rich ? 'Andromeda' : null,
+            year: rich ? 2019 : null,
+            trackNumber: rich ? 1 : null,
+            duration: receipt.intent.verification.duration);
+        final published = await AndroidPublishedTrackReader(
+                artworkCache: _Art(), readDocument: (_) async => document)
+            .read(receipt, f.now, LibraryScanControl());
+        final scanned = mergeAudioDocumentMetadata(document);
+        expect(published.metadataConfidence, 0.95);
+        expect(published.metadataConfidence, scanned.confidence);
+        expect(published.metadataSource, scanned.source);
+        expect(published.year, scanned.year);
+        expect(published.trackNumber, scanned.trackNumber);
+      }
+    } finally {
+      await f.close();
+    }
+  });
   test('embedded document metadata retains roles, numbers and proof duration',
       () async {
     final f = await androidPublicationFixture();
@@ -48,6 +79,7 @@ void main() {
       expect(track.discNumber, 1);
       expect(track.year, 2026);
       expect(track.metadataSource, MetadataSource.embeddedTags);
+      expect(track.metadataConfidence, 0.95);
       expect(track.artworkPath, 'cover');
       expect(art.last!.mimeType, 'image/webp');
       receipt.importTrack(track, receipt.intent.verification);

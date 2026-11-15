@@ -1,5 +1,6 @@
 import '../domain/models/models.dart';
 import 'exact_track_copies.dart';
+import 'metadata_completeness.dart';
 
 enum LibraryTrackSortOption {
   title,
@@ -7,7 +8,7 @@ enum LibraryTrackSortOption {
   album,
   recentlyAdded,
   recentlyPlayed,
-  metadataConfidenceLowFirst,
+  metadataCompletenessLowFirst,
 }
 
 extension LibraryTrackSortOptionLabel on LibraryTrackSortOption {
@@ -18,8 +19,8 @@ extension LibraryTrackSortOptionLabel on LibraryTrackSortOption {
       LibraryTrackSortOption.album => 'Альбом',
       LibraryTrackSortOption.recentlyAdded => 'Недавно добавленные',
       LibraryTrackSortOption.recentlyPlayed => 'Недавно прослушанные',
-      LibraryTrackSortOption.metadataConfidenceLowFirst =>
-        'Уверенность метаданных (сначала низкая)',
+      LibraryTrackSortOption.metadataCompletenessLowFirst =>
+        'Полнота сведений (сначала неполные)',
     };
   }
 }
@@ -65,6 +66,14 @@ List<Track> sortLibraryTracks(
   Map<int, TrackUserState> userStates = const {},
 }) {
   final sorted = tracks.toList(growable: false);
+  // Compute once per row, not repeatedly inside the O(n log n) comparator.
+  final completeness =
+      sortOption == LibraryTrackSortOption.metadataCompletenessLowFirst
+          ? {
+              for (final track in sorted)
+                track: MetadataCompleteness.forTrack(track).count
+            }
+          : const <Track, int>{};
   sorted.sort((left, right) {
     final comparison = switch (sortOption) {
       LibraryTrackSortOption.title => _compareDisplayTitle(left, right),
@@ -79,8 +88,8 @@ List<Track> sortLibraryTracks(
           right,
           userStates,
         ),
-      LibraryTrackSortOption.metadataConfidenceLowFirst =>
-        _compareMetadataConfidence(left, right),
+      LibraryTrackSortOption.metadataCompletenessLowFirst =>
+        _compareMetadataCompleteness(left, right, completeness),
     };
 
     if (comparison != 0) {
@@ -163,12 +172,11 @@ int _compareRecentlyPlayed(
   return _compareDisplayTitle(left, right);
 }
 
-int _compareMetadataConfidence(Track left, Track right) {
-  final leftConfidence = left.metadataConfidence ?? -1;
-  final rightConfidence = right.metadataConfidence ?? -1;
-  final confidenceComparison = leftConfidence.compareTo(rightConfidence);
-  if (confidenceComparison != 0) {
-    return confidenceComparison;
+int _compareMetadataCompleteness(
+    Track left, Track right, Map<Track, int> counts) {
+  final comparison = counts[left]!.compareTo(counts[right]!);
+  if (comparison != 0) {
+    return comparison;
   }
   return _compareDisplayTitle(left, right);
 }

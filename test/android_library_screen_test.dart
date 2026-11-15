@@ -17,6 +17,37 @@ import 'package:flutter_test/flutter_test.dart';
 import 'support/test_audio_engine.dart';
 
 void main() {
+  testWidgets(
+      'phone shows card coverage and can sort without legacy confidence priority',
+      (tester) async {
+    final f = _Fixture();
+    addTearDown(f.close);
+    final sparse =
+        f.track.copyWith(id: 1, title: 'Sparse', metadataConfidence: 1);
+    final rich = f.track.copyWith(
+        id: 2,
+        title: 'Rich',
+        artist: 'Performer',
+        album: 'Release',
+        albumArtist: 'Album performer',
+        genre: 'Rock',
+        year: 2019,
+        metadataConfidence: 0.95,
+        filePath: 'content://test/document/rich');
+    await tester.pumpWidget(f.app(library: [rich, sparse]));
+    await tester.pumpAndSettle();
+    expect(find.text('6/7'), findsOneWidget);
+    expect(find.byTooltip(RegExp('Сведения в карточке: 6/7')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('android-library-sort')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Полнота сведений (сначала неполные)'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Sparse'));
+    await tester.pumpAndSettle();
+    expect(f.lastContext!.map((t) => t.id), [1, 2]);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
   for (final query in [
     'SECOND',
     'второй артист',
