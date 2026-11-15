@@ -536,6 +536,7 @@ void main() {
       expect(f.profile[DiagnosticField.metadataCacheArtworkStatUs], 0);
       expect(f.profile[DiagnosticField.metadataCacheNativeArtworkChecks], 130);
       expect(f.profile[DiagnosticField.nativeInspectionArtworkUs], 650);
+      expect(f.profile[DiagnosticField.metadataCacheBatchFallbackCode], 0);
     });
 
     test('partial prefixes advance without losing or replaying documents',
@@ -559,6 +560,74 @@ void main() {
       expect(batch.singleCalls, 3);
       expect(f.profile[DiagnosticField.metadataCacheHits], 3);
       expect(f.profile[DiagnosticField.metadataCacheBatchFallbacks], 1);
+      expect(f.profile[DiagnosticField.metadataCacheBatchFallbackCode], 1);
+    });
+
+    test('native failure categories keep readable music and reset on a new run',
+        () async {
+      await f.importer.importFolder();
+      for (final failure in {
+        'unimplemented': 1,
+        'inspection_busy': 2,
+        'invalid_inspection_batch': 3,
+        'inspection_unavailable': 4,
+        'inspection_closed': 5,
+        'unknown_private_code': 9,
+      }.entries) {
+        batch.action = (_, __) async => throw PlatformException(
+            code: failure.key,
+            message: 'private path and token',
+            details: {'path': '/private/song'});
+        final before = batch.calls.length;
+        await f.importer.importFolder();
+        expect(batch.calls.length - before, 1);
+        expect(f.profile[DiagnosticField.metadataCacheBatchFallbackCode],
+            failure.value);
+        expect(f.profile[DiagnosticField.metadataCacheBatchFallbacks], 1);
+        expect(f.profile[DiagnosticField.metadataCacheHits], 3);
+        expect(f.profile[DiagnosticField.errorCount], 0);
+        expect(f.profile.values.every((v) => v is num || v is bool), isTrue);
+        expect(f.profile.toString(), isNot(contains('private')));
+        batch.action = null;
+        await f.importer.importFolder();
+        expect(f.profile[DiagnosticField.metadataCacheBatchFallbackCode], 0);
+        expect(f.profile[DiagnosticField.metadataCacheBatchFallbacks], 0);
+        expect(f.profile[DiagnosticField.metadataCacheBatchItems], 3);
+      }
+    });
+
+    test('local validation and unexpected failures have bounded numeric codes',
+        () async {
+      await f.importer.importFolder();
+      for (final failure in <Object, int>{
+        ArgumentError('private request'): 3,
+        const FormatException('private response'): 6,
+        StateError('private unexpected error'): 9,
+      }.entries) {
+        batch.action = (_, __) async => throw failure.key;
+        await f.importer.importFolder();
+        expect(f.profile[DiagnosticField.metadataCacheBatchFallbackCode],
+            failure.value);
+        expect(f.profile[DiagnosticField.metadataCacheHits], 3);
+        expect(f.profile[DiagnosticField.errorCount], 0);
+      }
+    });
+
+    test(
+        'empty and unexpectedly cancelled responses retain fresh single checks',
+        () async {
+      await f.importer.importFolder();
+      for (final cancelled in [false, true]) {
+        batch.action = (_, __) async =>
+            AudioInspectionBatchResult([], cancelled: cancelled);
+        final before = batch.singleCalls;
+        await f.importer.importFolder();
+        expect(batch.singleCalls - before, 3);
+        expect(f.profile[DiagnosticField.metadataCacheBatchFallbackCode],
+            cancelled ? 8 : 6);
+        expect(f.profile[DiagnosticField.metadataCacheBatchItems], 0);
+        expect(f.profile[DiagnosticField.metadataCacheHits], 3);
+      }
     });
 
     test('old proofs fall back once instead of looping on stale batches',
@@ -570,6 +639,7 @@ void main() {
       expect(batch.singleCalls, 3);
       expect(f.profile[DiagnosticField.metadataCacheHits], 3);
       expect(f.profile[DiagnosticField.metadataCacheBatchStale], 1);
+      expect(f.profile[DiagnosticField.metadataCacheBatchFallbackCode], 0);
     });
 
     test('queue and channel delay count against the proof lifetime', () async {
@@ -597,6 +667,7 @@ void main() {
       await f.importer.importFolder();
       expect(batch.singleCalls, 3);
       expect(f.profile[DiagnosticField.metadataCacheBatchFallbacks], 1);
+      expect(f.profile[DiagnosticField.metadataCacheBatchFallbackCode], 7);
       expect(f.profile[DiagnosticField.metadataCacheHits], 3);
     });
 

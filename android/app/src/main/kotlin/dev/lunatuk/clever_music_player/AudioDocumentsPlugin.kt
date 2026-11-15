@@ -34,7 +34,7 @@ class AudioDocumentsPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activi
     private var documentsChannel: MethodChannel? = null
     private data class FolderSession(val uri: Uri, val cancel: CancellationSignal, val walker: DocumentTreeWalker)
     private val folders = ConcurrentHashMap<Int, FolderSession>()
-    private val inspectionBatches = ConcurrentHashMap<Long, CancellationSignal>()
+    private val inspectionBatches = AudioInspectionBatchGate<CancellationSignal>()
     private val artworkProbe by lazy { AudioArtworkProbe(java.io.File(appContext.filesDir, "CleverMusicPlayer/artwork")) }
     private var nextFolderId = 1
     @Volatile private var destroyed = false
@@ -138,7 +138,7 @@ class AudioDocumentsPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activi
                     "inspectAudioBatch" -> startInspectionBatch(call.argument<Number>("batch")?.toLong(),
                         call.argument<List<*>>("items"), result)
                     "cancelAudioInspectionBatch" -> {
-                        call.argument<Number>("batch")?.toLong()?.let { inspectionBatches[it]?.cancel() }
+                        call.argument<Number>("batch")?.toLong()?.let { inspectionBatches.current(it)?.cancel() }
                         result.success(null)
                     }
                     "inspectAudio" -> onWorker(result) {
@@ -191,9 +191,13 @@ class AudioDocumentsPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activi
     }
 
     private fun startInspectionBatch(id: Long?, values: List<*>?, result: MethodChannel.Result) {
-        var registered: CancellationSignal? = null
+        var registered: AudioInspectionBatchGate.Lease<CancellationSignal>? = null
         try {
-            check(!destroyed && id != null && id > 0 && inspectionBatches.isEmpty())
+            if (destroyed) {
+                result.error("inspection_closed", "Проверка файлов недоступна.", null)
+                return
+            }
+            require(id != null && id > 0)
             require(values != null && values.isNotEmpty() && values.size <= AudioInspectionBatch.MAX_ITEMS)
             val requests = values.map { value ->
                 val map = value as? Map<*, *> ?: error("invalid_item")
@@ -209,22 +213,26 @@ class AudioDocumentsPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activi
             }
             require(requests.map { it.source }.toSet().size == requests.size)
             val signal = CancellationSignal()
-            check(inspectionBatches.putIfAbsent(id, signal) == null)
-            registered = signal
+            val lease = inspectionBatches.acquire(id, signal)
+            if (lease == null) {
+                result.error("inspection_busy", "Проверка файлов уже выполняется.", null)
+                return
+            }
+            registered = lease
             worker.execute {
-                try {
-                    val response = AudioInspectionBatch.run(requests, { signal.isCanceled },
+                inspectionBatches.complete(lease, {
+                    AudioInspectionBatch.run(requests, { signal.isCanceled },
                         { request -> inspectBatchItem(request, signal) })
+                }, { response ->
                     mainHandler.post { if (!destroyed) result.success(response) }
-                } catch (_: Exception) {
+                }, {
                     mainHandler.post { if (!destroyed) result.error("inspection_unavailable", "Проверка файлов недоступна.", null) }
-                } finally {
-                    inspectionBatches.remove(id, signal)
-                }
+                })
             }
         } catch (_: Exception) {
-            if (id != null && registered != null) inspectionBatches.remove(id, registered)
-            result.error("invalid_inspection_batch", "Проверка файлов недоступна.", null)
+            if (registered != null) inspectionBatches.release(registered)
+            result.error(if (registered == null) "invalid_inspection_batch" else "inspection_unavailable",
+                "Проверка файлов недоступна.", null)
         }
     }
 
@@ -550,7 +558,7 @@ class AudioDocumentsPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activi
         documentsChannel?.setMethodCallHandler(null)
         detachActivity(true)
         folders.values.forEach { it.cancel.cancel() }
-        inspectionBatches.values.forEach { it.cancel() }
+        inspectionBatches.current()?.cancel()
         worker.execute {
             folders.values.forEach { try { it.walker.close() } catch (_: Exception) {} }
             folders.clear()

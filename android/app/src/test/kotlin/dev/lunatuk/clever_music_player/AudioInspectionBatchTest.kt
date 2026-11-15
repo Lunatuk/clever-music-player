@@ -10,6 +10,87 @@ class AudioInspectionBatchTest {
     private fun ok() = mapOf<String, Any?>("failed" to false, "artwork" to 3)
     private fun frames(result: Map<String, Any?>) = result["results"] as List<*>
 
+    @Test fun immediateSuccessCanStartTheNextBatchBeforeReturningToTheWorker() {
+        val gate = AudioInspectionBatchGate<Any>()
+        val first = gate.acquire(1, Any())!!
+        var next: AudioInspectionBatchGate.Lease<Any>? = null
+        gate.complete(first, { 42 }, { response ->
+            assertEquals(42, response)
+            next = gate.acquire(2, Any())
+            assertNotNull(next)
+        }, { fail("unexpected failure") })
+        assertSame(next!!.value, gate.current(2))
+    }
+
+    @Test fun immediateFailureAlsoPublishesOnlyAfterReleasingTheBatch() {
+        val gate = AudioInspectionBatchGate<Any>()
+        val first = gate.acquire(1, Any())!!
+        gate.complete(first, { throw IllegalStateException("private") },
+            { fail("unexpected success") }, {
+                assertNull(gate.current(1))
+                assertNotNull(gate.acquire(2, Any()))
+            })
+    }
+
+    @Test fun queuedResponseDoesNotKeepTheWorkerBusyOrClearItsSuccessor() {
+        val gate = AudioInspectionBatchGate<Any>()
+        val first = gate.acquire(1, Any())!!
+        var reply: (() -> Unit)? = null
+        var replied = false
+        gate.complete(first, { 42 }, { reply = { replied = true } }, { fail("failure") })
+        val next = gate.acquire(2, Any())!!
+        reply!!()
+        gate.release(first) // A stale cleanup must not clear the newer owner.
+        assertTrue(replied)
+        assertSame(next.value, gate.current(2))
+    }
+
+    @Test fun aBusyGateCannotReplaceTheCurrentCancellationSignal() {
+        val gate = AudioInspectionBatchGate<Any>()
+        val signal = Any()
+        val lease = gate.acquire(1, signal)!!
+        assertNull(gate.acquire(2, Any()))
+        assertNull(gate.acquire(1, Any()))
+        assertSame(signal, gate.current())
+        assertNull(gate.current(2))
+        gate.release(lease)
+        assertNull(gate.current())
+    }
+
+    @Test fun cancellationRemainsAddressableUntilWorkHasFinished() {
+        val gate = AudioInspectionBatchGate<BooleanArray>()
+        val cancel = booleanArrayOf(false)
+        val lease = gate.acquire(1, cancel)!!
+        gate.complete(lease, {
+            gate.current(1)!![0] = true
+            AudioInspectionBatch.run(requests(2), { cancel[0] }, { ok() })
+        }, { result ->
+            assertEquals(true, result["cancelled"])
+            assertEquals(0, result["consumed"])
+            assertNull(gate.current(1))
+        }, { fail("failure") })
+    }
+
+    @Test fun rejectedSchedulingCanReleaseOnlyItsOwnLease() {
+        val gate = AudioInspectionBatchGate<Any>()
+        val rejected = gate.acquire(1, Any())!!
+        gate.release(rejected)
+        val next = gate.acquire(2, Any())!!
+        gate.release(rejected)
+        assertSame(next.value, gate.current())
+    }
+
+    @Test fun publishingAnErrorCannotLeaveTheGateBusy() {
+        val gate = AudioInspectionBatchGate<Any>()
+        val lease = gate.acquire(1, Any())!!
+        try {
+            gate.complete(lease, { throw IllegalStateException() }, {},
+                { throw IllegalArgumentException() })
+            fail("callback should throw")
+        } catch (_: IllegalArgumentException) {}
+        assertNotNull(gate.acquire(2, Any()))
+    }
+
     @Test fun boundedBatchPreservesTheRequestedPrefixAndOrdering() {
         val result = AudioInspectionBatch.run(requests(8), { false }, { ok() }, { 0L })
         assertEquals(8, result["consumed"])

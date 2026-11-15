@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 
 import '../core/async_lifecycle.dart';
 import '../diagnostics/diagnostics_service.dart';
@@ -437,23 +438,26 @@ final class AndroidImportController extends ChangeNotifier {
       final result = await (documents as BatchedAudioDocumentInspection)
           .inspectAudioBatch(id, requests);
       if (_stopped) return null;
-      if (result.cancelled ||
-          result.entries.isEmpty ||
-          result.entries.length > requests.length) {
+      if (result.cancelled) {
+        throw const _InspectionBatchResponseFailure(
+            _InspectionBatchFailure.unexpectedCancellation);
+      }
+      if (result.entries.isEmpty || result.entries.length > requests.length) {
         throw const FormatException('Incomplete inspection batch');
       }
       for (var i = 0; i < result.entries.length; i++) {
         if (result.entries[i].source != requests[i].source ||
             result.entries[i].ageUs < 0) {
-          throw const FormatException(
-              'Inspection batch does not match request');
+          throw const _InspectionBatchResponseFailure(
+              _InspectionBatchFailure.invalidBinding);
         }
         if (!result.entries[i].failed &&
             ((requests[i].hasArtwork &&
                     result.entries[i].artwork == AudioArtworkCheck.absent) ||
                 (!requests[i].hasArtwork &&
                     result.entries[i].artwork != AudioArtworkCheck.absent))) {
-          throw const FormatException('Artwork proof does not match request');
+          throw const _InspectionBatchResponseFailure(
+              _InspectionBatchFailure.invalidBinding);
         }
       }
       _profile!.batchItems += result.entries.length;
@@ -469,9 +473,10 @@ final class AndroidImportController extends ChangeNotifier {
           requests[i].source.storageValue:
               _NativeCachedCheck(candidates[i], result.entries[i], at),
       };
-    } on Object {
+    } on Object catch (error) {
       if (!_stopped) {
         _profile!.batchFallbacks++;
+        _profile!.batchFallbackCode = _InspectionBatchFailure.of(error).code;
         _batchDisabled = true;
       }
       return null;
@@ -744,6 +749,8 @@ final class AndroidImportController extends ChangeNotifier {
             profile.inspectionBatches,
         DiagnosticField.metadataCacheBatchItems: profile.batchItems,
         DiagnosticField.metadataCacheBatchFallbacks: profile.batchFallbacks,
+        DiagnosticField.metadataCacheBatchFallbackCode:
+            profile.batchFallbackCode,
         DiagnosticField.metadataCacheBatchStale: profile.batchStale,
         DiagnosticField.metadataCacheNativeArtworkChecks:
             profile.nativeArtworkChecks,
@@ -801,6 +808,45 @@ final class _PreparedImport {
   final CachedAndroidAudio? cacheEntry;
 }
 
+/// Stable numeric categories only: no native messages, paths or error details.
+enum _InspectionBatchFailure {
+  unsupported(1),
+  busy(2),
+  invalidRequest(3),
+  unavailable(4),
+  closed(5),
+  invalidResponse(6),
+  invalidBinding(7),
+  unexpectedCancellation(8),
+  unexpected(9);
+
+  const _InspectionBatchFailure(this.code);
+  final int code;
+
+  static _InspectionBatchFailure of(Object error) {
+    if (error is _InspectionBatchResponseFailure) return error.reason;
+    if (error is MissingPluginException) return unsupported;
+    if (error is FormatException) return invalidResponse;
+    if (error is ArgumentError) return invalidRequest;
+    if (error is PlatformException) {
+      return switch (error.code) {
+        'unimplemented' => unsupported,
+        'inspection_busy' => busy,
+        'invalid_inspection_batch' => invalidRequest,
+        'inspection_unavailable' => unavailable,
+        'inspection_closed' => closed,
+        _ => unexpected,
+      };
+    }
+    return unexpected;
+  }
+}
+
+final class _InspectionBatchResponseFailure implements Exception {
+  const _InspectionBatchResponseFailure(this.reason);
+  final _InspectionBatchFailure reason;
+}
+
 final class _NativeCachedCheck {
   const _NativeCachedCheck(this.candidate, this.entry, this.startedUs);
   final CachedAndroidAudio candidate;
@@ -817,6 +863,7 @@ final class _ImportProfile {
   final int startedUs;
   bool interrupted = false;
   int inspectionBatches = 0, batchItems = 0, batchFallbacks = 0, batchStale = 0;
+  int batchFallbackCode = 0;
   int nativeArtworkChecks = 0, inspectionArtworkUs = 0;
   int cacheInspectionSkipped = 0;
   int cacheDatabaseUs = 0, cacheDatabaseQueries = 0, cacheInspectionUs = 0;

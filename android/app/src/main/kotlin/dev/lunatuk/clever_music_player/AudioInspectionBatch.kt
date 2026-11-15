@@ -1,6 +1,31 @@
 package dev.lunatuk.clever_music_player
 
 import java.io.File
+import java.util.concurrent.atomic.AtomicReference
+
+/** One cancellable job. Release before publishing, including immediate/reentrant replies. */
+internal class AudioInspectionBatchGate<T> {
+    class Lease<T>(val id: Long, val value: T)
+    private val active = AtomicReference<Lease<T>?>(null)
+
+    fun acquire(id: Long, value: T): Lease<T>? {
+        require(id > 0)
+        val lease = Lease(id, value)
+        return if (active.compareAndSet(null, lease)) lease else null
+    }
+
+    fun current(): T? = active.get()?.value
+    fun current(id: Long): T? = active.get()?.takeIf { it.id == id }?.value
+    fun release(lease: Lease<T>) { active.compareAndSet(lease, null) }
+
+    fun <R> complete(lease: Lease<T>, work: () -> R,
+            success: (R) -> Unit, failure: (Exception) -> Unit) {
+        val response = try {
+            try { work() } finally { release(lease) }
+        } catch (error: Exception) { failure(error); return }
+        success(response)
+    }
+}
 
 internal data class AudioInspectionRequest(val source: String, val hasArtwork: Boolean,
     val artworkPath: String?, val artworkHash: String?)
