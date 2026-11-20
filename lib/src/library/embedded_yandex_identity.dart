@@ -1,5 +1,12 @@
 import '../domain/models/external_track_ref.dart';
 
+/// Builds a portable source comment in a form accepted by the library scanner.
+String? yandexSourceComment(String trackId, {String? albumId}) {
+  if (!_validId(trackId)) return null;
+  final prefix = albumId != null && _validId(albumId) ? '/album/$albumId' : '';
+  return 'https://music.yandex.ru$prefix/track/$trackId';
+}
+
 /// A source annotation carried by the file, independent of its display tags.
 /// Conflicting source comments cannot establish one catalogue identity.
 ExternalTrackIdentity? embeddedYandexIdentity(Iterable<String> comments) {

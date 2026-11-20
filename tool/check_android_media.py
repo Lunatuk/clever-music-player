@@ -49,10 +49,11 @@ def main():
     library.cmp_media_run.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_char_p,
         ctypes.c_char_p, ctypes.c_int, ctypes.c_int, ctypes.c_int64, ctypes.POINTER(ctypes.c_char_p)]
     library.cmp_media_run.restype = ctypes.c_char_p
-    keys = ['title', 'artist', 'album', 'album_artist', 'genre', 'track', 'disc', 'date']
-    expected = dict(zip(keys, ['Проверка 😀', 'Исполнитель трека', 'Альбом', 'Исполнитель альбома', 'Electronic', '2', '1', '2026']))
+    keys = ['title', 'artist', 'album', 'album_artist', 'genre', 'track', 'disc', 'date', 'comment']
+    expected = dict(zip(keys, ['Проверка 😀', 'Исполнитель трека', 'Альбом', 'Исполнитель альбома', 'Electronic', '2', '1', '2026',
+                               'https://music.yandex.ru/album/9/track/1']))
     def call(op, source=None, output=None, cover=None, cover_format=0, mode=0, limit=1000000, tags=expected, accepted=False):
-        values = (ctypes.c_char_p * 8)(*[tags[k].encode() if k in tags else None for k in keys])
+        values = (ctypes.c_char_p * len(keys))(*[tags[k].encode() if k in tags else None for k in keys])
         paths = [str(p.resolve()).encode() if p is not None else None for p in (source, output, cover)]
         if not accepted:
             assert library.cmp_media_begin() == 1

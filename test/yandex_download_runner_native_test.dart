@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:clever_music_player/src/domain/models/models.dart';
 import 'package:clever_music_player/src/library/artwork_cache_service.dart';
 import 'package:clever_music_player/src/library/library_scan_control.dart';
+import 'package:clever_music_player/src/library/metadata_reader_service.dart';
 import 'package:clever_music_player/src/library_sync/bundled_media_helper.dart';
 import 'package:clever_music_player/src/library_sync/desktop_yandex_download_pipeline.dart';
 import 'package:clever_music_player/src/library_sync/download_workspace.dart';
@@ -148,7 +149,12 @@ void main() {
         expect(row['title'], 'Provider title');
         expect(row['artwork_hash'],
             sha256.convert(await server.cover!.readAsBytes()).toString());
-        expect(await File(row['file_path'] as String).exists(), isTrue);
+        final file = File(row['file_path'] as String);
+        expect(
+            await const AudioMetadataReaderService().readYandexIdentity(file),
+            yandexDownloadIdentity);
+        expect(row['album'], 'Album');
+        expect(row['album_artist'], 'Album artist');
         expect(server.requests.where((r) => r.path == '/account/status'),
             hasLength(1));
         expect(server.requests.where((r) => r.path == '/tracks'), hasLength(1));

@@ -30,7 +30,7 @@ class AndroidMediaPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     private val worker = Executors.newSingleThreadExecutor()
     private val active = AtomicReference<Int?>(null)
     private var detached = false
-    private val keys = listOf("title","artist","album","album_artist","genre","track","disc","date")
+    private val keys = listOf("title","artist","album","album_artist","genre","track","disc","date","comment")
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         context = binding.applicationContext
         channel = MethodChannel(binding.binaryMessenger,"dev.lunatuk.clever_music_player/media_backend")
@@ -62,7 +62,7 @@ class AndroidMediaPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             limit = when (val value = call.argument<Any>("maxOutputBytes")) { is Int -> value.toLong(); is Long -> value; null -> 8L*1024*1024*1024; else -> error("limit") }
             require(limit in 1..(8L*1024*1024*1024))
             val values = call.argument<Map<String,String>>("tags") ?: emptyMap()
-            require(values.size <= 8 && values.keys.all { it in keys } && values.values.sumOf { it.length } <= 8192)
+            require(values.size <= keys.size && values.keys.all { it in keys } && values.values.sumOf { it.length } <= 8192)
             require(values.values.all { it.isNotBlank() && it.length <= 4096 && !it.contains('\u0000') })
             tags = keys.map { values[it]?.toByteArray(Charsets.UTF_8) }.toTypedArray()
         } catch (_: Exception) { reply("unreadable"); return }

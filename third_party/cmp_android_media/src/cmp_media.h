@@ -1,6 +1,7 @@
 #ifndef CMP_MEDIA_H
 #define CMP_MEDIA_H
 #include <stdint.h>
+#define CMP_MEDIA_TAG_COUNT 9
 #ifdef _WIN32
 #define CMP_MEDIA_API __declspec(dllexport)
 #else
@@ -19,7 +20,7 @@ CMP_MEDIA_API void cmp_media_end(void);
  * cover format: 0 none, 1 PNG, 2 JPEG. tags follow the fixed key table. */
 CMP_MEDIA_API const char *cmp_media_run(int op, const char *source,
     const char *output, const char *cover, int cover_format, int mode,
-    int64_t max_output, const char *const tags[8]);
+    int64_t max_output, const char *const tags[CMP_MEDIA_TAG_COUNT]);
 #ifdef __cplusplus
 }
 #endif

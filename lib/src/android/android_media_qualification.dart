@@ -94,6 +94,7 @@ final class AndroidMediaQualification {
                     'track': '2',
                     'disc': '1',
                     'date': '2026',
+                    'comment': 'https://music.yandex.ru/album/9/track/1',
                   }),
               cover: cover,
               control: control);

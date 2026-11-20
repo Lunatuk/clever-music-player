@@ -1,5 +1,6 @@
 import 'package:clever_music_player/src/domain/models/external_track_ref.dart';
 import 'package:clever_music_player/src/domain/models/downloaded_asset.dart';
+import 'package:clever_music_player/src/library/embedded_yandex_identity.dart';
 import 'package:clever_music_player/src/library_sync/yandex_audio_selection.dart';
 import 'package:clever_music_player/src/library_sync/yandex_download_protocol.dart';
 import 'package:clever_music_player/src/library_sync/yandex_library_protocol.dart';
@@ -12,6 +13,8 @@ void main() {
   const parser = YandexDownloadParser();
   final metadata =
       parser.metadata(yandexDownloadTrack(), yandexDownloadIdentity);
+  final bareIdentity =
+      ExternalTrackIdentity(provider: 'yandex_music', externalId: '001');
   YandexDownloadVariant parse(Map<String, dynamic> value,
           {YandexAudioSelection selection = yandexFlacSelection}) =>
       parser.variant(value, yandexAccount, metadata, selection);
@@ -117,16 +120,105 @@ void main() {
       'genre': 'Rock',
       'date': '2026',
       'track': '2',
-      'disc': '1'
+      'disc': '1',
+      'comment': 'https://music.yandex.ru/album/009/track/001',
     });
     expect(() => metadata.tags['title'] = 'changed', throwsUnsupportedError);
     final value = yandexDownloadTrack();
     (value.single as Map)['version'] = 'Live';
     expect(parser.metadata(value, yandexDownloadIdentity).tags['title'],
         'Provider title (Live)');
-    final bare = parser.metadata(value,
-        ExternalTrackIdentity(provider: 'yandex_music', externalId: '001'));
-    expect(bare.tags.keys, unorderedEquals(['title', 'artist']));
+  });
+  test('bare jobs enrich from a sole release without changing their key', () {
+    final bare = parser.metadata(yandexDownloadTrack(), bareIdentity);
+    expect(bare.identity, bareIdentity);
+    expect(bare.albumId, '009');
+    expect(bare.tags, metadata.tags);
+    expect(embeddedYandexIdentity([bare.tags['comment']!]),
+        yandexDownloadIdentity);
+    expect(
+        parser
+            .variant(
+                yandexDownloadInfo(), yandexAccount, bare, yandexFlacSelection)
+            .metadata
+            .identity,
+        bareIdentity);
+    final conflicting = yandexDownloadInfo();
+    (conflicting['downloadInfo'] as Map)['trackId'] = '001:010';
+    expect(
+        () => parser.variant(
+            conflicting, yandexAccount, bare, yandexFlacSelection),
+        rejected(YandexDownloadFailure.identityMismatch));
+  });
+
+  test('ambiguous or missing release keeps only the track link for bare jobs',
+      () {
+    for (final albums in [
+      null,
+      [],
+      [
+        {'id': 0}
+      ],
+      [
+        {'id': '009'},
+        {'id': '010'}
+      ]
+    ]) {
+      final value = yandexDownloadTrack();
+      final data = value.single as Map;
+      if (albums == null) {
+        data.remove('albums');
+      } else {
+        data['albums'] = albums;
+      }
+      final bare = parser.metadata(value, bareIdentity);
+      expect(bare.albumId, isNull);
+      expect(bare.tags, {
+        'title': 'Provider title',
+        'artist': 'Artist',
+        'comment': 'https://music.yandex.ru/track/001',
+      });
+      expect(embeddedYandexIdentity([bare.tags['comment']!]), bareIdentity);
+    }
+  });
+
+  test(
+      'explicit release wins over list order and preserves usable sparse fields',
+      () {
+    final value = yandexDownloadTrack();
+    (value.single as Map)['albums'] = [
+      {'id': '010', 'title': 'Other release', 'year': 2025},
+      {
+        'id': '009',
+        'genre': 'Rock',
+        'year': 0,
+        'trackPosition': {'index': 2, 'volume': -1}
+      },
+    ];
+    final tags = parser.metadata(value, yandexDownloadIdentity).tags;
+    expect(tags, {
+      'title': 'Provider title',
+      'artist': 'Artist',
+      'genre': 'Rock',
+      'track': '2',
+      'comment': 'https://music.yandex.ru/album/009/track/001',
+    });
+    ((value.single as Map)['albums'] as List).add({'id': '009'});
+    expect(() => parser.metadata(value, yandexDownloadIdentity),
+        rejected(YandexDownloadFailure.identityMismatch));
+  });
+
+  test(
+      'enrichment fits the existing metadata budget without dropping smaller fields',
+      () {
+    final value = yandexDownloadTrack();
+    final data = value.single as Map;
+    data['artists'] = List.generate(3, (_) => {'name': '🎵' * 510});
+    ((data['albums'] as List).single as Map)['title'] = '🎵' * 512;
+    final tags = parser.metadata(value, bareIdentity).tags;
+    expect(tags['album'], isNull);
+    expect(tags['date'], '2026');
+    expect(tags['comment'], metadata.tags['comment']);
   });
   final metadataMutations = <String, void Function(Map<String, dynamic>)>{
     'other track': (v) => v['id'] = '002',

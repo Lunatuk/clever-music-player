@@ -82,7 +82,8 @@ static int same_file(int first,int second) {
 static int64_t deadline;
 static int logged_error;
 static char response[JSON_LIMIT];
-static const char *tag_keys[8] = {"title","artist","album","album_artist","genre","track","disc","date"};
+static const char *tag_keys[] = {"title","artist","album","album_artist","genre","track","disc","date","comment"};
+_Static_assert(sizeof(tag_keys) / sizeof(tag_keys[0]) == CMP_MEDIA_TAG_COUNT, "Tag table size mismatch");
 static int interrupted(void *unused) { (void)unused; return is_cancelled() || milliseconds()>deadline; }
 static void log_callback(void *avcl,int level,const char *fmt,va_list args) {
     (void)avcl; (void)fmt; (void)args;
@@ -229,11 +230,13 @@ static int inspect(Input *in,Json *j) {
     append(j,",\"coverStreamIndex\":");
     if (in->picture>=0) append(j,"%d",in->picture); else append(j,"null");
     append(j,",\"tags\":{"); int count=0;
-    for (int k=0;k<8;k++) {
+    for (int k=0;k<CMP_MEDIA_TAG_COUNT;k++) {
+        int file_only=!strcmp(tag_keys[k],"comment");
         AVDictionaryEntry *e=av_dict_get(in->format->metadata,tag_keys[k],NULL,0);
-        if (!e) e=av_dict_get(in->format->streams[in->audio]->metadata,tag_keys[k],NULL,0);
+        if (!e && !file_only) e=av_dict_get(in->format->streams[in->audio]->metadata,tag_keys[k],NULL,0);
         if (!e && k==3) e=av_dict_get(in->format->metadata,"albumartist",NULL,0);
         if (!e) continue;
+        if (file_only && strlen(e->value)>4096) continue;
         if (strlen(e->value)>16384) return -1;
         if (count++) append(j,","); quote(j,tag_keys[k]); append(j,":"); quote(j,e->value);
     }
@@ -334,7 +337,7 @@ static int load_cover(const char *path,int format,AVPacket *packet) {
     r=0;
 done: if (file_close(fd)!=0) r=-1; return r;
 }
-static int remux(Input *in,const char *path,const char *cover_path,int cover_format,int64_t limit,const char *const tags[8],int *quota) {
+static int remux(Input *in,const char *path,const char *cover_path,int cover_format,int64_t limit,const char *const tags[CMP_MEDIA_TAG_COUNT],int *quota) {
     AVFormatContext *out=NULL; AVIOContext *io=NULL; FileIO file={0}; file.fd=-1; file.writing=1; file.limit=limit;
     AVPacket *cover=av_packet_alloc(),*packet=av_packet_alloc(); int r=-1, width=0,height=0; AVDictionary *options=NULL;
     enum AVCodecID picture_codec=AV_CODEC_ID_NONE;
@@ -358,7 +361,7 @@ static int remux(Input *in,const char *path,const char *cover_path,int cover_for
         picture->time_base=(AVRational){1,90000};
         av_dict_set(&picture->metadata,"title","Album cover",0); av_dict_set(&picture->metadata,"comment","Cover (front)",0);
     }
-    for (int k=0;k<8;k++) if (tags && tags[k]) {
+    for (int k=0;k<CMP_MEDIA_TAG_COUNT;k++) if (tags && tags[k]) {
         if (!tags[k][0] || strlen(tags[k])>16384 || av_dict_set(&out->metadata,tag_keys[k],tags[k],0)<0) goto done;
     }
     file.fd=open_file(path,1); FileStamp stamp;
@@ -389,7 +392,7 @@ done:
     if (file.fd>=0 && file_close(file.fd)!=0) r=-1;
     *quota=file.quota_hit; return r;
 }
-const char *cmp_media_run(int op,const char *source,const char *output,const char *cover,int cover_format,int mode,int64_t max_output,const char *const tags[8]) {
+const char *cmp_media_run(int op,const char *source,const char *output,const char *cover,int cover_format,int mode,int64_t max_output,const char *const tags[CMP_MEDIA_TAG_COUNT]) {
     logged_error=0; response[0]=0;
     if (interrupted(NULL)) return failure("cancelled");
     if (op==0) {

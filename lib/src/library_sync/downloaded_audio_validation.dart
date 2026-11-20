@@ -78,7 +78,8 @@ const audioValidationTagKeys = {
   'genre',
   'track',
   'disc',
-  'date'
+  'date',
+  'comment',
 };
 
 final class DownloadedAudioInspection {

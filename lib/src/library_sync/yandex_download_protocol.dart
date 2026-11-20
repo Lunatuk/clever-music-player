@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import '../domain/models/external_track_ref.dart';
 import '../domain/models/remote_library.dart';
+import '../library/embedded_yandex_identity.dart';
 import '../library/library_scan_control.dart';
 import 'binary_download.dart';
 import 'binary_http_download_transport.dart';
@@ -44,10 +45,11 @@ abstract interface class YandexDownloadSessionReader
 }
 
 final class YandexDownloadMetadata {
-  YandexDownloadMetadata._(
-      this.identity, this.duration, Map<String, String> tags, this.cover)
+  YandexDownloadMetadata._(this.identity, this.albumId, this.duration,
+      Map<String, String> tags, this.cover)
       : tags = Map.unmodifiable(tags);
   final ExternalTrackIdentity identity;
+  final String? albumId;
   final Duration duration;
   final Map<String, String> tags;
   final YandexCoverAddress? cover;
@@ -136,43 +138,21 @@ final class YandexDownloadParser {
       'title': title,
       'artist': _artists(data['artists']),
     };
-    if (identity.variantKey.isNotEmpty) {
-      final albums = data['albums'];
-      if (albums is! List || albums.length > 256) _fail();
-      final matching = albums
-          .map(_map)
-          .where((album) => yandexNumericId(album['id']) == identity.variantKey)
-          .toList();
-      if (matching.length != 1) _fail(YandexDownloadFailure.identityMismatch);
-      final album = matching.single;
-      tags['album'] = _text(album['title']);
-      if (album['artists'] != null) {
-        final artists = album['artists'];
-        if (artists is! List) _fail(YandexDownloadFailure.invalidMetadata);
-        if (artists.isNotEmpty) tags['album_artist'] = _artists(artists);
-      }
-      if (album['genre'] != null) tags['genre'] = _text(album['genre']);
-      if (album['year'] != null) {
-        final year = album['year'];
-        if (year is! int || year < 1 || year > 9999) _fail();
-        tags['date'] = '$year';
-      }
-      if (album['trackPosition'] != null) {
-        final position = _map(album['trackPosition']);
-        for (final entry in {'index': 'track', 'volume': 'disc'}.entries) {
-          if (position[entry.key] != null) {
-            final number = position[entry.key];
-            if (number is! int || number <= 0 || number > 100000) _fail();
-            tags[entry.value] = '$number';
-          }
-        }
-      }
-    }
     // Leave enough room for helper arguments, including escaped UTF-8 metadata.
-    if (tags.values.any((v) => v.length > 4096) ||
-        tags.values.fold<int>(0, (sum, v) => sum + utf8.encode(v).length) >
-            8192) {
+    if (!_fitsTagBudget(tags)) {
       _fail(YandexDownloadFailure.invalidMetadata);
+    }
+    final release = _release(data['albums'], identity.variantKey);
+    final comment =
+        yandexSourceComment(identity.externalId, albumId: release?.id);
+    final optionalTags = <String, String>{
+      if (comment != null) 'comment': comment,
+      if (release != null) ..._releaseTags(release.data),
+    };
+    // A large optional field must not prevent the download or erase other tags.
+    for (final entry in optionalTags.entries) {
+      tags[entry.key] = entry.value;
+      if (!_fitsTagBudget(tags)) tags.remove(entry.key);
     }
     final YandexCoverAddress? cover;
     try {
@@ -182,7 +162,7 @@ final class YandexDownloadParser {
       _fail(YandexDownloadFailure.invalidAddress);
     }
     return YandexDownloadMetadata._(
-        identity, Duration(milliseconds: duration), tags, cover);
+        identity, release?.id, Duration(milliseconds: duration), tags, cover);
   }
 
   YandexDownloadVariant variant(Object? value, RemoteAccountIdentity account,
@@ -190,9 +170,11 @@ final class YandexDownloadParser {
     final info = _map(value)['downloadInfo'];
     if (info == null) _fail(YandexDownloadFailure.unavailable);
     final data = _map(info);
-    _trackIdentity(data['trackId'], metadata.identity, allowBare: true);
+    _trackIdentity(data['trackId'], metadata.identity,
+        allowBare: true, resolvedAlbum: metadata.albumId);
     if (data['realId'] != null) {
-      _trackIdentity(data['realId'], metadata.identity, allowBare: true);
+      _trackIdentity(data['realId'], metadata.identity,
+          allowBare: true, resolvedAlbum: metadata.albumId);
     }
     final YandexAudioDecoder decoder;
     try {
@@ -281,13 +263,75 @@ void _identity(ExternalTrackIdentity identity) {
 }
 
 void _trackIdentity(Object? value, ExternalTrackIdentity expected,
-    {required bool allowBare}) {
+    {required bool allowBare, String? resolvedAlbum}) {
   final text = value is int ? '$value' : value;
-  final key = yandexTrackKey(expected.externalId, expected.variantKey);
+  final album = resolvedAlbum ?? expected.variantKey;
+  final key = yandexTrackKey(expected.externalId, album);
   if (text != key && !(allowBare && text == expected.externalId)) {
     _fail(YandexDownloadFailure.identityMismatch);
   }
 }
+
+({String id, Map<String, dynamic> data})? _release(
+    Object? value, String requested) {
+  if (value is! List || value.length > 256) {
+    if (requested.isNotEmpty) _fail(YandexDownloadFailure.identityMismatch);
+    return null;
+  }
+  if (requested.isEmpty && value.length != 1) return null;
+  ({String id, Map<String, dynamic> data})? matched;
+  for (final album in value.whereType<Map<String, dynamic>>()) {
+    final String id;
+    try {
+      id = yandexNumericId(album['id']);
+    } on YandexLibraryException {
+      continue;
+    }
+    if (requested.isNotEmpty && id != requested) continue;
+    if (matched != null) _fail(YandexDownloadFailure.identityMismatch);
+    matched = (id: id, data: album);
+  }
+  if (matched == null && requested.isNotEmpty) {
+    _fail(YandexDownloadFailure.identityMismatch);
+  }
+  return matched;
+}
+
+Map<String, String> _releaseTags(Map<String, dynamic> album) {
+  final tags = <String, String>{};
+  final title = _optionalText(album['title']);
+  final genre = _optionalText(album['genre']);
+  if (title != null) tags['album'] = title;
+  if (genre != null) tags['genre'] = genre;
+  final artists = album['artists'];
+  if (artists is List && artists.isNotEmpty && artists.length <= 64) {
+    final names = [
+      for (final artist in artists.whereType<Map<String, dynamic>>())
+        _optionalText(artist['name'])
+    ];
+    if (names.length == artists.length && names.every((name) => name != null)) {
+      final joined = names.join('; ');
+      if (joined.length <= 4096) tags['album_artist'] = joined;
+    }
+  }
+  final year = album['year'];
+  if (year is int && year > 0 && year <= 9999) tags['date'] = '$year';
+  final position = album['trackPosition'];
+  if (position is Map<String, dynamic>) {
+    for (final entry in {'index': 'track', 'volume': 'disc'}.entries) {
+      final number = position[entry.key];
+      if (number is int && number > 0 && number <= 100000) {
+        tags[entry.value] = '$number';
+      }
+    }
+  }
+  return tags;
+}
+
+bool _fitsTagBudget(Map<String, String> tags) =>
+    tags.values.every((value) => value.length <= 4096) &&
+    tags.values.fold<int>(0, (sum, value) => sum + utf8.encode(value).length) <=
+        8192;
 
 Map<String, dynamic> _map(Object? value) {
   if (value is! Map<String, dynamic>) _fail();
@@ -295,11 +339,15 @@ Map<String, dynamic> _map(Object? value) {
 }
 
 String _text(Object? value) {
+  return _optionalText(value) ?? _fail(YandexDownloadFailure.invalidMetadata);
+}
+
+String? _optionalText(Object? value) {
   if (value is! String ||
       value.trim().isEmpty ||
       value.length > 1024 ||
       value.runes.any((r) => r < 32 || r == 127)) {
-    _fail(YandexDownloadFailure.invalidMetadata);
+    return null;
   }
   return value;
 }

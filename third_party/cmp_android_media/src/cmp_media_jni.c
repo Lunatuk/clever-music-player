@@ -28,9 +28,9 @@ JNIEXPORT jbyteArray JNICALL Java_dev_lunatuk_clever_1music_1player_AndroidMedia
     JNIEnv *env,jobject self,jint op,jbyteArray source,jbyteArray output,jbyteArray cover,
     jint cover_format,jint mode,jlong limit,jobjectArray tag_values) {
     (void)self; int valid=1; char *src=utf8(env,source,&valid),*out=utf8(env,output,&valid),*image=utf8(env,cover,&valid);
-    char *tags[8]={0};
-    if (!tag_values || (*env)->GetArrayLength(env,tag_values)!=8) valid=0;
-    else for (int i=0;i<8;i++) {
+    char *tags[CMP_MEDIA_TAG_COUNT]={0};
+    if (!tag_values || (*env)->GetArrayLength(env,tag_values)!=CMP_MEDIA_TAG_COUNT) valid=0;
+    else for (int i=0;i<CMP_MEDIA_TAG_COUNT;i++) {
         jbyteArray value=(jbyteArray)(*env)->GetObjectArrayElement(env,tag_values,i);
         tags[i]=utf8(env,value,&valid); if (value) (*env)->DeleteLocalRef(env,value);
     }
@@ -40,6 +40,6 @@ JNIEXPORT jbyteArray JNICALL Java_dev_lunatuk_clever_1music_1player_AndroidMedia
         result=(*env)->NewByteArray(env,length);
         if (result) (*env)->SetByteArrayRegion(env,result,0,length,(const jbyte *)text);
     }
-    free(src); free(out); free(image); for (int i=0;i<8;i++) free(tags[i]);
+    free(src); free(out); free(image); for (int i=0;i<CMP_MEDIA_TAG_COUNT;i++) free(tags[i]);
     return result;
 }

@@ -267,7 +267,10 @@ DownloadedAudioInspection parseFfprobeAudioInspection(String output) {
     throw const FormatException('Нет длительности.');
   }
   final tags = <String, String>{};
-  for (final rawTags in [format['tags'], audio['tags']]) {
+  for (final (rawTags, fileTags) in [
+    (format['tags'], true),
+    (audio['tags'], false)
+  ]) {
     if (rawTags == null) continue;
     if (rawTags is! Map) throw const FormatException('Нет тегов.');
     for (final entry in rawTags.entries) {
@@ -277,6 +280,13 @@ DownloadedAudioInspection parseFfprobeAudioInspection(String output) {
       final key = (entry.key as String).toLowerCase();
       final canonical = key == 'albumartist' ? 'album_artist' : key;
       if (!audioValidationTagKeys.contains(canonical)) continue;
+      // Source annotations are file tags. Free-form input comments may be long.
+      if (canonical == 'comment' &&
+          (!fileTags ||
+              (entry.value as String).length > 4096 ||
+              (entry.value as String).contains('\u0000'))) {
+        continue;
+      }
       final previous = tags[canonical];
       if (previous != null && previous != entry.value) {
         throw const FormatException('Конфликтующие теги.');
