@@ -15,6 +15,7 @@ import 'downloaded_asset_checker.dart';
 import 'yandex_audio_selection.dart';
 import 'yandex_connection_controller.dart';
 import 'yandex_download_runner.dart';
+import 'yandex_local_copy_matcher.dart';
 
 enum YandexUpdateQuality { mp3, flac, m4a }
 
@@ -41,7 +42,8 @@ enum YandexUpdateStage {
   refreshing,
   checkingFiles,
   planning,
-  running
+  running,
+  checkingLocalCopies,
 }
 
 enum YandexUpdateFailure {
@@ -72,6 +74,7 @@ final class YandexLibraryUpdateController extends ChangeNotifier {
       required SettingsRepository settings,
       required DownloadedAssetChecker Function() checkerFactory,
       required YandexDownloadRunService Function() runnerFactory,
+      YandexLocalCopyMatcher Function()? localMatcherFactory,
       Future<bool> Function(LibraryFolder, LibraryScanControl)?
           validateDestination,
       required this.supported,
@@ -82,6 +85,7 @@ final class YandexLibraryUpdateController extends ChangeNotifier {
         _settings = settings,
         _checkerFactory = checkerFactory,
         _runnerFactory = runnerFactory,
+        _localMatcherFactory = localMatcherFactory,
         _validateDestination = validateDestination,
         _clock = clock ?? DateTime.now {
     connection.addListener(_connectionChanged);
@@ -98,6 +102,7 @@ final class YandexLibraryUpdateController extends ChangeNotifier {
   final SettingsRepository _settings;
   final DownloadedAssetChecker Function() _checkerFactory;
   final YandexDownloadRunService Function() _runnerFactory;
+  final YandexLocalCopyMatcher Function()? _localMatcherFactory;
   final DateTime Function() _clock;
   StreamSubscription<List<LibraryFolder>>? _folderSubscription;
   List<LibraryFolder> _folders = const [];
@@ -117,6 +122,7 @@ final class YandexLibraryUpdateController extends ChangeNotifier {
   YandexDownloadRunProgress? _progress;
   YandexDownloadRunResult? _result;
   int _checked = 0, _toCheck = 0, _planned = 0, _needsAction = 0;
+  int _localCopies = 0;
   bool get isBusy => _active != null;
   bool get initialized => _initialized;
   List<LibraryFolder> get folders => _folders;
@@ -133,6 +139,9 @@ final class YandexLibraryUpdateController extends ChangeNotifier {
   int get toCheck => _toCheck;
   int get planned => _planned;
   int get needsAction => _needsAction;
+  int get localCopies => _localCopies;
+  String get _localCopiesSummary =>
+      _localCopies == 0 ? '' : ' Уже есть в библиотеке: $_localCopies.';
 
   Future<void> _run(YandexUpdateStage stage,
       Future<void> Function(LibraryScanControl) action) {
@@ -190,6 +199,7 @@ final class YandexLibraryUpdateController extends ChangeNotifier {
           DiagnosticField.needsReconciliation: _result!.needsReconciliation,
         DiagnosticField.plannedTracks: _planned,
         DiagnosticField.addedTracks: _result?.completed ?? 0,
+        DiagnosticField.syncLocalCopies: _localCopies,
       });
     } on Object {/* Diagnostics cannot interrupt ownership or cleanup. */}
   }
@@ -344,6 +354,7 @@ final class YandexLibraryUpdateController extends ChangeNotifier {
       _toCheck = 0;
       _planned = 0;
       _needsAction = 0;
+      _localCopies = 0;
       final freshSince = _clock();
       _refreshing = true;
       try {
@@ -391,15 +402,31 @@ final class YandexLibraryUpdateController extends ChangeNotifier {
         plan = await _capture(account, folder, freshSince, retryFailed);
       }
       control.throwIfCancelled();
+      var localCopies = const <DownloadJobKey, LocalDownloadCandidate>{};
+      final matcherFactory = _localMatcherFactory;
+      if (matcherFactory != null && plan.items.any(canUseLocalDownload)) {
+        _stage = YandexUpdateStage.checkingLocalCopies;
+        notifyListeners();
+        final matcher = matcherFactory();
+        try {
+          localCopies = await matcher.match(plan, _quality.selection, control);
+        } finally {
+          await matcher.close();
+        }
+      }
+      control.throwIfCancelled();
       _stage = YandexUpdateStage.planning;
       notifyListeners();
-      final applied = await _plans.apply(plan, now: _clock());
+      final applied =
+          await _plans.apply(plan, now: _clock(), localCopies: localCopies);
       control.throwIfCancelled();
       if (applied.status != LibrarySyncApplyStatus.applied) {
         throw const _UpdateFailure(YandexUpdateFailure.stale);
       }
+      _localCopies = applied.localCopies.length;
       _planned = plan.items
           .where((item) =>
+              !applied.localCopies.contains(item.key) &&
               item.action != LibrarySyncAction.checkExisting &&
               item.action != LibrarySyncAction.needsAction)
           .length;
@@ -407,9 +434,10 @@ final class YandexLibraryUpdateController extends ChangeNotifier {
           .where((item) => item.action == LibrarySyncAction.needsAction)
           .length;
       if (_planned == 0) {
-        _message = _needsAction == 0
-            ? 'Новых заданий для загрузки нет.'
-            : 'Доступных новых заданий нет.';
+        _message = (_needsAction == 0
+                ? 'Новых заданий для загрузки нет.'
+                : 'Доступных новых заданий нет.') +
+            _localCopiesSummary;
         return;
       }
       _stage = YandexUpdateStage.running;
@@ -421,6 +449,7 @@ final class YandexLibraryUpdateController extends ChangeNotifier {
           libraryFolderId: folder,
           selection: _quality.selection,
           maxJobs: _limit,
+          excludedJobIds: applied.excludedJobIds,
           control: control,
           onProgress: (value) {
             _progress = value;
@@ -446,6 +475,7 @@ final class YandexLibraryUpdateController extends ChangeNotifier {
               YandexDownloadRunOutcome.cleanupFailed:
           _failure ??= YandexUpdateFailure.download;
       }
+      if (_message != null) _message = _message! + _localCopiesSummary;
     });
   }
 

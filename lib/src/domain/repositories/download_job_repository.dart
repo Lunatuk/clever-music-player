@@ -26,7 +26,8 @@ abstract interface class DownloadJobRepository implements PublicationJobAccess {
       Duration leaseFor = const Duration(seconds: 30),
       int? libraryFolderId,
       String? quality,
-      int? jobId});
+      int? jobId,
+      Set<int> excludedJobIds = const {}});
   Future<DownloadJob?> renewLease(DownloadJob expected,
       {required DateTime now, Duration leaseFor = const Duration(seconds: 30)});
   Future<DownloadJob?> advance(DownloadJob expected, DownloadJobStage next,

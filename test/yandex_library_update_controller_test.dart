@@ -3,10 +3,13 @@ import 'dart:convert';
 
 import 'package:clever_music_player/src/diagnostics/diagnostics_service.dart';
 import 'package:clever_music_player/src/domain/models/models.dart';
+import 'package:clever_music_player/src/domain/repositories/library_sync_repository.dart';
+import 'package:clever_music_player/src/library_sync/downloaded_audio_validation.dart';
 import 'package:clever_music_player/src/library_sync/source_fingerprint_probe.dart';
 import 'package:clever_music_player/src/library_sync/yandex_download_runner.dart';
 import 'package:clever_music_player/src/library_sync/yandex_library_protocol.dart';
 import 'package:clever_music_player/src/library_sync/yandex_library_update_controller.dart';
+import 'package:clever_music_player/src/library_sync/yandex_local_copy_matcher.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/library_update_fixture.dart';
@@ -31,6 +34,149 @@ void main() {
   }
 
   Future<List<DownloadJob>> jobs() => x.f.repositories.downloadJobs.listJobs();
+
+  Future<Track> linkedCopy(String name,
+      {String variant = '009', String id = '001'}) async {
+    final saved = await x.f.repositories.tracks.upsertTrack(Track(
+        filePath: '${x.f.root.path}/$name',
+        title: 'Local title',
+        fileSizeBytes: 100,
+        addedAt: x.f.now,
+        updatedAt: x.f.now));
+    await x.f.repositories.externalTracks.linkAll([
+      ExternalTrackRef(
+          trackId: saved,
+          linkedAt: x.f.now,
+          origin: ExternalTrackRefOrigin.embeddedTag,
+          identity: ExternalTrackIdentity(
+              provider: 'yandex_music', externalId: id, variantKey: variant))
+    ]);
+    return (await x.f.repositories.tracks.findById(saved))!;
+  }
+
+  DownloadedAudioInspection mp3(
+          {int bitrate = 192000,
+          bool rich = false,
+          String comment = 'https://music.yandex.ru/album/009/track/001'}) =>
+      DownloadedAudioInspection(
+          container: DownloadedAudioContainer.mp3,
+          codec: DownloadedAudioCodec.mp3,
+          duration: const Duration(seconds: 3),
+          sizeBytes: 100,
+          audioStreamIndex: 0,
+          sampleRate: 48000,
+          channels: 2,
+          bitRate: bitrate,
+          tags: {
+            'title': 'Provider title',
+            'artist': 'Artist',
+            'comment': comment,
+            if (rich) ...{'album': 'Album', 'date': '2026'}
+          });
+
+  Future<void> useLocalProbe(
+      Future<DownloadedAudioInspection?> Function(AudioSourceReference)
+          probe) async {
+    await x.updates.close();
+    x.localMatcherFactory = () => YandexLocalCopyMatcher(
+        x.f.repositories.librarySync as LocalDownloadCandidateRepository,
+        (source, _) => probe(source));
+    x.updates = x.newController();
+    await x.ready();
+  }
+
+  test(
+      'same quality skips a local copy and prioritizes fuller file tags over bitrate',
+      () async {
+    final poor = await linkedCopy('poor.mp3');
+    final rich = await linkedCopy('rich.mp3');
+    final checked = <AudioSourceReference>[];
+    await useLocalProbe((source) async {
+      checked.add(source);
+      return source == rich.source ? mp3(rich: true) : mp3(bitrate: 320000);
+    });
+    await x.updates.start();
+    expect(x.updates.failure, isNull);
+    expect(x.updates.localCopies, 1);
+    expect(x.updates.message, contains('Уже есть в библиотеке: 1'));
+    expect(checked, [poor.source, rich.source]);
+    expect(x.plans.lastLocalCopies.values.single.track, rich);
+    expect((await jobs()).single.key.identity.externalId, '2');
+    expect(await x.f.count('downloaded_assets'), 0);
+  });
+
+  test(
+      'wrong format, changed embedded link and low bit rate leave jobs eligible',
+      () async {
+    final a = await linkedCopy('low.mp3');
+    final b = await linkedCopy('changed.mp3');
+    await useLocalProbe((source) async => source == a.source
+        ? mp3(bitrate: 64000)
+        : mp3(comment: 'https://music.yandex.ru/album/009/track/999'));
+    await x.updates.start();
+    expect(x.updates.localCopies, 0);
+    expect(await jobs(), hasLength(2));
+    await x.updates.configure(quality: YandexUpdateQuality.flac);
+    final attempts = <AudioSourceReference>[];
+    await useLocalProbe((source) async {
+      attempts.add(source);
+      return mp3();
+    });
+    expect(x.updates.quality, YandexUpdateQuality.flac);
+    await x.updates.start();
+    expect(x.updates.localCopies, 0);
+    expect(attempts, [a.source, b.source]);
+    expect((await jobs()).where((j) => j.key.quality == 'yandex_flac_lossless'),
+        hasLength(2));
+  });
+
+  test('a previously queued local match is excluded only for this run',
+      () async {
+    await x.ready();
+    await x.updates.start();
+    final queued =
+        (await jobs()).firstWhere((j) => j.key.identity.externalId == '001');
+    final copy = await linkedCopy('copy.mp3');
+    await useLocalProbe((_) async => mp3());
+    await x.updates.start();
+    expect(x.fakeRunner.excluded, {queued.id});
+    final claim = await x.f.repositories.downloadJobs.claimNext(x.f.account,
+        now: x.f.now, excludedJobIds: x.fakeRunner.excluded);
+    expect(claim?.key.identity.externalId, '2');
+    expect(await x.f.repositories.downloadJobs.findByKey(queued.key), queued);
+    await x.f.repositories.tracks.deleteTrack(copy.id!);
+    final next = await x.f.repositories.downloadJobs
+        .claimNext(x.f.account, now: x.f.now);
+    expect(next?.id, queued.id);
+  });
+
+  test(
+      'an indexed link removed after inspection invalidates the apply transaction',
+      () async {
+    final copy = await linkedCopy('copy.mp3');
+    await useLocalProbe((_) async => mp3());
+    x.plans.onApply = () => x.f.repositories.tracks.deleteTrack(copy.id!);
+    await x.updates.start();
+    expect(x.updates.failure, YandexUpdateFailure.stale);
+    expect(await jobs(), isEmpty);
+    expect(x.fakeRunner.calls, 0);
+  });
+
+  test('an ambiguous track-only request ignores conflicting local releases',
+      () async {
+    x.tracks = [yandexTrack('001', album: '')];
+    await linkedCopy('first.mp3');
+    await linkedCopy('second.mp3', variant: '010');
+    var calls = 0;
+    await useLocalProbe((_) async {
+      calls++;
+      return mp3();
+    });
+    await x.updates.start();
+    expect(x.updates.failure, isNull);
+    expect(calls, 0);
+    expect((await jobs()).single.key.identity.variantKey, isEmpty);
+  });
   test(
       'initialization is local, restores no automatic destination and starts no runner',
       () async {

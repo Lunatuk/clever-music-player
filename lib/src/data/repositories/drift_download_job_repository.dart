@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:math';
 
 import 'package:drift/drift.dart';
@@ -142,7 +143,8 @@ final class DriftDownloadJobRepository implements DownloadJobRepository {
       Duration leaseFor = const Duration(seconds: 30),
       int? libraryFolderId,
       String? quality,
-      int? jobId}) {
+      int? jobId,
+      Set<int> excludedJobIds = const {}}) {
     _lease(leaseFor);
     if (libraryFolderId != null && libraryFolderId <= 0) {
       throw ArgumentError('Требуется папка назначения.');
@@ -151,6 +153,11 @@ final class DriftDownloadJobRepository implements DownloadJobRepository {
     if (jobId != null && jobId <= 0) {
       throw ArgumentError('Требуется ID задания.');
     }
+    if (excludedJobIds.length > 100000 || excludedJobIds.any((id) => id <= 0)) {
+      throw ArgumentError('Некорректные исключения для очереди.');
+    }
+    final excluded =
+        excludedJobIds.isEmpty ? null : jsonEncode(excludedJobIds.toList());
     return database.transaction(() async {
       if (!await _currentAccount(account)) return null;
       await _recover(now);
@@ -160,6 +167,7 @@ final class DriftDownloadJobRepository implements DownloadJobRepository {
           '${libraryFolderId == null ? '' : 'AND j.library_folder_id = ? '}'
           '${quality == null ? '' : 'AND j.quality = ? '}'
           '${jobId == null ? '' : 'AND j.id = ? '}'
+          '${excluded == null ? '' : 'AND j.id NOT IN (SELECT value FROM json_each(?)) '}'
           'AND j.remaining_attempts > 0 AND f.is_enabled = 1 AND j.updated_at_micros <= ? '
           'AND (j.retry_at_micros IS NULL OR j.retry_at_micros <= ?) '
           'AND NOT EXISTS (SELECT 1 FROM download_jobs busy WHERE busy.library_folder_id = j.library_folder_id '
@@ -171,6 +179,7 @@ final class DriftDownloadJobRepository implements DownloadJobRepository {
             if (libraryFolderId != null) Variable.withInt(libraryFolderId),
             if (quality != null) Variable.withString(quality),
             if (jobId != null) Variable.withInt(jobId),
+            if (excluded != null) Variable.withString(excluded),
             for (var i = 0; i < 3; i++)
               Variable.withInt(now.microsecondsSinceEpoch)
           ],

@@ -21,16 +21,47 @@ final class MetadataCompleteness {
   MetadataCompleteness._(Set<MetadataDetail> present)
       : present = Set.unmodifiable(present);
 
-  factory MetadataCompleteness.forTrack(Track track) => MetadataCompleteness._({
-        if (_useful(track.title)) MetadataDetail.title,
-        if (_useful(track.artist)) MetadataDetail.artist,
-        if (_useful(track.album)) MetadataDetail.album,
-        if (_useful(track.albumArtist)) MetadataDetail.albumArtist,
-        if (_useful(track.genre)) MetadataDetail.genre,
-        if (track.year != null && track.year! > 0 && track.year! <= 9999)
-          MetadataDetail.year,
-        if (_hasPath(track.customArtworkPath) || _hasPath(track.artworkPath))
-          MetadataDetail.artwork,
+  factory MetadataCompleteness.forTrack(Track track) =>
+      MetadataCompleteness._fields(
+          title: track.title,
+          artist: track.artist,
+          album: track.album,
+          albumArtist: track.albumArtist,
+          genre: track.genre,
+          year: track.year,
+          hasArtwork:
+              _hasPath(track.customArtworkPath) || _hasPath(track.artworkPath));
+
+  factory MetadataCompleteness.forEmbeddedTags(Map<String, String> tags,
+          {required bool hasArtwork}) =>
+      MetadataCompleteness._fields(
+          title: tags['title'],
+          artist: tags['artist'],
+          album: tags['album'],
+          albumArtist: tags['album_artist'],
+          genre: tags['genre'],
+          year: int.tryParse(RegExp(r'^([0-9]{4})(?:$|[-/])')
+                  .firstMatch(tags['date'] ?? '')
+                  ?.group(1) ??
+              ''),
+          hasArtwork: hasArtwork);
+
+  factory MetadataCompleteness._fields(
+          {String? title,
+          String? artist,
+          String? album,
+          String? albumArtist,
+          String? genre,
+          int? year,
+          required bool hasArtwork}) =>
+      MetadataCompleteness._({
+        if (_useful(title)) MetadataDetail.title,
+        if (_useful(artist)) MetadataDetail.artist,
+        if (_useful(album)) MetadataDetail.album,
+        if (_useful(albumArtist)) MetadataDetail.albumArtist,
+        if (_useful(genre)) MetadataDetail.genre,
+        if (year != null && year > 0 && year <= 9999) MetadataDetail.year,
+        if (hasArtwork) MetadataDetail.artwork,
       });
 
   final Set<MetadataDetail> present;

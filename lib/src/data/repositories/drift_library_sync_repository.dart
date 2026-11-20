@@ -1,14 +1,53 @@
+import 'package:drift/drift.dart';
+
 import '../../domain/models/models.dart';
 import '../../domain/repositories/library_sync_repository.dart';
 import '../../domain/services/library_sync_planner.dart';
 import '../drift/app_database.dart';
+import '../drift/drift_mappers.dart';
 import 'drift_download_job_repository.dart';
 import 'drift_downloaded_asset_repository.dart';
 import 'drift_remote_library_repository.dart';
 
-final class DriftLibrarySyncRepository implements LibrarySyncRepository {
+final class DriftLibrarySyncRepository
+    implements LibrarySyncRepository, LocalDownloadCandidateRepository {
   const DriftLibrarySyncRepository(this.database);
   final AppDatabase database;
+
+  @override
+  Future<List<LocalDownloadCandidate>> findLocalCandidates(
+      Set<String> trackIds) async {
+    if (trackIds.length > 64) throw ArgumentError('Слишком много внешних ID.');
+    if (trackIds.isEmpty) return const [];
+    final refs = database.externalTrackRefs;
+    final tracks = database.tracks;
+    final folders = database.libraryFolders;
+    final query = database.select(refs).join([
+      innerJoin(tracks, tracks.id.equalsExp(refs.trackId)),
+      leftOuterJoin(folders, folders.id.equalsExp(tracks.libraryFolderId)),
+    ])
+      ..where(refs.provider.equals('yandex_music') &
+          refs.externalId.isIn(trackIds) &
+          tracks.isMissing.equals(false) &
+          (tracks.libraryFolderId.isNull() | folders.isEnabled.equals(true)))
+      ..orderBy(
+          [OrderingTerm.asc(refs.externalId), OrderingTerm.asc(tracks.id)])
+      ..limit(4097);
+    final rows = await query.get();
+    if (rows.length > 4096) {
+      return const []; // Never infer a release from a truncated set.
+    }
+    return rows.map((row) {
+      final ref = row.readTable(refs);
+      return (
+        track: trackFromRow(row.readTable(tracks)),
+        identity: ExternalTrackIdentity(
+            provider: ref.provider,
+            externalId: ref.externalId,
+            variantKey: ref.variantKey)
+      );
+    }).toList(growable: false);
+  }
 
   @override
   Future<LibrarySyncSnapshot?> capture(RemoteLibraryAccount account,
@@ -76,11 +115,15 @@ final class DriftLibrarySyncRepository implements LibrarySyncRepository {
 
   @override
   Future<LibrarySyncApplyResult> apply(LibrarySyncPlan plan,
-      {required DateTime now}) async {
+      {required DateTime now,
+      Map<DownloadJobKey, LocalDownloadCandidate> localCopies =
+          const {}}) async {
     if (!plan.isReady) {
       return LibrarySyncApplyResult(status: LibrarySyncApplyStatus.blocked);
     }
     try {
+      final copies =
+          Map<DownloadJobKey, LocalDownloadCandidate>.of(localCopies);
       return await database.transaction(() async {
         final input = plan.snapshot;
         final fresh = await _capture(input.account, input.destination.id,
@@ -93,6 +136,7 @@ final class DriftLibrarySyncRepository implements LibrarySyncRepository {
           throw const _StalePlan();
         }
         final jobs = DriftDownloadJobRepository(database);
+        final excluded = await _confirmLocalCopies(plan, copies);
         final scheduled = <DownloadJob>[];
         final cancelled = <DownloadJob>[];
         for (final obsolete in plan.obsoleteJobs) {
@@ -101,7 +145,9 @@ final class DriftLibrarySyncRepository implements LibrarySyncRepository {
           cancelled.add(changed);
         }
         final newKeys = plan.items
-            .where((item) => item.action == LibrarySyncAction.createJob)
+            .where((item) =>
+                item.action == LibrarySyncAction.createJob &&
+                !copies.containsKey(item.key))
             .map((item) => item.key)
             .toList();
         for (var start = 0; start < newKeys.length; start += 64) {
@@ -110,6 +156,7 @@ final class DriftLibrarySyncRepository implements LibrarySyncRepository {
               now: now));
         }
         for (final item in plan.items) {
+          if (copies.containsKey(item.key)) continue;
           if (item.action == LibrarySyncAction.retryJob ||
               item.action == LibrarySyncAction.repairCompleted) {
             final changed = await jobs.retry(item.job!, input.account,
@@ -123,11 +170,39 @@ final class DriftLibrarySyncRepository implements LibrarySyncRepository {
         return LibrarySyncApplyResult(
             status: LibrarySyncApplyStatus.applied,
             scheduledJobs: scheduled,
-            cancelledJobs: cancelled);
+            cancelledJobs: cancelled,
+            localCopies: copies.keys,
+            excludedJobIds: excluded);
       });
     } on _StalePlan {
       return LibrarySyncApplyResult(status: LibrarySyncApplyStatus.stale);
     }
+  }
+
+  Future<Set<int>> _confirmLocalCopies(LibrarySyncPlan plan,
+      Map<DownloadJobKey, LocalDownloadCandidate> copies) async {
+    final excluded = <int>{};
+    if (copies.isEmpty) return excluded;
+    final items = {for (final item in plan.items) item.key: item};
+    final keys = copies.keys.toList(growable: false);
+    for (var start = 0; start < keys.length; start += 64) {
+      final batch = keys.skip(start).take(64).toList(growable: false);
+      final rows = await findLocalCandidates(
+          batch.map((key) => key.identity.externalId).toSet());
+      for (final key in batch) {
+        final item = items[key];
+        if (item == null ||
+            !canUseLocalDownload(item) ||
+            !matchingLocalCandidates(key.identity, rows)
+                .contains(copies[key])) {
+          throw const _StalePlan();
+        }
+        if (item.action == LibrarySyncAction.joinJob) {
+          excluded.add(item.job!.id);
+        }
+      }
+    }
+    return excluded;
   }
 }
 

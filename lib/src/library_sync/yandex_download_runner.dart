@@ -98,6 +98,7 @@ abstract interface class YandexDownloadRunService {
       required int libraryFolderId,
       required YandexAudioSelection selection,
       int maxJobs = 3,
+      Set<int> excludedJobIds = const {},
       LibraryScanControl? control,
       void Function(YandexDownloadRunProgress)? onProgress});
   void cancel();
@@ -151,6 +152,7 @@ final class YandexDownloadRunner implements YandexDownloadRunService {
       required int libraryFolderId,
       required YandexAudioSelection selection,
       int maxJobs = 3,
+      Set<int> excludedJobIds = const {},
       LibraryScanControl? control,
       void Function(YandexDownloadRunProgress)? onProgress}) {
     if (_closed || isBusy) {
@@ -175,8 +177,8 @@ final class YandexDownloadRunner implements YandexDownloadRunService {
     operation.ignore();
     _active = operation;
     control?.addCancellationListener(current.cancel);
-    unawaited(Future.sync(() => _execute(
-            account, libraryFolderId, selection, maxJobs, current, onProgress))
+    unawaited(Future.sync(() => _execute(account, libraryFolderId, selection,
+            maxJobs, Set.unmodifiable(excludedJobIds), current, onProgress))
         .whenComplete(() => control?.removeCancellationListener(current.cancel))
         .then(accepted.complete, onError: accepted.completeError));
     return operation;
@@ -187,6 +189,7 @@ final class YandexDownloadRunner implements YandexDownloadRunService {
       int folder,
       YandexAudioSelection selection,
       int maxJobs,
+      Set<int> excludedJobIds,
       LibraryScanControl control,
       void Function(YandexDownloadRunProgress)? observer) async {
     YandexDownloadSessionReader? reader;
@@ -346,7 +349,8 @@ final class YandexDownloadRunner implements YandexDownloadRunService {
             now: _clock(),
             leaseFor: const Duration(seconds: 60),
             libraryFolderId: folder,
-            quality: selection.resourceQuality);
+            quality: selection.resourceQuality,
+            excludedJobIds: excludedJobIds);
         claimed = next;
         if (next == null) break;
         started++;

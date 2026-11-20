@@ -14,7 +14,7 @@ final class PlayerVolumeControl extends StatefulWidget {
   final double volume;
   final bool showSlider;
   final VoidCallback onToggleMute;
-  final ValueChanged<double> onChanged;
+  final Future<void> Function(double) onChanged;
 
   @override
   State<PlayerVolumeControl> createState() => _PlayerVolumeControlState();
@@ -31,6 +31,10 @@ final class _PlayerVolumeControlState extends State<PlayerVolumeControl> {
   bool _isButtonHovered = false;
   bool _isPopupHovered = false;
   bool _isPopupDragging = false;
+  bool _overlayUpdateScheduled = false;
+  bool _overlayVolumeChanged = false;
+  double? _previewVolume, _pendingVolume;
+  Future<void>? _sendingVolume;
 
   @override
   void didUpdateWidget(PlayerVolumeControl oldWidget) {
@@ -39,7 +43,7 @@ final class _PlayerVolumeControlState extends State<PlayerVolumeControl> {
       _hideOverlayNow();
       return;
     }
-    _scheduleOverlayRebuild();
+    _scheduleOverlayRebuild(volumeChanged: oldWidget.volume != widget.volume);
   }
 
   @override
@@ -51,7 +55,7 @@ final class _PlayerVolumeControlState extends State<PlayerVolumeControl> {
 
   @override
   Widget build(BuildContext context) {
-    final normalizedVolume = _normalizedVolumeForDisplay(widget.volume);
+    final normalizedVolume = _displayVolume;
     final volumeIcon = _volumeIcon(normalizedVolume);
 
     return Row(
@@ -68,7 +72,10 @@ final class _PlayerVolumeControlState extends State<PlayerVolumeControl> {
             tooltip: widget.showSlider
                 ? (normalizedVolume <= 0 ? 'Включить звук' : 'Выключить звук')
                 : null,
-            onPressed: widget.onToggleMute,
+            onPressed: () async {
+              await _sendingVolume;
+              if (mounted) widget.onToggleMute();
+            },
             icon: Icon(volumeIcon, size: 20),
           ),
         ),
@@ -82,7 +89,7 @@ final class _PlayerVolumeControlState extends State<PlayerVolumeControl> {
                 value: normalizedVolume,
                 min: 0,
                 max: 1,
-                onChanged: widget.onChanged,
+                onChanged: _changeVolume,
               ),
             ),
           ),
@@ -126,7 +133,7 @@ final class _PlayerVolumeControlState extends State<PlayerVolumeControl> {
   }
 
   Widget _buildOverlay(BuildContext context) {
-    final normalizedVolume = _normalizedVolumeForDisplay(widget.volume);
+    final normalizedVolume = _displayVolume;
     final overlaySize = MediaQuery.sizeOf(context);
     final buttonRect = _buttonOverlayRect;
     if (buttonRect == null) {
@@ -151,7 +158,7 @@ final class _PlayerVolumeControlState extends State<PlayerVolumeControl> {
           onExit: (_) => _handlePopupHoverChanged(isHovered: false),
           child: _VolumePopupSlider(
             value: normalizedVolume,
-            onChanged: widget.onChanged,
+            onChanged: _changeVolume,
             onChangeStart: (_) {
               _isPopupDragging = true;
               _hideOverlayTimer?.cancel();
@@ -185,17 +192,56 @@ final class _PlayerVolumeControlState extends State<PlayerVolumeControl> {
     _overlayEntry = null;
   }
 
-  void _scheduleOverlayRebuild() {
-    if (_overlayEntry == null) {
-      return;
+  double get _displayVolume =>
+      _previewVolume ?? _normalizedVolumeForDisplay(widget.volume);
+
+  void _changeVolume(double value) {
+    setState(() => _previewVolume = value);
+    _overlayEntry?.markNeedsBuild();
+    _pendingVolume = value;
+    if (_sendingVolume == null) {
+      final sending = _sendVolume(widget.onChanged);
+      _sendingVolume = sending;
+      sending.ignore();
     }
+  }
+
+  Future<void> _sendVolume(Future<void> Function(double) send) async {
+    while (_pendingVolume != null) {
+      final value = _pendingVolume!;
+      _pendingVolume = null;
+      try {
+        await Future<void>.sync(() => send(value));
+      } on Object {
+        // Show the last confirmed volume if the engine rejects a change.
+      }
+    }
+    _sendingVolume = null;
+    if (!mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _sendingVolume != null) return;
+      setState(() => _previewVolume = null);
+      _overlayEntry?.markNeedsBuild();
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
+  void _scheduleOverlayRebuild({required bool volumeChanged}) {
+    if (_overlayEntry == null) return;
+    _overlayVolumeChanged |= volumeChanged;
+    if (_overlayUpdateScheduled) return;
+    _overlayUpdateScheduled = true;
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) {
-        return;
-      }
+      _overlayUpdateScheduled = false;
+      final refreshVolume = _overlayVolumeChanged;
+      _overlayVolumeChanged = false;
+      if (!mounted || _overlayEntry == null) return;
+      final previous = _buttonOverlayRect;
       _updateButtonOverlayRect();
-      _overlayEntry?.markNeedsBuild();
+      if (refreshVolume || previous != _buttonOverlayRect) {
+        _overlayEntry?.markNeedsBuild();
+      }
     });
   }
 

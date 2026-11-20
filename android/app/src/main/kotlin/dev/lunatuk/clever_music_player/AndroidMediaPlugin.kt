@@ -1,8 +1,12 @@
 package dev.lunatuk.clever_music_player
 
 import android.content.Context
+import android.net.Uri
+import android.os.CancellationSignal
 import android.os.Handler
 import android.os.Looper
+import android.provider.DocumentsContract
+import androidx.core.net.toUri
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
@@ -18,17 +22,19 @@ internal object AndroidMediaNative {
     external fun begin(): Boolean
     external fun cancel()
     external fun end()
+    external fun inspectDescriptor(fd: Int, declaredLength: Long): ByteArray
     external fun run(op: Int, source: ByteArray?, output: ByteArray?, cover: ByteArray?,
         coverFormat: Int, mode: Int, limit: Long, tags: Array<ByteArray?>): ByteArray
 }
 
-/** Lazy, app-private file processing; no source URI, network or subprocesses. */
+/** App-private processing and read-only inspection of granted local documents. */
 class AndroidMediaPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     private lateinit var context: Context
     private lateinit var channel: MethodChannel
     private val main = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor()
-    private val active = AtomicReference<Int?>(null)
+    private data class Operation(val id: Int, val cancellation: CancellationSignal = CancellationSignal())
+    private val active = AtomicReference<Operation?>(null)
     private var detached = false
     private val keys = listOf("title","artist","album","album_artist","genre","track","disc","date","comment")
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
@@ -43,17 +49,25 @@ class AndroidMediaPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         if (value == null || value !in 1..Int.MAX_VALUE.toLong()) { result.error("invalid_request","Invalid media request",null); return }
         val id = value.toInt()
         if (call.method == "cancelMediaOperation") {
-            if (active.get() == id) AndroidMediaNative.cancel()
+            active.get()?.takeIf { it.id == id }?.let(::cancel)
             result.success(null); return
         }
         if (detached) { result.error("closed","Media backend closed",null); return }
         fun reply(status: String) = result.success(mapOf("requestId" to id,"status" to status))
         if (!AndroidMediaNative.loaded) { reply("backendUnavailable"); return }
         val op: Int; val source: ByteArray?; val output: ByteArray?; val cover: ByteArray?
+        val document: Uri?
         val coverFormat: Int; val mode: Int; val limit: Long; val tags: Array<ByteArray?>
         try {
             op = call.argument<Int>("op") ?: error("op"); require(op in 0..5)
-            source = if (op == 0) null else path(call.argument<String>("source"),false)
+            document = call.argument<String>("document")?.let {
+                require(op == 1 && it.length <= 16384 && call.argument<String>("source") == null)
+                it.toUri().also { uri ->
+                    require(uri.scheme == "content" && uri.authority == "com.android.externalstorage.documents" &&
+                        uri.query == null && uri.fragment == null && DocumentsContract.isDocumentUri(context, uri))
+                }
+            }
+            source = if (op == 0 || document != null) null else path(call.argument<String>("source"),false)
             output = if (op == 5) path(call.argument<String>("output"),true) else null
             cover = call.argument<String>("cover")?.let { require(op == 5); path(it,false) }
             coverFormat = call.argument<Int>("coverFormat") ?: 0
@@ -66,19 +80,48 @@ class AndroidMediaPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             require(values.values.all { it.isNotBlank() && it.length <= 4096 && !it.contains('\u0000') })
             tags = keys.map { values[it]?.toByteArray(Charsets.UTF_8) }.toTypedArray()
         } catch (_: Exception) { reply("unreadable"); return }
-        if (!active.compareAndSet(null,id)) { reply("busy"); return }
+        val operation = Operation(id)
+        if (!active.compareAndSet(null,operation)) { reply("busy"); return }
         if (!AndroidMediaNative.begin()) { active.set(null); reply("busy"); return }
         worker.execute {
             val response = try {
-                val bytes = AndroidMediaNative.run(op,source,output,cover,coverFormat,mode,limit,tags)
+                val inspected = document?.let { inspectDocument(it, operation.cancellation) }
+                val bytes = inspected?.first ?: AndroidMediaNative.run(op,source,output,cover,coverFormat,mode,limit,tags)
                 require(bytes.size in 1..131072)
                 val text = Charsets.UTF_8.newDecoder().decode(java.nio.ByteBuffer.wrap(bytes)).toString()
                 val json = JSONObject(text)
                 require(json.getString("status") in setOf("ok","cancelled","timedOut","unreadable","invalidAudio","invalidCover","coverMissing","quotaExceeded"))
-                objectValue(json) + mapOf("requestId" to id)
+                objectValue(json) + mapOf("requestId" to id, "sourceComments" to inspected?.second)
             } catch (_: Exception) { mapOf("requestId" to id,"status" to "unreadable") }
             finally { active.set(null); AndroidMediaNative.end() }
             main.post { result.success(response) }
+        }
+    }
+    private fun cancel(operation: Operation) {
+        AndroidMediaNative.cancel()
+        operation.cancellation.cancel()
+    }
+
+    private fun inspectDocument(uri: Uri, cancellation: CancellationSignal): Pair<ByteArray, List<String>?> {
+        val resolver = context.contentResolver
+        require(resolver.persistedUriPermissions.any {
+            it.isReadPermission && (it.uri == uri ||
+                (it.uri.authority == uri.authority && DocumentsContract.isTreeUri(it.uri) &&
+                    DocumentsContract.isTreeUri(uri) &&
+                    DocumentsContract.getTreeDocumentId(it.uri) == DocumentsContract.getTreeDocumentId(uri)))
+        })
+        return resolver.openAssetFileDescriptor(uri, "r", cancellation).use { asset ->
+            require(asset != null && asset.startOffset == 0L)
+            cancellation.throwIfCanceled()
+            val length = asset.declaredLength
+            val result = AndroidMediaNative.inspectDescriptor(asset.parcelFileDescriptor.fd, length)
+            cancellation.throwIfCanceled()
+            val comments = android.os.ParcelFileDescriptor.dup(asset.fileDescriptor).let { duplicate ->
+                android.os.ParcelFileDescriptor.AutoCloseInputStream(duplicate).use {
+                    AudioSourceComments.read(it.channel, 0, length)
+                }
+            }
+            result to comments
         }
     }
     private fun path(raw: String?, output: Boolean): ByteArray {
@@ -94,7 +137,7 @@ class AndroidMediaPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     }
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         detached = true; channel.setMethodCallHandler(null)
-        if (active.get() != null) AndroidMediaNative.cancel()
+        active.get()?.let(::cancel)
         worker.shutdown()
     }
 }

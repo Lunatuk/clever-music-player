@@ -21,6 +21,8 @@ CMP_MEDIA_API void cmp_media_end(void);
 CMP_MEDIA_API const char *cmp_media_run(int op, const char *source,
     const char *output, const char *cover, int cover_format, int mode,
     int64_t max_output, const char *const tags[CMP_MEDIA_TAG_COUNT]);
+/* Inspect an exclusively borrowed, full-file descriptor. Length -1 is unknown. */
+CMP_MEDIA_API const char *cmp_media_inspect_fd(int fd, int64_t declared_length);
 #ifdef __cplusplus
 }
 #endif

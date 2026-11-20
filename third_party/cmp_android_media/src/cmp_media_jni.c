@@ -43,3 +43,13 @@ JNIEXPORT jbyteArray JNICALL Java_dev_lunatuk_clever_1music_1player_AndroidMedia
     free(src); free(out); free(image); for (int i=0;i<CMP_MEDIA_TAG_COUNT;i++) free(tags[i]);
     return result;
 }
+
+JNIEXPORT jbyteArray JNICALL Java_dev_lunatuk_clever_1music_1player_AndroidMediaNative_inspectDescriptor(
+    JNIEnv *env,jobject self,jint fd,jlong declared_length) {
+    (void)self;
+    const char *text=cmp_media_inspect_fd(fd,declared_length);
+    jsize length=(jsize)strlen(text);
+    jbyteArray result=(*env)->NewByteArray(env,length);
+    if (result) (*env)->SetByteArrayRegion(env,result,0,length,(const jbyte *)text);
+    return result;
+}

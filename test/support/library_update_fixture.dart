@@ -13,6 +13,7 @@ import 'package:clever_music_player/src/library_sync/yandex_download_runner.dart
 import 'package:clever_music_player/src/library_sync/yandex_library_client.dart';
 import 'package:clever_music_player/src/library_sync/yandex_library_protocol.dart';
 import 'package:clever_music_player/src/library_sync/yandex_library_update_controller.dart';
+import 'package:clever_music_player/src/library_sync/yandex_local_copy_matcher.dart';
 
 import 'download_fixture.dart';
 import 'yandex_connection_fixture.dart';
@@ -28,6 +29,7 @@ final class LibraryUpdateFixture {
   final credentials = MemoryYandexCredentials();
   final probe = UpdateProbe();
   SourceFingerprintProbe Function()? probeFactory;
+  YandexLocalCopyMatcher Function()? localMatcherFactory;
   final fakeRunner = UpdateRunner();
   final diagnostics = UpdateDiagnostics();
   late YandexDownloadRunService runner;
@@ -88,6 +90,7 @@ final class LibraryUpdateFixture {
               await validateDestination?.call(folder, control) ?? true,
           diagnostics: diagnostics,
           clock: f.clock,
+          localMatcherFactory: localMatcherFactory,
           checkerFactory: () => DownloadedAssetChecker(
               repository: f.repositories.downloadedAssets,
               probe: probeFactory?.call() ?? probe,
@@ -146,6 +149,7 @@ final class UpdateRunner implements YandexDownloadRunService {
   bool _busy = false;
   RemoteLibraryAccount? account;
   int? folder, limit;
+  Set<int> excluded = const {};
   YandexAudioSelection? selection;
   Future<YandexDownloadRunResult> Function(
       LibraryScanControl, void Function(YandexDownloadRunProgress)?)? onRun;
@@ -157,12 +161,14 @@ final class UpdateRunner implements YandexDownloadRunService {
       required int libraryFolderId,
       required YandexAudioSelection selection,
       int maxJobs = 3,
+      Set<int> excludedJobIds = const {},
       LibraryScanControl? control,
       void Function(YandexDownloadRunProgress)? onProgress}) async {
     calls++;
     this.account = account;
     folder = libraryFolderId;
     limit = maxJobs;
+    excluded = excludedJobIds;
     this.selection = selection;
     _busy = true;
     try {
@@ -209,6 +215,7 @@ final class UpdatePlans implements LibrarySyncRepository {
   final LibrarySyncRepository inner;
   int captures = 0, applies = 0;
   LibrarySyncPlan? lastPlan;
+  Map<DownloadJobKey, LocalDownloadCandidate> lastLocalCopies = const {};
   bool stale = false;
   Future<void> Function()? onApply;
   @override
@@ -225,13 +232,16 @@ final class UpdatePlans implements LibrarySyncRepository {
 
   @override
   Future<LibrarySyncApplyResult> apply(LibrarySyncPlan plan,
-      {required DateTime now}) async {
+      {required DateTime now,
+      Map<DownloadJobKey, LocalDownloadCandidate> localCopies =
+          const {}}) async {
     applies++;
     lastPlan = plan;
+    lastLocalCopies = localCopies;
     await onApply?.call();
     return stale
         ? LibrarySyncApplyResult(status: LibrarySyncApplyStatus.stale)
-        : inner.apply(plan, now: now);
+        : inner.apply(plan, now: now, localCopies: localCopies);
   }
 }
 

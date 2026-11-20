@@ -24,6 +24,7 @@ import '../library_sync/yandex_download_runner.dart';
 import '../library_sync/yandex_library_client.dart';
 import '../library_sync/yandex_http_transport.dart';
 import '../library_sync/yandex_library_update_controller.dart';
+import '../library_sync/yandex_local_copy_matcher.dart';
 import '../library_sync/desktop_yandex_download_pipeline.dart';
 import '../player/player_service.dart';
 import '../queue/playback_queue_service.dart';
@@ -97,6 +98,8 @@ final class AppDependencies {
                     .call
                 : null,
             diagnostics: diagnostics,
+            localMatcherFactory: () => YandexLocalCopyMatcher.forPlatform(
+                repositories.librarySync as LocalDownloadCandidateRepository),
             checkerFactory: () => DownloadedAssetChecker(
                 repository: repositories.downloadedAssets,
                 probe: _sourceFingerprintProbeFactory()),

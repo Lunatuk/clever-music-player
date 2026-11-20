@@ -212,6 +212,7 @@ enum DiagnosticField {
   metadataCacheBatchStale,
   metadataCacheNativeArtworkChecks,
   metadataCacheBatchFallbackCode,
+  syncLocalCopies,
 }
 
 /// Only fixed event/field names and numeric/boolean values enter the journal.

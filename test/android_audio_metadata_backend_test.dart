@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:clever_music_player/src/android/android_audio_metadata_backend.dart';
+import 'package:clever_music_player/src/domain/models/audio_source_reference.dart';
 import 'package:clever_music_player/src/library/library_scan_control.dart';
 import 'package:clever_music_player/src/library_sync/download_workspace.dart';
 import 'package:clever_music_player/src/library_sync/downloaded_audio_metadata.dart';
@@ -72,6 +73,33 @@ void main() {
       'source': file.path
     });
   });
+  test('document inspection requires agreement with the source comment reader',
+      () async {
+    const url = 'https://music.yandex.ru/album/9/track/1';
+    final document = ContentUriAudioSource(
+        'content://com.android.externalstorage.documents/document/example');
+    var comments = <String>[url];
+    handler = (call) async => ok(call, {
+          'inspection': {
+            ...inspection(),
+            'tags': {'comment': url}
+          },
+          'sourceComments': comments,
+        });
+    final info = await backend.inspectDocument(document, LibraryScanControl());
+    expect(info.tags['comment'], url);
+    expect(calls.single.arguments, {
+      'requestId': calls.single.arguments['requestId'],
+      'op': 1,
+      'document': document.storageValue,
+    });
+    comments = [url, 'https://music.yandex.ru/track/2'];
+    await expectLater(
+        backend.inspectDocument(document, LibraryScanControl()),
+        throwsA(isA<AudioValidationException>().having((e) => e.outcome,
+            'outcome', AudioValidationOutcome.metadataMismatch)));
+  });
+
   test('capability probe requires the pinned profile, version and license',
       () async {
     handler = (call) async => ok(call, {

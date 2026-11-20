@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 
+import '../domain/models/audio_source_reference.dart';
+import '../library/embedded_yandex_identity.dart';
 import '../library/library_scan_control.dart';
 import '../library_sync/download_workspace.dart';
 import '../library_sync/downloaded_audio_metadata.dart';
@@ -100,8 +102,31 @@ final class AndroidAudioMetadataBackend
 
   @override
   Future<DownloadedAudioInspection> inspect(
-      File file, LibraryScanControl control) async {
-    final result = await _run(1, control, {'source': file.absolute.path});
+          File file, LibraryScanControl control) async =>
+      _inspection(await _run(1, control, {'source': file.absolute.path}));
+
+  Future<DownloadedAudioInspection> inspectDocument(
+      ContentUriAudioSource document, LibraryScanControl control) async {
+    final result = await _run(1, control, {'document': document.storageValue});
+    final info = _inspection(result);
+    final comments = result['sourceComments'];
+    final comment = info.tags['comment'];
+    if (comments is! List ||
+        comments.length > 32 ||
+        comments.any((value) => value is! String) ||
+        comment == null) {
+      throw const AudioValidationException(
+          AudioValidationOutcome.metadataMismatch);
+    }
+    final identity = embeddedYandexIdentity(comments.cast<String>());
+    if (identity == null || identity != embeddedYandexIdentity([comment])) {
+      throw const AudioValidationException(
+          AudioValidationOutcome.metadataMismatch);
+    }
+    return info;
+  }
+
+  DownloadedAudioInspection _inspection(Map<String, dynamic> result) {
     try {
       final raw = Map<String, dynamic>.from(result['inspection'] as Map);
       final tags = Map<String, String>.from(raw['tags'] as Map);

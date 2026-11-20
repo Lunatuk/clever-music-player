@@ -27,6 +27,7 @@ typedef struct _stat64 FileStamp;
 #define file_write _write
 #define file_seek _lseeki64
 #define file_close _close
+#define file_dup _dup
 #define file_sync _commit
 static volatile LONG busy, cancelled;
 static int take_job(void) { return InterlockedCompareExchange(&busy,1,0)==0; }
@@ -57,6 +58,7 @@ typedef struct stat FileStamp;
 #define file_write write
 #define file_seek lseek
 #define file_close close
+#define file_dup dup
 #define file_sync fsync
 static atomic_int busy, cancelled;
 static int take_job(void) { int v=0; return atomic_compare_exchange_strong(&busy,&v,1); }
@@ -175,11 +177,13 @@ static int close_input(Input *in) {
     avformat_close_input(&in->format); free_io(&in->io);
     int r=in->file.fd<0 ? 0 : file_close(in->file.fd); in->file.fd=-1; return r;
 }
-static int open_input(Input *in,const char *path) {
+static int open_input_fd(Input *in,int fd,int64_t declared_length) {
     memset(in,0,sizeof(*in)); in->file.fd=-1; in->audio=in->picture=-1;
-    in->file.fd=open_file(path,0);
+    in->file.fd=fd;
     if (in->file.fd<0 || file_stat(in->file.fd,&in->stamp)!=0 || !regular(&in->stamp) ||
-        in->stamp.st_size<=0 || in->stamp.st_size>AUDIO_LIMIT) return -1;
+        in->stamp.st_size<=0 || in->stamp.st_size>AUDIO_LIMIT ||
+        (declared_length!=-1 && declared_length!=in->stamp.st_size) ||
+        file_seek(in->file.fd,0,SEEK_SET)!=0) return -1;
     in->file.size=in->file.limit=in->stamp.st_size;
     in->io=make_io(&in->file); in->format=avformat_alloc_context();
     if (!in->io || !in->format) return -1;
@@ -400,7 +404,7 @@ const char *cmp_media_run(int op,const char *source,const char *output,const cha
         return response;
     }
     if (op<1 || op>5 || !source || strlen(source)>16384 || (op==5 && (!output || max_output<=0 || max_output>AUDIO_LIMIT))) return failure("unreadable");
-    Input in; int r=open_input(&in,source); char hash[65]; int64_t duration=0; int quota=0;
+    Input in; int r=open_input_fd(&in,open_file(source,0),-1); char hash[65]; int64_t duration=0; int quota=0;
     Json json={response,0,0}; const char *error="invalidAudio";
     if (r<0) goto done;
     if (op==1) r=inspect(&in,&json);
@@ -428,4 +432,25 @@ done:
     if (close_input(&in)!=0) r=-1;
     if (r<0 || logged_error || json.failed || interrupted(NULL)) return failure(error);
     return response;
+}
+
+const char *cmp_media_inspect_fd(int fd,int64_t declared_length) {
+    logged_error=0; response[0]=0;
+    if (interrupted(NULL)) return failure("cancelled");
+    Input in;
+    int r=open_input_fd(&in,fd<0 ? -1 : file_dup(fd),declared_length);
+    Json json={response,0,0};
+    if (r==0) r=inspect(&in,&json);
+    if (r==0) {
+        FileStamp after;
+        if (file_stat(in.file.fd,&after)!=0 || in.stamp.st_size!=after.st_size ||
+            in.stamp.st_mtime!=after.st_mtime || in.stamp.st_ctime!=after.st_ctime) r=-1;
+#ifndef _WIN32
+        else if (in.stamp.st_mtim.tv_nsec!=after.st_mtim.tv_nsec ||
+                 in.stamp.st_ctim.tv_nsec!=after.st_ctim.tv_nsec) r=-1;
+#endif
+    }
+    if (close_input(&in)!=0) r=-1;
+    return r<0 || logged_error || json.failed || interrupted(NULL)
+        ? failure("unreadable") : response;
 }

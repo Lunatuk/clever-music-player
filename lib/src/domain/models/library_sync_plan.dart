@@ -239,11 +239,17 @@ final class LibrarySyncApplyResult {
   LibrarySyncApplyResult(
       {required this.status,
       Iterable<DownloadJob> scheduledJobs = const [],
-      Iterable<DownloadJob> cancelledJobs = const []})
+      Iterable<DownloadJob> cancelledJobs = const [],
+      Iterable<DownloadJobKey> localCopies = const [],
+      Iterable<int> excludedJobIds = const []})
       : scheduledJobs = List.unmodifiable(scheduledJobs),
-        cancelledJobs = List.unmodifiable(cancelledJobs);
+        cancelledJobs = List.unmodifiable(cancelledJobs),
+        localCopies = Set.unmodifiable(localCopies),
+        excludedJobIds = Set.unmodifiable(excludedJobIds);
   final LibrarySyncApplyStatus status;
   final List<DownloadJob> scheduledJobs, cancelledJobs;
+  final Set<DownloadJobKey> localCopies;
+  final Set<int> excludedJobIds;
 }
 
 bool syncListsEqual<T>(List<T> first, List<T> second) {

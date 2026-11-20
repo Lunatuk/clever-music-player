@@ -218,9 +218,7 @@ final class _BottomPlayerBarState extends State<BottomPlayerBar> {
                     onToggleMute: () {
                       unawaited(widget.playerService.toggleMute());
                     },
-                    onVolumeChanged: (value) {
-                      unawaited(widget.playerService.setVolume(value));
-                    },
+                    onVolumeChanged: widget.playerService.setVolume,
                     onLike: () {
                       unawaited(widget.queueService.likeCurrentTrack());
                     },
@@ -530,7 +528,7 @@ final class _BottomPlayerActions extends StatelessWidget {
   final double volume;
   final bool showVolumeSlider;
   final VoidCallback onToggleMute;
-  final ValueChanged<double> onVolumeChanged;
+  final Future<void> Function(double) onVolumeChanged;
   final VoidCallback onLike;
   final VoidCallback onDislike;
   final VoidCallback onOpenSettings;

@@ -427,6 +427,32 @@ void main() {
     expect(fixture.player.setVolumeCalls.last, 0.6);
   });
 
+  testWidgets('playing volume follows the drag with slow audio feedback',
+      (tester) async {
+    await _setLargeSurface(tester);
+    final fixture = await _HomeScreenFixture.create();
+    _addFixtureTearDown(tester, fixture);
+    await fixture.player.playTrack(_testTrack());
+    final slow = Completer<void>();
+    fixture.player.volumeGate = slow.future;
+    await fixture.pump(tester);
+    Slider slider() => tester.widget<Slider>(
+        find.byKey(const ValueKey('bottom-player-volume-slider')));
+    slider().onChanged!(.8);
+    slider().onChanged!(.6);
+    fixture.player.emitPositionTick(const Duration(seconds: 1));
+    slider().onChanged!(.3);
+    await tester.pump();
+    expect(slider().value, .3);
+    expect(fixture.player.setVolumeCalls, [.8]);
+    slow.complete();
+    await tester.pump();
+    await tester.pump();
+    expect(slider().value, .3);
+    expect(fixture.player.setVolumeCalls, [.8, .3]);
+    expect(fixture.player.volume, .3);
+  });
+
   testWidgets('central launch icon stays start for non-Wave playback',
       (tester) async {
     await _setLargeSurface(tester);
@@ -2353,6 +2379,7 @@ final class _FakePlayerService implements PlayerService {
       StreamController<PlayerState>.broadcast();
   PlayerState _state = const PlayerState.idle();
   final List<double> setVolumeCalls = [];
+  Future<void>? volumeGate;
   int toggleMuteCalls = 0;
 
   @override
@@ -2427,6 +2454,7 @@ final class _FakePlayerService implements PlayerService {
   @override
   Future<void> setVolume(double volume) async {
     setVolumeCalls.add(volume);
+    if (volumeGate != null) await volumeGate;
     _emit(_state.copyWith(volume: volume));
   }
 

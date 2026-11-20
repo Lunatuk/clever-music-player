@@ -241,6 +241,7 @@ String _stage(YandexLibraryUpdateController c) => switch (c.stage) {
         'Получаю свежий состав выбранных коллекций…',
       YandexUpdateStage.checkingFiles =>
         'Проверяю скачанные файлы: ${c.checked} из ${c.toCheck}…',
+      YandexUpdateStage.checkingLocalCopies => 'Проверяю локальные копии…',
       YandexUpdateStage.planning => 'Составляю список новых треков…',
       YandexUpdateStage.running => switch (c.progress?.stage) {
           YandexDownloadRunStage.authenticating => 'Проверяю подключение…',
