@@ -95,6 +95,7 @@ final class DownloadedAudioInspection {
     this.bitRate,
     this.bitDepth,
     this.coverStreamIndex,
+    this.channelLayout,
   }) : tags = Map.unmodifiable(tags) {
     if (sizeBytes <= 0 ||
         audioStreamIndex < 0 ||
@@ -121,6 +122,7 @@ final class DownloadedAudioInspection {
   final Duration duration;
   final int sizeBytes, audioStreamIndex, sampleRate, channels;
   final int? bitRate, bitDepth, coverStreamIndex;
+  final String? channelLayout;
   final Map<String, String> tags;
 }
 

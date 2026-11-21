@@ -22,12 +22,12 @@ internal object AndroidMediaNative {
     external fun begin(): Boolean
     external fun cancel()
     external fun end()
-    external fun inspectDescriptor(fd: Int, declaredLength: Long): ByteArray
+    external fun inspectDescriptor(fd: Int, declaredLength: Long, compare: Boolean): ByteArray
     external fun run(op: Int, source: ByteArray?, output: ByteArray?, cover: ByteArray?,
         coverFormat: Int, mode: Int, limit: Long, tags: Array<ByteArray?>): ByteArray
 }
 
-/** App-private processing and read-only inspection of granted local documents. */
+/** App-private processing and read-only analysis of granted local documents. */
 class AndroidMediaPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     private lateinit var context: Context
     private lateinit var channel: MethodChannel
@@ -61,7 +61,7 @@ class AndroidMediaPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         try {
             op = call.argument<Int>("op") ?: error("op"); require(op in 0..5)
             document = call.argument<String>("document")?.let {
-                require(op == 1 && it.length <= 16384 && call.argument<String>("source") == null)
+                require((op == 1 || op == 4) && it.length <= 16384 && call.argument<String>("source") == null)
                 it.toUri().also { uri ->
                     require(uri.scheme == "content" && uri.authority == "com.android.externalstorage.documents" &&
                         uri.query == null && uri.fragment == null && DocumentsContract.isDocumentUri(context, uri))
@@ -73,6 +73,7 @@ class AndroidMediaPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             coverFormat = call.argument<Int>("coverFormat") ?: 0
             require((cover == null && coverFormat == 0) || (cover != null && coverFormat in 1..2))
             mode = call.argument<Int>("mode") ?: 0; require(mode in 0..2)
+            require(document == null || op == 1 || mode == 1)
             limit = when (val value = call.argument<Any>("maxOutputBytes")) { is Int -> value.toLong(); is Long -> value; null -> 8L*1024*1024*1024; else -> error("limit") }
             require(limit in 1..(8L*1024*1024*1024))
             val values = call.argument<Map<String,String>>("tags") ?: emptyMap()
@@ -85,7 +86,7 @@ class AndroidMediaPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         if (!AndroidMediaNative.begin()) { active.set(null); reply("busy"); return }
         worker.execute {
             val response = try {
-                val inspected = document?.let { inspectDocument(it, operation.cancellation) }
+                val inspected = document?.let { inspectDocument(it, operation.cancellation, compare = op == 4) }
                 val bytes = inspected?.first ?: AndroidMediaNative.run(op,source,output,cover,coverFormat,mode,limit,tags)
                 require(bytes.size in 1..131072)
                 val text = Charsets.UTF_8.newDecoder().decode(java.nio.ByteBuffer.wrap(bytes)).toString()
@@ -102,7 +103,7 @@ class AndroidMediaPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         operation.cancellation.cancel()
     }
 
-    private fun inspectDocument(uri: Uri, cancellation: CancellationSignal): Pair<ByteArray, List<String>?> {
+    private fun inspectDocument(uri: Uri, cancellation: CancellationSignal, compare: Boolean): Pair<ByteArray, List<String>?> {
         val resolver = context.contentResolver
         require(resolver.persistedUriPermissions.any {
             it.isReadPermission && (it.uri == uri ||
@@ -114,8 +115,9 @@ class AndroidMediaPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             require(asset != null && asset.startOffset == 0L)
             cancellation.throwIfCanceled()
             val length = asset.declaredLength
-            val result = AndroidMediaNative.inspectDescriptor(asset.parcelFileDescriptor.fd, length)
+            val result = AndroidMediaNative.inspectDescriptor(asset.parcelFileDescriptor.fd, length, compare)
             cancellation.throwIfCanceled()
+            if (compare) return@use result to null
             val comments = android.os.ParcelFileDescriptor.dup(asset.fileDescriptor).let { duplicate ->
                 android.os.ParcelFileDescriptor.AutoCloseInputStream(duplicate).use {
                     AudioSourceComments.read(it.channel, 0, length)

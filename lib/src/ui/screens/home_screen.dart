@@ -27,6 +27,7 @@ import '../queue/queue_panel.dart';
 import '../track_artwork.dart';
 import '../track_display_helpers.dart';
 import '../library/library_scan_status.dart';
+import '../library/audio_comparison_dialog.dart';
 import '../library/track_variants_dialog.dart';
 import '../track_metadata_edit_dialog.dart';
 import '../track_metadata_subtitle.dart';
@@ -285,11 +286,19 @@ final class _HomeScreenState extends State<HomeScreen> {
             );
             final visibleTracks = view.tracks;
             final missingCount = _missingCountFor(activeTracks);
+            final audioComparison = dependencies.audioComparison;
             return _MyMusicPage(
               playerState: playerState,
               queueService: dependencies.playbackQueue,
               visibleTracks: visibleTracks,
               variants: view.versions,
+              onCompareAudio: audioComparison == null ||
+                      activeTracks.length - missingCount < 2
+                  ? null
+                  : () => unawaited(showAudioComparisonDialog(context,
+                      tracks: activeTracks,
+                      comparison: audioComparison,
+                      searchQuery: _searchQuery)),
               onShowVariants: (group) => unawaited(showTrackVariantsDialog(
                 context,
                 group: group,
@@ -1140,6 +1149,7 @@ final class _MyMusicPage extends StatelessWidget {
     required this.queueService,
     required this.visibleTracks,
     required this.variants,
+    required this.onCompareAudio,
     required this.onShowVariants,
     required this.totalIndexedTracks,
     required this.missingCount,
@@ -1170,6 +1180,7 @@ final class _MyMusicPage extends StatelessWidget {
   final PlaybackQueueService queueService;
   final List<Track> visibleTracks;
   final Map<String, LibraryTrackVariants> variants;
+  final VoidCallback? onCompareAudio;
   final ValueChanged<LibraryTrackVariants> onShowVariants;
   final int totalIndexedTracks;
   final int missingCount;
@@ -1212,9 +1223,18 @@ final class _MyMusicPage extends StatelessWidget {
                       'Поиск, сортировка, очередь и правка локальных треков',
                 ),
                 const SizedBox(height: 22),
-                Text(
-                  'Библиотека треков',
-                  style: textTheme.headlineSmall,
+                Row(
+                  children: [
+                    Expanded(
+                        child: Text('Библиотека треков',
+                            style: textTheme.headlineSmall)),
+                    if (onCompareAudio != null)
+                      OutlinedButton.icon(
+                        onPressed: onCompareAudio,
+                        icon: const Icon(Icons.compare_arrows),
+                        label: const Text('Сравнить аудио'),
+                      ),
+                  ],
                 ),
                 const SizedBox(height: 12),
                 StreamBuilder<QueueState>(

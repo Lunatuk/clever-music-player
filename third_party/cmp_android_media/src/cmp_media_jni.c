@@ -45,9 +45,10 @@ JNIEXPORT jbyteArray JNICALL Java_dev_lunatuk_clever_1music_1player_AndroidMedia
 }
 
 JNIEXPORT jbyteArray JNICALL Java_dev_lunatuk_clever_1music_1player_AndroidMediaNative_inspectDescriptor(
-    JNIEnv *env,jobject self,jint fd,jlong declared_length) {
+    JNIEnv *env,jobject self,jint fd,jlong declared_length,jboolean compare) {
     (void)self;
-    const char *text=cmp_media_inspect_fd(fd,declared_length);
+    const char *text=compare ? cmp_media_compare_fd(fd,declared_length) :
+        cmp_media_inspect_fd(fd,declared_length);
     jsize length=(jsize)strlen(text);
     jbyteArray result=(*env)->NewByteArray(env,length);
     if (result) (*env)->SetByteArrayRegion(env,result,0,length,(const jbyte *)text);

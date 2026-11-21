@@ -42,7 +42,16 @@ final class FfmpegAudioValidationBackend implements AudioValidationBackend {
 
   @override
   Future<DownloadedAudioInspection> inspect(
-      File file, LibraryScanControl control) async {
+          File file, LibraryScanControl control) =>
+      _inspect(file, control, includeTags: true);
+
+  Future<DownloadedAudioInspection> inspectForComparison(
+          File file, LibraryScanControl control) =>
+      _inspect(file, control, includeTags: false);
+
+  Future<DownloadedAudioInspection> _inspect(
+      File file, LibraryScanControl control,
+      {required bool includeTags}) async {
     final output = await _run(
         ffprobePath,
         [
@@ -50,9 +59,10 @@ final class FfmpegAudioValidationBackend implements AudioValidationBackend {
           'error',
           ..._inputOptions,
           '-show_entries',
-          'format=format_name,duration,size:format_tags:'
-              'stream=index,codec_type,codec_name,duration,bit_rate,sample_rate,channels,bits_per_raw_sample,width,height:'
-              'stream_disposition=attached_pic:stream_tags',
+          'format=format_name,duration,size:'
+              'stream=index,codec_type,codec_name,duration,bit_rate,sample_rate,channels,channel_layout,bits_per_raw_sample,width,height:'
+              'stream_disposition=attached_pic'
+              '${includeTags ? ':format_tags:stream_tags' : ''}',
           '-of',
           'json',
           '-i',
@@ -302,6 +312,7 @@ DownloadedAudioInspection parseFfprobeAudioInspection(String output) {
       audioStreamIndex: audio['index'] as int,
       sampleRate: _integer(audio['sample_rate'])!,
       channels: _integer(audio['channels'])!,
+      channelLayout: audio['channel_layout'] as String?,
       bitRate: _integer(audio['bit_rate'], optional: true),
       bitDepth: _integer(audio['bits_per_raw_sample'], optional: true),
       coverStreamIndex: coverIndex,

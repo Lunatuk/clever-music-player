@@ -11,6 +11,7 @@ import '../data/drift/app_database.dart';
 import '../diagnostics/diagnostics_service.dart';
 import '../domain/repositories/repositories.dart';
 import '../library/custom_artwork_service.dart';
+import '../library/audio_comparison.dart';
 import '../library/artwork_cache_service.dart';
 import '../library/directory_picker_service.dart';
 import '../library/library_scanner_service.dart';
@@ -47,6 +48,7 @@ final class AppDependencies {
     required this.smtcService,
     this.diagnostics = const NoopDiagnosticsService(),
     this.libraryVariants,
+    this.audioComparison,
     LibraryController? libraryController,
     SourceFingerprintProbe Function()? sourceFingerprintProbeFactory,
     YandexConnectionController Function()? yandexConnectionFactory,
@@ -70,6 +72,7 @@ final class AppDependencies {
 
   final LibraryController libraryController;
   final LibraryVariantRepository? libraryVariants;
+  final AudioComparisonService? audioComparison;
   final DiagnosticsService diagnostics;
   final AppDatabase database;
   final AppRepositories repositories;

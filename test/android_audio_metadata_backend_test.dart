@@ -118,6 +118,27 @@ void main() {
         throwsA(isA<AudioValidationException>().having((e) => e.outcome,
             'outcome', AudioValidationOutcome.backendUnavailable)));
   });
+
+  test('document comparison accepts only a valid PCM identity', () async {
+    final document = ContentUriAudioSource(
+        'content://com.android.externalstorage.documents/document/example');
+    var channels = 2;
+    handler = (call) async => ok(
+        call, {'digest': 'a' * 64, 'sampleRate': 48000, 'channels': channels});
+    final signature =
+        await backend.compareDocumentAudio(document, LibraryScanControl());
+    expect(signature, (digest: 'a' * 64, channels: 2, sampleRate: 48000));
+    expect(calls.single.arguments, {
+      'requestId': calls.single.arguments['requestId'],
+      'op': 4,
+      'mode': 1,
+      'document': document.storageValue,
+    });
+    channels = 3;
+    await expectLater(
+        backend.compareDocumentAudio(document, LibraryScanControl()),
+        throwsA(isA<AudioValidationException>()));
+  });
   final invalid = <String, Object?>{
     'durationUs': 0,
     'sizeBytes': 0,

@@ -434,13 +434,33 @@ done:
     return response;
 }
 
-const char *cmp_media_inspect_fd(int fd,int64_t declared_length) {
+static int compare_audio(Input *in,Json *json) {
+    const int64_t max_duration=30LL*60*1000000;
+    const AVCodecParameters *p=in->format->streams[in->audio]->codecpar;
+    int channels=p->ch_layout.nb_channels;
+    if (in->stamp.st_size>128LL*1024*1024 || duration_us(in)>max_duration ||
+        channels<1 || channels>2 || p->sample_rate<8000 || p->sample_rate>192000) return -1;
+    AVChannelLayout standard;
+    av_channel_layout_default(&standard,channels);
+    int layout_valid=p->ch_layout.order==AV_CHANNEL_ORDER_UNSPEC ||
+        av_channel_layout_compare(&p->ch_layout,&standard)==0;
+    av_channel_layout_uninit(&standard);
+    if (!layout_valid) return -1;
+    char hash[65];
+    int64_t duration=0;
+    if (decode_audio(in,hash,&duration)!=0 || duration<=0 || duration>max_duration) return -1;
+    append(json,"{\"status\":\"ok\",\"digest\":\"%s\",\"sampleRate\":%d,\"channels\":%d}",
+        hash,p->sample_rate,channels);
+    return 0;
+}
+
+static const char *read_descriptor(int fd,int64_t declared_length,int compare) {
     logged_error=0; response[0]=0;
     if (interrupted(NULL)) return failure("cancelled");
     Input in;
     int r=open_input_fd(&in,fd<0 ? -1 : file_dup(fd),declared_length);
     Json json={response,0,0};
-    if (r==0) r=inspect(&in,&json);
+    if (r==0) r=compare ? compare_audio(&in,&json) : inspect(&in,&json);
     if (r==0) {
         FileStamp after;
         if (file_stat(in.file.fd,&after)!=0 || in.stamp.st_size!=after.st_size ||
@@ -453,4 +473,12 @@ const char *cmp_media_inspect_fd(int fd,int64_t declared_length) {
     if (close_input(&in)!=0) r=-1;
     return r<0 || logged_error || json.failed || interrupted(NULL)
         ? failure("unreadable") : response;
+}
+
+const char *cmp_media_inspect_fd(int fd,int64_t declared_length) {
+    return read_descriptor(fd,declared_length,0);
+}
+
+const char *cmp_media_compare_fd(int fd,int64_t declared_length) {
+    return read_descriptor(fd,declared_length,1);
 }

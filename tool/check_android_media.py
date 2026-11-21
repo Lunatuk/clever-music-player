@@ -41,9 +41,10 @@ def main():
 #include <stdio.h>
 #include <wchar.h>
 #include "cmp_media.h"
-CMP_MEDIA_API const char *inspect_test_file(const wchar_t *path, int64_t length) {
+CMP_MEDIA_API const char *inspect_test_file(const wchar_t *path, int64_t length, int compare) {
     int fd = _wopen(path, _O_RDONLY | _O_BINARY);
-    const char *result = cmp_media_inspect_fd(fd, length);
+    const char *result = compare ? cmp_media_compare_fd(fd, length) :
+        cmp_media_inspect_fd(fd, length);
     if (fd < 0) return result;
     if (_lseeki64(fd, 0, SEEK_SET) != 0 || _close(fd) != 0) return "descriptor lost";
     return result;
@@ -64,7 +65,7 @@ CMP_MEDIA_API const char *inspect_test_file(const wchar_t *path, int64_t length)
     library.cmp_media_run.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_char_p,
         ctypes.c_char_p, ctypes.c_int, ctypes.c_int, ctypes.c_int64, ctypes.POINTER(ctypes.c_char_p)]
     library.cmp_media_run.restype = ctypes.c_char_p
-    library.inspect_test_file.argtypes = [ctypes.c_wchar_p, ctypes.c_int64]
+    library.inspect_test_file.argtypes = [ctypes.c_wchar_p, ctypes.c_int64, ctypes.c_int]
     library.inspect_test_file.restype = ctypes.c_char_p
     keys = ['title', 'artist', 'album', 'album_artist', 'genre', 'track', 'disc', 'date', 'comment']
     expected = dict(zip(keys, ['Проверка 😀', 'Исполнитель трека', 'Альбом', 'Исполнитель альбома', 'Electronic', '2', '1', '2026',
@@ -90,10 +91,10 @@ CMP_MEDIA_API const char *inspect_test_file(const wchar_t *path, int64_t length)
         print('PASS', name, flush=True)
     assert ok(0) == {'status': 'ok', 'profile': 'cmp-android-audio-1', 'version': '7.1.5', 'license': 'LGPL version 2.1 or later'}
     passed('pinned capabilities')
-    def inspect_descriptor(path, length):
+    def inspect_descriptor(path, length, compare=False):
         assert library.cmp_media_begin() == 1
         try:
-            return json.loads(library.inspect_test_file(str(path), length))
+            return json.loads(library.inspect_test_file(str(path), length, compare))
         finally:
             library.cmp_media_end()
 
@@ -116,6 +117,13 @@ CMP_MEDIA_API const char *inspect_test_file(const wchar_t *path, int64_t length)
             assert inspect_descriptor(target, target.stat().st_size)['inspection'] == prepared
             assert inspect_descriptor(target, -1)['inspection'] == prepared
             assert inspect_descriptor(target, target.stat().st_size - 1)['status'] == 'unreadable'
+            pcm = inspect_descriptor(source, -1, compare=True)
+            assert pcm == {
+                'status': 'ok', 'digest': ok(4, source, mode=1)['digest'],
+                'sampleRate': 48000, 'channels': 2,
+            }
+            assert inspect_descriptor(target, target.stat().st_size, compare=True) == pcm
+            assert inspect_descriptor(target, target.stat().st_size - 1, compare=True)['status'] == 'unreadable'
             for mode in [0, 1]:
                 assert ok(4, source, mode=mode)['digest'] == ok(4, target, mode=mode)['digest']
             assert ok(4, target, mode=2)['digest'] == digest(fixtures / name)
@@ -129,7 +137,7 @@ CMP_MEDIA_API const char *inspect_test_file(const wchar_t *path, int64_t length)
             for mode in [0, 1]:
                 assert ok(4, source, mode=mode)['digest'] == ok(4, retained, mode=mode)['digest']
             assert digest(source) == original
-            passed(ext + ' / ' + name + ' / descriptor inspection / preserve artwork / exact audio')
+            passed(ext + ' / ' + name + ' / descriptor inspection and comparison / preserve artwork / exact audio')
         assert call(3, source)['status'] == 'coverMissing'
     source = fixtures / 'tone.mp3'
     original = digest(source)

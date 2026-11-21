@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 
 import '../domain/models/audio_source_reference.dart';
+import '../library/audio_comparison.dart';
 import '../library/embedded_yandex_identity.dart';
 import '../library/library_scan_control.dart';
 import '../library_sync/download_workspace.dart';
@@ -126,6 +127,23 @@ final class AndroidAudioMetadataBackend
     return info;
   }
 
+  Future<AudioPcmSignature> compareDocumentAudio(
+      ContentUriAudioSource document, LibraryScanControl control) async {
+    final result =
+        await _run(4, control, {'document': document.storageValue, 'mode': 1});
+    final rate = result['sampleRate'];
+    final channels = result['channels'];
+    if (rate is! int ||
+        rate < 8000 ||
+        rate > 192000 ||
+        channels is! int ||
+        channels < 1 ||
+        channels > 2) {
+      throw const AudioValidationException(AudioValidationOutcome.invalidAudio);
+    }
+    return (digest: _digest(result), sampleRate: rate, channels: channels);
+  }
+
   DownloadedAudioInspection _inspection(Map<String, dynamic> result) {
     try {
       final raw = Map<String, dynamic>.from(result['inspection'] as Map);
@@ -170,6 +188,10 @@ final class AndroidAudioMetadataBackend
       AudioCopyDigest mode, LibraryScanControl control) async {
     final result = await _run(
         4, control, {'source': file.absolute.path, 'mode': mode.index});
+    return _digest(result);
+  }
+
+  String _digest(Map<String, dynamic> result) {
     final hash = result['digest'];
     if (hash is! String ||
         !RegExp(r'^[0-9a-f]{64}$').hasMatch(hash) ||

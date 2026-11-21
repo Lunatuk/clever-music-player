@@ -10,6 +10,7 @@ import '../appearance/appearance_theme.dart';
 import '../core/async_lifecycle.dart';
 import '../diagnostics/diagnostics_service.dart';
 import '../ui/app_version_info.dart';
+import '../ui/library/audio_comparison_dialog.dart';
 import '../ui/library/track_variants_dialog.dart';
 import '../ui/track_metadata_subtitle.dart';
 import '../domain/models/track.dart';
@@ -148,6 +149,9 @@ final class _AndroidPreviewAppState extends State<AndroidPreviewApp> {
                 tracks:
                     widget.dependencies.repositories.tracks.watchAllTracks(),
                 libraryVariants: widget.dependencies.libraryVariants,
+                compareAudio: widget.dependencies.audioComparison == null
+                    ? null
+                    : _compareAudio,
                 player: widget.dependencies.playerService,
                 playTrack: (track, visible) => widget.dependencies.playbackQueue
                     .playLibraryTrack(track: track, visibleTracks: visible),
@@ -163,6 +167,15 @@ final class _AndroidPreviewAppState extends State<AndroidPreviewApp> {
                         as AndroidMediaControlsService)
                     .stop),
           ));
+
+  Future<void> _compareAudio(BuildContext context, String query) async {
+    final comparison = widget.dependencies.audioComparison!;
+    final tracks =
+        await widget.dependencies.repositories.tracks.watchAllTracks().first;
+    if (!context.mounted) return;
+    await showAudioComparisonDialog(context,
+        tracks: tracks, comparison: comparison, searchQuery: query);
+  }
 }
 
 final class AndroidLibraryScreen extends StatefulWidget {
@@ -177,7 +190,8 @@ final class AndroidLibraryScreen extends StatefulWidget {
       this.sourceSettings,
       this.stop,
       this.appearance,
-      this.libraryVariants});
+      this.libraryVariants,
+      this.compareAudio});
   final AppearanceController? appearance;
   final AndroidImportController importer;
   final Stream<List<Track>> tracks;
@@ -187,6 +201,7 @@ final class AndroidLibraryScreen extends StatefulWidget {
   final WidgetBuilder? sourceSettings;
   final Future<void> Function()? stop;
   final LibraryVariantRepository? libraryVariants;
+  final Future<void> Function(BuildContext, String)? compareAudio;
   @override
   State<AndroidLibraryScreen> createState() => _AndroidLibraryScreenState();
 }
@@ -430,6 +445,13 @@ final class _AndroidLibraryScreenState extends State<AndroidLibraryScreen> {
                                     checked: _sort == option,
                                     child: Text(option.label)),
                             ]),
+                    if (widget.compareAudio != null)
+                      IconButton(
+                        tooltip: 'Сравнить аудио',
+                        onPressed: () => _command(
+                            () => widget.compareAudio!(context, _query)),
+                        icon: const Icon(Icons.compare_arrows),
+                      ),
                   ])),
               ListenableBuilder(
                   listenable: widget.importer,

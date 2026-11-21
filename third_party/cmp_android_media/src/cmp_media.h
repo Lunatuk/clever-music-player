@@ -23,6 +23,8 @@ CMP_MEDIA_API const char *cmp_media_run(int op, const char *source,
     int64_t max_output, const char *const tags[CMP_MEDIA_TAG_COUNT]);
 /* Inspect an exclusively borrowed, full-file descriptor. Length -1 is unknown. */
 CMP_MEDIA_API const char *cmp_media_inspect_fd(int fd, int64_t declared_length);
+/* Compute full S32LE PCM identity on a borrowed mono/stereo audio descriptor. */
+CMP_MEDIA_API const char *cmp_media_compare_fd(int fd, int64_t declared_length);
 #ifdef __cplusplus
 }
 #endif

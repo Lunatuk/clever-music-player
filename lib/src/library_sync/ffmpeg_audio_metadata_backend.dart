@@ -50,6 +50,10 @@ final class FfmpegAudioMetadataBackend implements AudioMetadataBackend {
   Future<DownloadedAudioInspection> inspect(
           File file, LibraryScanControl control) =>
       _validation.inspect(file, control);
+
+  Future<DownloadedAudioInspection> inspectForComparison(
+          File file, LibraryScanControl control) =>
+      _validation.inspectForComparison(file, control);
   @override
   Future<Duration> decodeAudio(File file, DownloadedAudioInspection info,
           LibraryScanControl control) =>

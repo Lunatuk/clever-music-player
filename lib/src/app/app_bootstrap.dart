@@ -1,9 +1,13 @@
+import 'dart:ffi';
+
+import '../android/android_audio_comparison_reader.dart';
 import '../data/drift/app_database.dart';
 import '../data/repositories/drift_repositories.dart';
 import '../data/repositories/drift_library_variant_repository.dart';
 import '../diagnostics/diagnostics_service.dart';
 import '../domain/repositories/repositories.dart';
 import '../library/artwork_cache_service.dart';
+import '../library/audio_comparison.dart';
 import '../library/custom_artwork_service.dart';
 import '../library/directory_picker_service.dart';
 import '../library/library_controller.dart';
@@ -101,6 +105,13 @@ Future<AppDependencies> bootstrapApplication(
         repositories: repositories,
         libraryVariants:
             DriftLibraryVariantRepository(database, repositories.settings),
+        audioComparison: switch (Abi.current()) {
+          Abi.windowsX64 =>
+            const AudioComparisonService(openDesktopAudioComparison),
+          Abi.androidArm64 =>
+            const AudioComparisonService(AndroidAudioComparisonReader.open),
+          _ => null,
+        },
         recommendationService: recommendations,
         libraryScanner: scanner,
         directoryPicker: local.directoryPicker,
