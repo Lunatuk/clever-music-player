@@ -100,16 +100,23 @@ Future<AppDependencies> bootstrapApplication(
         adapters.createMediaControls(runtime.player, queue, diagnostics);
     owned.add(AppCleanupAction(AppResource.mediaControls, media.dispose));
     await media.initialize();
+    final audioRevision = switch (Abi.current()) {
+      Abi.windowsX64 => readDesktopAudioRevision,
+      Abi.androidArm64 => readAndroidAudioRevision,
+      _ => null,
+    };
     return AppDependencies(
         database: database,
         repositories: repositories,
-        libraryVariants:
-            DriftLibraryVariantRepository(database, repositories.settings),
+        libraryVariants: DriftLibraryVariantRepository(
+            database, repositories.settings,
+            revisionReader: audioRevision),
         audioComparison: switch (Abi.current()) {
-          Abi.windowsX64 =>
-            const AudioComparisonService(openDesktopAudioComparison),
-          Abi.androidArm64 =>
-            const AudioComparisonService(AndroidAudioComparisonReader.open),
+          Abi.windowsX64 => AudioComparisonService(openDesktopAudioComparison,
+              revisionReader: audioRevision),
+          Abi.androidArm64 => AudioComparisonService(
+              AndroidAudioComparisonReader.open,
+              revisionReader: audioRevision),
           _ => null,
         },
         recommendationService: recommendations,

@@ -1,7 +1,11 @@
+import 'dart:async';
+
 import 'package:clever_music_player/src/data/drift/app_database.dart';
 import 'package:clever_music_player/src/data/repositories/drift_library_variant_repository.dart';
 import 'package:clever_music_player/src/data/repositories/drift_repositories.dart';
 import 'package:clever_music_player/src/domain/models/models.dart';
+import 'package:clever_music_player/src/library/audio_comparison.dart';
+import 'package:clever_music_player/src/library/library_scan_control.dart';
 import 'package:clever_music_player/src/library/library_track_list.dart';
 import 'package:clever_music_player/src/library/library_track_variants.dart';
 import 'package:drift/native.dart';
@@ -197,6 +201,152 @@ void main() {
     expect(changed.identities, isEmpty);
     expect(changed.quality, isEmpty);
   });
+
+  test('PCM variants persist and react to replacement after a scan', () async {
+    final fixture = _AudioGroupFixture();
+    addTearDown(fixture.database.close);
+    final (first, second) = await fixture.pair();
+    final proof = await fixture.proof(first, second);
+    expect(await fixture.matches.rememberAudioMatch(proof),
+        AudioMatchSaveResult.saved);
+    final fresh = DriftLibraryVariantRepository(
+        fixture.database, fixture.repo.settings,
+        revisionReader: fixture.readRevision);
+    final stream = StreamIterator(fresh.watchEvidence());
+    addTearDown(stream.cancel);
+    expect(await stream.moveNext(), isTrue);
+    final group = build([first, second], stream.current).versions.values.single;
+    expect(group.identity.provider, 'local_pcm');
+    expect(group.tracks, [first, second]);
+    expect(build([first, second], stream.current, query: 'Alternate').tracks,
+        [first]);
+    final readCount = fixture.revisionReads;
+    await fixture.repo.settings.writeString('player.volume', '0.5');
+    await fresh.setPreferred(group.identity, second.id);
+    expect(await stream.moveNext(), isTrue);
+    expect(build([first, second], stream.current).tracks, [second]);
+    expect(fixture.revisionReads, readCount);
+    fixture.revisions[second.filePath] = 'c' * 64;
+    await fixture.repo.tracks.upsertTrack(
+        second.copyWith(lastSeenAt: now.add(const Duration(seconds: 5))));
+    expect(await stream.moveNext(), isTrue);
+    expect(build([first, second], stream.current).tracks, hasLength(2));
+    expect(await fresh.rememberAudioMatch(proof), AudioMatchSaveResult.changed);
+  });
+
+  test(
+      'a matching unlinked version can join a known album without crossing releases',
+      () async {
+    final fixture = _AudioGroupFixture();
+    addTearDown(fixture.database.close);
+    final (first, second) = await fixture.pair();
+    Future<void> link(Track track, ExternalTrackIdentity identity) =>
+        fixture.repo.externalTracks.linkAll([
+          ExternalTrackRef(
+              trackId: track.id!,
+              identity: identity,
+              origin: ExternalTrackRefOrigin.embeddedTag,
+              linkedAt: now)
+        ]);
+    await link(first, release);
+    final proof = await fixture.proof(first, second);
+    expect(await fixture.matches.rememberAudioMatch(proof),
+        AudioMatchSaveResult.saved);
+    final before = await fixture.matches.watchEvidence().first;
+    expect(build([first, second], before).versions.values.single.identity,
+        release);
+    await link(second, identity(album: '225'));
+    final after = await fixture.matches.watchEvidence().first;
+    expect(build([first, second], after).tracks, hasLength(2));
+    expect(await fixture.matches.rememberAudioMatch(proof),
+        AudioMatchSaveResult.releaseConflict);
+  });
+
+  test('an unsuccessful save leaves no partial match', () async {
+    final fixture = _AudioGroupFixture();
+    addTearDown(fixture.database.close);
+    final (first, second) = await fixture.pair();
+    final proof = await fixture.proof(first, second);
+    await fixture.database.customStatement("""
+      CREATE TRIGGER reject_second_audio_match BEFORE INSERT ON app_settings
+      WHEN NEW.key = '${audioMatchSettingKey(second.id!)}'
+      BEGIN SELECT RAISE(ABORT, 'blocked match'); END
+    """);
+    await expectLater(
+        fixture.matches.rememberAudioMatch(proof), throwsException);
+    expect((await fixture.matches.watchEvidence().first).audioMatches, isEmpty);
+  });
+
+  test('forgetting a saved match and deleting a track respect existing IDs',
+      () async {
+    final fixture = _AudioGroupFixture();
+    addTearDown(fixture.database.close);
+    final (first, second) = await fixture.pair();
+    final proof = await fixture.proof(first, second);
+    await fixture.matches.rememberAudioMatch(proof);
+    final evidence = await fixture.matches.watchEvidence().first;
+    await fixture.matches
+        .forgetAudioMatches({first.id!: '1:48000:2:${'f' * 64}'});
+    expect((await fixture.matches.watchEvidence().first).audioMatches,
+        evidence.audioMatches);
+    await fixture.matches.forgetAudioMatches(evidence.audioMatches);
+    expect((await fixture.matches.watchEvidence().first).audioMatches, isEmpty);
+    expect(await fixture.repo.tracks.findById(first.id!), isNotNull);
+    expect(await fixture.repo.tracks.findById(second.id!), isNotNull);
+    await fixture.matches.rememberAudioMatch(proof);
+    await fixture.repo.tracks.deleteTrack(first.id!);
+    expect(
+        await fixture.repo.settings.readString(audioMatchSettingKey(first.id!)),
+        isNull);
+    expect(await fixture.repo.tracks.findById(second.id!), isNotNull);
+  });
+}
+
+final class _AudioGroupFixture {
+  final database = AppDatabase(NativeDatabase.memory());
+  late final repo = DriftRepositories(database);
+  late final matches = DriftLibraryVariantRepository(database, repo.settings,
+      revisionReader: readRevision);
+  final revisions = <String, String>{};
+  int revisionReads = 0;
+
+  Future<String?> readRevision(AudioSourceReference source) async {
+    revisionReads++;
+    return revisions[source.storageValue];
+  }
+
+  Future<(Track, Track)> pair() async {
+    final left = track(1, 'Original');
+    final right = track(2, 'Alternate');
+    final firstId =
+        await repo.tracks.upsertTrack(left.copyWith(lastSeenAt: now));
+    final secondId =
+        await repo.tracks.upsertTrack(right.copyWith(lastSeenAt: now));
+    revisions[left.filePath] = 'a' * 64;
+    revisions[right.filePath] = 'b' * 64;
+    return (
+      (await repo.tracks.findById(firstId))!,
+      (await repo.tracks.findById(secondId))!
+    );
+  }
+
+  Future<AudioMatchProof> proof(Track first, Track second) async =>
+      (await AudioComparisonService((_) async => const _EqualAudioReader(),
+                  revisionReader: readRevision)
+              .compareWithProof(first, second, control: LibraryScanControl()))
+          .proof!;
+}
+
+final class _EqualAudioReader implements AudioComparisonReader {
+  const _EqualAudioReader();
+
+  @override
+  Future<AudioPcmSignature> read(
+          AudioSourceReference source, LibraryScanControl control) async =>
+      (digest: 'e' * 64, sampleRate: 48000, channels: 2);
+
+  @override
+  Future<void> close() async {}
 }
 
 final now = DateTime.utc(2026);

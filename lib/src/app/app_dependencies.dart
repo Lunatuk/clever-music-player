@@ -73,6 +73,10 @@ final class AppDependencies {
   final LibraryController libraryController;
   final LibraryVariantRepository? libraryVariants;
   final AudioComparisonService? audioComparison;
+  AudioMatchRepository? get audioMatches => switch (libraryVariants) {
+        final AudioMatchRepository matches => matches,
+        _ => null,
+      };
   final DiagnosticsService diagnostics;
   final AppDatabase database;
   final AppRepositories repositories;

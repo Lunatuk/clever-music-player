@@ -3,6 +3,22 @@ import '../library/audio_comparison.dart';
 import '../library/library_scan_control.dart';
 import '../library_sync/downloaded_audio_validation.dart';
 import 'android_audio_metadata_backend.dart';
+import 'audio_documents.dart';
+
+Future<String?> readAndroidAudioRevision(AudioSourceReference source) async {
+  if (source is! ContentUriAudioSource) return null;
+  final revision = await const AndroidAudioDocuments().inspectAudio(source);
+  if (revision == null || revision.size > audioComparisonMaxBytes) return null;
+  return audioRevisionKey([
+    'android',
+    source.storageValue,
+    revision.authority,
+    revision.documentId,
+    revision.name,
+    revision.size,
+    revision.modifiedMs
+  ]);
+}
 
 final class AndroidAudioComparisonReader implements AudioComparisonReader {
   AndroidAudioComparisonReader(this._backend);

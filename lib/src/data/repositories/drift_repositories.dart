@@ -2,6 +2,7 @@ import 'package:drift/drift.dart';
 
 import '../../domain/models/models.dart';
 import '../../domain/repositories/repositories.dart';
+import '../../library/library_track_variants.dart';
 import '../drift/app_database.dart';
 import '../drift/drift_mappers.dart';
 import 'drift_external_track_repository.dart';
@@ -551,6 +552,13 @@ final class DriftTrackRepository
         return;
       }
 
+      await _database.customUpdate(
+        "DELETE FROM app_settings WHERE key IN (SELECT '$audioMatchSettingPrefix' || id "
+        'FROM tracks WHERE library_folder_id = ?)',
+        variables: [Variable.withInt(libraryFolderId)],
+        updates: {_database.appSettings},
+        updateKind: UpdateKind.delete,
+      );
       await (_database.delete(_database.downloadedAssets)
             ..where((table) => table.trackId.isIn(trackIds)))
           .go();
@@ -576,6 +584,9 @@ final class DriftTrackRepository
   @override
   Future<void> deleteTrack(int id) async {
     await _database.transaction(() async {
+      await (_database.delete(_database.appSettings)
+            ..where((table) => table.key.equals(audioMatchSettingKey(id))))
+          .go();
       await (_database.delete(_database.downloadedAssets)
             ..where((table) => table.trackId.equals(id)))
           .go();

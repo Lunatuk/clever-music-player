@@ -6,29 +6,36 @@ import '../../domain/models/track.dart';
 import '../../library/audio_comparison.dart';
 import '../../library/library_scan_control.dart';
 import '../../library/library_track_list.dart';
+import '../../library/library_track_variants.dart';
 import '../track_display_helpers.dart';
 
 Future<void> showAudioComparisonDialog(
   BuildContext context, {
   required List<Track> tracks,
   required AudioComparisonService comparison,
+  AudioMatchRepository? matches,
   String searchQuery = '',
 }) =>
     showDialog<void>(
       context: context,
       barrierDismissible: false,
       builder: (context) => _AudioComparisonDialog(
-          tracks: tracks, comparison: comparison, searchQuery: searchQuery),
+          tracks: tracks,
+          comparison: comparison,
+          matches: matches,
+          searchQuery: searchQuery),
     );
 
 class _AudioComparisonDialog extends StatefulWidget {
   const _AudioComparisonDialog(
       {required this.tracks,
       required this.comparison,
+      this.matches,
       required this.searchQuery});
 
   final List<Track> tracks;
   final AudioComparisonService comparison;
+  final AudioMatchRepository? matches;
   final String searchQuery;
 
   @override
@@ -42,6 +49,9 @@ class _AudioComparisonDialogState extends State<_AudioComparisonDialog> {
   late final List<Track> _tracks;
   LibraryScanControl? _control;
   AudioComparisonResult? _result;
+  AudioMatchProof? _proof;
+  String? _saveMessage;
+  bool _saving = false;
 
   @override
   void initState() {
@@ -67,18 +77,45 @@ class _AudioComparisonDialogState extends State<_AudioComparisonDialog> {
     setState(() {
       _control = control;
       _result = null;
+      _proof = null;
+      _saveMessage = null;
     });
-    AudioComparisonResult result;
+    AudioComparison result;
     try {
       result = await widget.comparison
-          .compare(_selected[0], _selected[1], control: control);
+          .compareWithProof(_selected[0], _selected[1], control: control);
     } on Object {
-      result = AudioComparisonResult.unreadable;
+      result = (result: AudioComparisonResult.unreadable, proof: null);
     }
     if (!mounted) return;
     setState(() {
       _control = null;
-      _result = result;
+      _result = result.result;
+      _proof = result.proof;
+    });
+  }
+
+  Future<void> _save() async {
+    final proof = _proof;
+    final matches = widget.matches;
+    if (proof == null || matches == null) return;
+    setState(() => _saving = true);
+    String message;
+    try {
+      message = switch (await matches.rememberAudioMatch(proof)) {
+        AudioMatchSaveResult.saved => 'Совпадение сохранено в медиатеке',
+        AudioMatchSaveResult.changed => 'Файлы изменились. Сравни их ещё раз.',
+        AudioMatchSaveResult.releaseConflict =>
+          'Совпадение звука. Сведения о релизах требуют отдельных строк.',
+      };
+    } on Object {
+      message = 'Не удалось сохранить совпадение. Попробуй ещё раз.';
+    }
+    if (!mounted) return;
+    setState(() {
+      _saving = false;
+      _proof = null;
+      _saveMessage = message;
     });
   }
 
@@ -87,11 +124,14 @@ class _AudioComparisonDialogState extends State<_AudioComparisonDialog> {
           _selected.add(track);
         }
         _result = null;
+        _proof = null;
+        _saveMessage = null;
       });
 
   @override
   Widget build(BuildContext context) {
-    final busy = _control != null;
+    final busy = _control != null || _saving;
+    final readyToSave = _proof != null && widget.matches != null;
     final availableHeight = MediaQuery.sizeOf(context).height -
         MediaQuery.viewInsetsOf(context).bottom;
     final results = _tracks
@@ -101,16 +141,17 @@ class _AudioComparisonDialogState extends State<_AudioComparisonDialog> {
         .take(_resultLimit + 1)
         .toList(growable: false);
     final shown = results.length.clamp(0, _resultLimit);
-    final message = switch (_result) {
-      AudioComparisonResult.equal => 'Звук совпадает',
-      AudioComparisonResult.different => 'Звук различается',
-      AudioComparisonResult.unreadable =>
-        'Не удалось сравнить файлы. Проверь доступ к ним и формат.',
-      AudioComparisonResult.cancelled => 'Сравнение остановлено',
-      AudioComparisonResult.timedOut =>
-        'Сравнение заняло слишком много времени',
-      null => null,
-    };
+    final message = _saveMessage ??
+        switch (_result) {
+          AudioComparisonResult.equal => 'Звук совпадает',
+          AudioComparisonResult.different => 'Звук различается',
+          AudioComparisonResult.unreadable =>
+            'Не удалось сравнить файлы. Проверь доступ к ним и формат.',
+          AudioComparisonResult.cancelled => 'Сравнение остановлено',
+          AudioComparisonResult.timedOut =>
+            'Сравнение заняло слишком много времени',
+          null => null,
+        };
     return PopScope(
       canPop: !busy,
       child: AlertDialog(
@@ -119,13 +160,15 @@ class _AudioComparisonDialogState extends State<_AudioComparisonDialog> {
           width: 510,
           height: (availableHeight * 0.55).clamp(80.0, 430.0),
           child: busy
-              ? const Center(
+              ? Center(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      CircularProgressIndicator(),
-                      SizedBox(height: 16),
-                      Text('Сравниваю звук двух файлов…'),
+                      const CircularProgressIndicator(),
+                      const SizedBox(height: 16),
+                      Text(_saving
+                          ? 'Сохраняю версии…'
+                          : 'Сравниваю звук двух файлов…'),
                     ],
                   ),
                 )
@@ -177,16 +220,20 @@ class _AudioComparisonDialogState extends State<_AudioComparisonDialog> {
                 ),
         ),
         actions: [
-          if (busy)
+          if (_control != null)
             TextButton(
                 onPressed: _control!.cancel, child: const Text('Остановить'))
-          else ...[
+          else if (!_saving) ...[
             TextButton(
                 onPressed: () => Navigator.pop(context),
                 child: const Text('Закрыть')),
-            FilledButton(
-                onPressed: _selected.length == 2 ? _compare : null,
-                child: const Text('Сравнить')),
+            if (readyToSave)
+              FilledButton(
+                  onPressed: _save, child: const Text('Сгруппировать версии'))
+            else
+              FilledButton(
+                  onPressed: _selected.length == 2 ? _compare : null,
+                  child: const Text('Сравнить')),
           ],
         ],
       ),

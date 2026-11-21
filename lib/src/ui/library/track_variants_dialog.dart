@@ -23,7 +23,7 @@ final class TrackVariantsButton extends StatelessWidget {
       );
 }
 
-enum _VariantAction { play, prefer, reset }
+enum _VariantAction { play, prefer, reset, forgetAudioMatch }
 
 Future<void> showTrackVariantsDialog(
   BuildContext context, {
@@ -31,6 +31,10 @@ Future<void> showTrackVariantsDialog(
   required LibraryVariantRepository repository,
   required Future<void> Function(Track) play,
 }) async {
+  final matches = switch (repository) {
+    final AudioMatchRepository value => value,
+    _ => null,
+  };
   final result = await showDialog<(Track?, _VariantAction)>(
     context: context,
     builder: (context) => AlertDialog(
@@ -89,6 +93,12 @@ Future<void> showTrackVariantsDialog(
         ),
       ),
       actions: [
+        if (group.audioMatches.isNotEmpty && matches != null)
+          TextButton(
+            onPressed: () =>
+                Navigator.pop(context, (null, _VariantAction.forgetAudioMatch)),
+            child: const Text('Убрать связь по звуку'),
+          ),
         if (group.preferredId != null)
           TextButton(
             onPressed: () =>
@@ -112,6 +122,8 @@ Future<void> showTrackVariantsDialog(
         await repository.setPreferred(group.identity, track!.id!);
       case _VariantAction.reset:
         await repository.setPreferred(group.identity, null);
+      case _VariantAction.forgetAudioMatch:
+        await matches?.forgetAudioMatches(group.audioMatches);
     }
   } on Object {
     if (context.mounted) {

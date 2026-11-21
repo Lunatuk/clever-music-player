@@ -1,6 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
+
+import '../domain/models/audio_document_identity.dart';
 import '../domain/models/audio_source_reference.dart';
 import '../domain/models/track.dart';
 import '../library_sync/bundled_media_helper.dart';
@@ -13,8 +17,58 @@ const audioComparisonMaxBytes = 128 * 1024 * 1024;
 const audioComparisonMaxDuration = Duration(minutes: 30);
 
 typedef AudioPcmSignature = ({String digest, int sampleRate, int channels});
+typedef AudioRevisionReader = Future<String?> Function(AudioSourceReference);
+typedef AudioComparison = ({
+  AudioComparisonResult result,
+  AudioMatchProof? proof
+});
 
 enum AudioComparisonResult { equal, different, unreadable, cancelled, timedOut }
+
+final class AudioMatchProof {
+  const AudioMatchProof._(this.first, this.second, this.key, this.firstRevision,
+      this.secondRevision);
+
+  final Track first, second;
+  final String key, firstRevision, secondRevision;
+}
+
+String audioRevisionKey(List<Object> fields) =>
+    sha256.convert(utf8.encode(jsonEncode(fields))).toString();
+
+final _revisionPattern = RegExp(r'^[0-9a-f]{64}$');
+bool isAudioRevisionKey(String key) => _revisionPattern.stringMatch(key) == key;
+
+final _pcmKeyPattern = RegExp(r'^1:[0-9]{4,6}:[12]:[0-9a-f]{64}$');
+bool isAudioMatchKey(String key) => _pcmKeyPattern.stringMatch(key) == key;
+
+Future<String?> readDesktopAudioRevision(AudioSourceReference source) async {
+  if (source is! FileAudioSource) return null;
+  final stat = await File(source.path).stat();
+  if (stat.type != FileSystemEntityType.file ||
+      stat.size <= 0 ||
+      stat.size > audioComparisonMaxBytes) {
+    return null;
+  }
+  return audioRevisionKey([
+    'desktop',
+    source.storageValue,
+    stat.size,
+    stat.modified.microsecondsSinceEpoch,
+    stat.changed.microsecondsSinceEpoch
+  ]);
+}
+
+Future<String?> tryAudioRevision(
+    AudioRevisionReader? reader, AudioSourceReference source) async {
+  try {
+    final revision =
+        await reader?.call(source).timeout(const Duration(seconds: 4));
+    return revision != null && isAudioRevisionKey(revision) ? revision : null;
+  } on Object {
+    return null;
+  }
+}
 
 abstract interface class AudioComparisonReader {
   Future<AudioPcmSignature> read(
@@ -24,12 +78,17 @@ abstract interface class AudioComparisonReader {
 
 final class AudioComparisonService {
   const AudioComparisonService(this._open,
-      {this.timeout = const Duration(seconds: 45)});
+      {this.timeout = const Duration(seconds: 45), this.revisionReader});
 
   final Future<AudioComparisonReader> Function(LibraryScanControl) _open;
   final Duration timeout;
+  final AudioRevisionReader? revisionReader;
 
   Future<AudioComparisonResult> compare(Track first, Track second,
+          {required LibraryScanControl control}) async =>
+      (await compareWithProof(first, second, control: control)).result;
+
+  Future<AudioComparison> compareWithProof(Track first, Track second,
       {required LibraryScanControl control}) async {
     final operation = LibraryScanControl();
     control.addCancellationListener(operation.cancel);
@@ -41,26 +100,58 @@ final class AudioComparisonService {
     AudioComparisonReader? reader;
     try {
       operation.throwIfCancelled();
+      final firstSource = first.source;
+      final secondSource = second.source;
+      final document = audioDocumentIdentity(first.filePath);
       if (first.isMissing ||
           second.isMissing ||
-          first.filePath == second.filePath) {
-        return AudioComparisonResult.unreadable;
+          firstSource == secondSource ||
+          (document != null &&
+              document == audioDocumentIdentity(second.filePath))) {
+        return (result: AudioComparisonResult.unreadable, proof: null);
       }
+      final leftRevision = await tryAudioRevision(revisionReader, firstSource);
+      final rightRevision =
+          await tryAudioRevision(revisionReader, secondSource);
+      operation.throwIfCancelled();
       reader = await _open(operation);
       operation.throwIfCancelled();
-      final left = await reader.read(first.source, operation);
+      final left = await reader.read(firstSource, operation);
       operation.throwIfCancelled();
-      final right = await reader.read(second.source, operation);
+      final right = await reader.read(secondSource, operation);
+      final leftAfter = leftRevision == null
+          ? null
+          : await tryAudioRevision(revisionReader, firstSource);
+      final rightAfter = rightRevision == null
+          ? null
+          : await tryAudioRevision(revisionReader, secondSource);
       operation.throwIfCancelled();
-      return left == right
-          ? AudioComparisonResult.equal
-          : AudioComparisonResult.different;
+      if (leftRevision != leftAfter || rightRevision != rightAfter) {
+        return (result: AudioComparisonResult.unreadable, proof: null);
+      }
+      if (left != right) {
+        return (result: AudioComparisonResult.different, proof: null);
+      }
+      final key = '1:${left.sampleRate}:${left.channels}:${left.digest}';
+      final proof = leftRevision != null &&
+              rightRevision != null &&
+              first.id != null &&
+              second.id != null &&
+              first.id != second.id &&
+              isAudioMatchKey(key)
+          ? AudioMatchProof._(first, second, key, leftRevision, rightRevision)
+          : null;
+      return (result: AudioComparisonResult.equal, proof: proof);
     } on Object {
       if (control.isCancellationRequested) {
-        return AudioComparisonResult.cancelled;
+        return (result: AudioComparisonResult.cancelled, proof: null);
       }
-      if (timedOut) return AudioComparisonResult.timedOut;
-      return AudioComparisonResult.unreadable;
+      return (
+        result: timedOut
+            ? AudioComparisonResult.timedOut
+            : AudioComparisonResult.unreadable,
+        proof: null,
+      );
     } finally {
       timer.cancel();
       control.removeCancellationListener(operation.cancel);

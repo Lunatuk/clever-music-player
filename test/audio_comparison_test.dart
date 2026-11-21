@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:clever_music_player/src/domain/models/models.dart';
 import 'package:clever_music_player/src/library/audio_comparison.dart';
 import 'package:clever_music_player/src/library/library_scan_control.dart';
+import 'package:clever_music_player/src/library/library_track_variants.dart';
 import 'package:clever_music_player/src/library_sync/bundled_media_helper.dart';
 import 'package:clever_music_player/src/library_sync/downloaded_audio_metadata.dart';
 import 'package:clever_music_player/src/library_sync/downloaded_audio_validation.dart';
@@ -63,6 +64,23 @@ void main() {
     expect(reader.closed, isTrue);
   });
 
+  test('a changed source during comparison cannot produce library proof',
+      () async {
+    var revision = 'a' * 64;
+    final reader = _Reader((source, _) async {
+      if (source == second.source) revision = 'b' * 64;
+      return equalPcm;
+    });
+    final service = AudioComparisonService((_) async => reader,
+        revisionReader: (source) async =>
+            source == first.source ? revision : 'c' * 64);
+    final comparison = await service.compareWithProof(
+        first.copyWith(id: 1), second.copyWith(id: 2),
+        control: LibraryScanControl());
+    expect(comparison.result, AudioComparisonResult.unreadable);
+    expect(comparison.proof, isNull);
+  });
+
   testWidgets('dialog selects two independent files even with the same search',
       (tester) async {
     tester.view.physicalSize = const Size(360, 720);
@@ -100,6 +118,39 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('the dialog saves only after a confirmed audio match',
+      (tester) async {
+    final matches = _Matches();
+    final service = AudioComparisonService(
+        (_) async => _Reader((_, __) async => equalPcm),
+        revisionReader: (_) async => 'a' * 64);
+    await tester.pumpWidget(MaterialApp(
+      home: Builder(
+          builder: (context) => Scaffold(
+                  body: TextButton(
+                onPressed: () => showAudioComparisonDialog(context,
+                    comparison: service,
+                    tracks: [first.copyWith(id: 1), second.copyWith(id: 2)],
+                    matches: matches),
+                child: const Text('Открыть'),
+              ))),
+    ));
+    await tester.tap(find.text('Открыть'));
+    await tester.pumpAndSettle();
+    expect(find.text('Сгруппировать версии'), findsNothing);
+    await tester.tap(find.text('First'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Second'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Сравнить'));
+    await tester.pumpAndSettle();
+    expect(matches.proof, isNull);
+    await tester.tap(find.text('Сгруппировать версии'));
+    await tester.pumpAndSettle();
+    expect(find.text('Совпадение сохранено в медиатеке'), findsOneWidget);
+    expect(matches.proof?.key, '1:48000:2:${equalPcm.digest}');
+  });
+
   final helperPath = Platform.environment['CMP_TEST_MEDIA_HELPER'];
   for (final extension in ['mp3', 'm4a', 'flac']) {
     test('real ${extension.toUpperCase()} ignores tags and embedded cover',
@@ -135,13 +186,16 @@ void main() {
           cover: File('test/fixtures/media_helper/cover.png'),
           coverFormat: EmbeddedCoverFormat.png);
       expect(await prepared.readAsBytes(), isNot(await original.readAsBytes()));
-      final service = AudioComparisonService((_) async =>
-          DesktopAudioComparisonReader(qualified.createMetadataBackend()));
-      expect(
-          await service.compare(track(original.absolute.path, 'Original'),
-              track(prepared.path, 'Remuxed'),
-              control: control),
-          AudioComparisonResult.equal);
+      final service = AudioComparisonService(
+          (_) async =>
+              DesktopAudioComparisonReader(qualified.createMetadataBackend()),
+          revisionReader: readDesktopAudioRevision);
+      final match = await service.compareWithProof(
+          track(original.absolute.path, 'Original').copyWith(id: 1),
+          track(prepared.path, 'Remuxed').copyWith(id: 2),
+          control: control);
+      expect(match.result, AudioComparisonResult.equal);
+      expect(match.proof, isNotNull);
       expect(
           await service.compare(track(original.absolute.path, 'Original'),
               track(other.absolute.path, 'Other encoding'),
@@ -152,6 +206,19 @@ void main() {
             ? 'Requires the qualified Windows helper via CMP_TEST_MEDIA_HELPER.'
             : false);
   }
+}
+
+class _Matches implements AudioMatchRepository {
+  AudioMatchProof? proof;
+
+  @override
+  Future<AudioMatchSaveResult> rememberAudioMatch(AudioMatchProof proof) async {
+    this.proof = proof;
+    return AudioMatchSaveResult.saved;
+  }
+
+  @override
+  Future<void> forgetAudioMatches(Map<int, String> matches) async {}
 }
 
 final first = track('/music/first.flac', 'First');

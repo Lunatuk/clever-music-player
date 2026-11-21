@@ -174,7 +174,10 @@ final class _AndroidPreviewAppState extends State<AndroidPreviewApp> {
         await widget.dependencies.repositories.tracks.watchAllTracks().first;
     if (!context.mounted) return;
     await showAudioComparisonDialog(context,
-        tracks: tracks, comparison: comparison, searchQuery: query);
+        tracks: tracks,
+        comparison: comparison,
+        matches: widget.dependencies.audioMatches,
+        searchQuery: query);
   }
 }
 

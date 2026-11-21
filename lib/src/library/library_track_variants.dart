@@ -1,4 +1,6 @@
 import '../domain/models/models.dart';
+import '../domain/models/audio_document_identity.dart';
+import 'audio_comparison.dart';
 import 'embedded_yandex_identity.dart';
 import 'exact_track_copies.dart';
 import 'metadata_completeness.dart';
@@ -11,16 +13,29 @@ abstract interface class LibraryVariantRepository {
 
 typedef LibraryVariantQuality = ({String codec, String profile});
 
+const audioMatchSettingPrefix = 'library.audio-match.v1.';
+String audioMatchSettingKey(int trackId) => '$audioMatchSettingPrefix$trackId';
+
+enum AudioMatchSaveResult { saved, changed, releaseConflict }
+
+abstract interface class AudioMatchRepository {
+  Future<AudioMatchSaveResult> rememberAudioMatch(AudioMatchProof proof);
+
+  Future<void> forgetAudioMatches(Map<int, String> matches);
+}
+
 final class LibraryVariantEvidence {
   const LibraryVariantEvidence({
     this.identities = const {},
     this.preferred = const {},
     this.quality = const {},
+    this.audioMatches = const {},
   });
 
   final Map<int, Set<ExternalTrackIdentity>> identities;
   final Map<ExternalTrackIdentity, int> preferred;
   final Map<int, LibraryVariantQuality> quality;
+  final Map<int, String> audioMatches;
 }
 
 final class LibraryTrackVariants {
@@ -30,6 +45,7 @@ final class LibraryTrackVariants {
     required this.tracks,
     required this.sourceTracks,
     required this.preferredId,
+    this.audioMatches = const {},
   });
 
   final ExternalTrackIdentity identity;
@@ -37,6 +53,7 @@ final class LibraryTrackVariants {
   final List<Track> tracks;
   final List<Track> sourceTracks;
   final int? preferredId;
+  final Map<int, String> audioMatches;
 
   List<Track> withPlaybackVersion(Track version, List<Track> visible) => [
         for (final track in visible)
@@ -44,15 +61,61 @@ final class LibraryTrackVariants {
       ];
 }
 
-/// Use catalogue evidence only. A bare track link may join a single known
-/// album, but it cannot connect two otherwise distinct releases.
 List<LibraryTrackVariants> groupLibraryTrackVersions(
   Iterable<Track> tracks,
   LibraryVariantEvidence evidence, {
   required bool showExactCopies,
   required bool showMissingTracks,
 }) {
-  if (evidence.identities.isEmpty) return const [];
+  final byIdentity = _versionAssignments(tracks, evidence, showMissingTracks);
+  final groups = <LibraryTrackVariants>[];
+  for (final entry in byIdentity.entries) {
+    final versions = withoutRepeatedAudioSources(entry.value);
+    if (versions.length < 2 ||
+        (entry.key.provider == 'yandex_music' && !_durationsAgree(versions))) {
+      continue;
+    }
+    final preferredId = evidence.preferred[entry.key];
+    final representative = _representative(versions, preferredId, evidence);
+    final distinct = withoutExactTrackCopies(versions,
+        preferEquivalent: (candidate) => candidate == representative);
+    // The existing exact-copy control already handles byte-identical files.
+    if (distinct.length < 2) continue;
+    final members = List<Track>.of(showExactCopies ? versions : distinct)
+      ..sort((left, right) => left.filePath.compareTo(right.filePath));
+    members.remove(representative);
+    members.insert(0, representative);
+    groups.add(LibraryTrackVariants(
+        identity: entry.key,
+        representative: representative,
+        tracks: List.unmodifiable(members),
+        sourceTracks: List.unmodifiable(entry.value),
+        preferredId: preferredId,
+        audioMatches: {
+          for (final track in entry.value)
+            if (evidence.audioMatches[track.id] case final String key)
+              track.id!: key,
+        }));
+  }
+  return groups;
+}
+
+bool libraryAudioMatchFitsCatalogue(Iterable<Track> tracks,
+    LibraryVariantEvidence evidence, int firstId, int secondId) {
+  final groups = _versionAssignments(tracks, evidence, false);
+  return groups.entries.any((entry) =>
+      entry.value.any((track) => track.id == firstId) &&
+      entry.value.any((track) => track.id == secondId) &&
+      (entry.key.provider == 'local_pcm' || _durationsAgree(entry.value)));
+}
+
+/// A bare catalogue link may join one known album. PCM proofs can attach
+/// unlinked versions but never connect distinct or ambiguous catalogue groups.
+Map<ExternalTrackIdentity, List<Track>> _versionAssignments(
+    Iterable<Track> tracks,
+    LibraryVariantEvidence evidence,
+    bool showMissingTracks) {
+  if (evidence.identities.isEmpty && evidence.audioMatches.isEmpty) return {};
   final linked = <Track, ExternalTrackIdentity>{};
   final albums = <String, Set<String>>{};
   for (final track in tracks) {
@@ -81,6 +144,8 @@ List<LibraryTrackVariants> groupLibraryTrackVersions(
   }
 
   final byIdentity = <ExternalTrackIdentity, List<Track>>{};
+  final keysById = <int?, ExternalTrackIdentity>{};
+  final keysByDocument = <AudioDocumentIdentity, ExternalTrackIdentity>{};
   // Resolve Android aliases before examining the bytes of linked versions.
   for (final track in withoutRepeatedAudioSources(linked.keys)) {
     final identity = linked[track]!;
@@ -95,31 +160,50 @@ List<LibraryTrackVariants> groupLibraryTrackVersions(
             variantKey: knownAlbums.single)
         : identity;
     (byIdentity[key] ??= []).add(track);
+    keysById[track.id] = key;
+    final document = audioDocumentIdentity(track.filePath);
+    if (document != null) keysByDocument[document] = key;
   }
 
-  final groups = <LibraryTrackVariants>[];
-  for (final entry in byIdentity.entries) {
-    final versions = entry.value;
-    if (versions.length < 2 || !_durationsAgree(versions)) continue;
-    final preferredId = evidence.preferred[entry.key];
-    final representative = _representative(versions, preferredId, evidence);
-    final distinct = withoutExactTrackCopies(versions,
-        preferEquivalent: (candidate) => candidate == representative);
-    // The existing exact-copy control already handles byte-identical files.
-    if (distinct.length < 2) continue;
-    final members = List<Track>.of(showExactCopies ? versions : distinct)
-      ..sort((left, right) => left.filePath.compareTo(right.filePath));
-    members.remove(representative);
-    members.insert(0, representative);
-    groups.add(LibraryTrackVariants(
-        identity: entry.key,
-        representative: representative,
-        tracks: List.unmodifiable(members),
-        sourceTracks: List.unmodifiable(versions),
-        preferredId: preferredId));
+  if (evidence.audioMatches.isEmpty) return byIdentity;
+  final byAudio = <String, List<Track>>{};
+  for (final track in tracks) {
+    if ((!showMissingTracks && track.isMissing) ||
+        evidence.audioMatches[track.id] == null) {
+      continue;
+    }
+    final key = evidence.audioMatches[track.id]!;
+    if (isAudioMatchKey(key)) (byAudio[key] ??= []).add(track);
   }
-  return groups;
+  for (final entry in byAudio.entries) {
+    if (withoutRepeatedAudioSources(entry.value).length < 2) continue;
+    final catalogueKeys = <ExternalTrackIdentity>{};
+    final extras = <Track>[];
+    var ambiguous = false;
+    for (final track in entry.value) {
+      final key = keysById[track.id] ??
+          keysByDocument[audioDocumentIdentity(track.filePath)];
+      if (key != null) {
+        catalogueKeys.add(key);
+        if (!byIdentity[key]!.contains(track)) extras.add(track);
+      } else {
+        ambiguous |= (evidence.identities[track.id]?.isNotEmpty ?? false);
+        extras.add(track);
+      }
+    }
+    if (ambiguous || catalogueKeys.length > 1 || extras.isEmpty) continue;
+    if (catalogueKeys.isEmpty) {
+      byIdentity[audioVariantIdentity(entry.key)] = extras;
+    } else {
+      final group = byIdentity[catalogueKeys.single]!;
+      if (_durationsAgree([...group, ...extras])) group.addAll(extras);
+    }
+  }
+  return byIdentity;
 }
+
+ExternalTrackIdentity audioVariantIdentity(String key) =>
+    ExternalTrackIdentity(provider: 'local_pcm', externalId: key);
 
 bool isLibraryVariantIdentity(ExternalTrackIdentity identity) =>
     identity.provider == 'yandex_music' &&

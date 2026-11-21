@@ -298,6 +298,7 @@ final class _HomeScreenState extends State<HomeScreen> {
                   : () => unawaited(showAudioComparisonDialog(context,
                       tracks: activeTracks,
                       comparison: audioComparison,
+                      matches: dependencies.audioMatches,
                       searchQuery: _searchQuery)),
               onShowVariants: (group) => unawaited(showTrackVariantsDialog(
                 context,
