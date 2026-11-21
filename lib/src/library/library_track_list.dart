@@ -1,5 +1,7 @@
 import '../domain/models/models.dart';
+import '../domain/models/audio_document_identity.dart';
 import 'exact_track_copies.dart';
+import 'library_track_variants.dart';
 import 'metadata_completeness.dart';
 
 enum LibraryTrackSortOption {
@@ -33,24 +35,105 @@ List<Track> buildVisibleLibraryTracks({
   bool showExactCopies = false,
   Map<int, TrackUserState> userStates = const {},
 }) {
-  final visible = tracks.where((track) {
-    if (!showMissingTracks && track.isMissing) {
-      return false;
-    }
-    return trackMatchesSearch(track, searchQuery);
-  }).toList(growable: false);
-
-  return sortLibraryTracks(
-    showExactCopies
-        ? withoutRepeatedAudioSources(visible)
-        : withoutExactTrackCopies(visible),
+  return buildLibraryTrackView(
+    tracks: tracks,
+    searchQuery: searchQuery,
+    showMissingTracks: showMissingTracks,
     sortOption: sortOption,
+    showExactCopies: showExactCopies,
     userStates: userStates,
+  ).tracks;
+}
+
+typedef LibraryTrackView = ({
+  List<Track> tracks,
+  Map<String, LibraryTrackVariants> versions,
+});
+
+LibraryTrackView buildLibraryTrackView({
+  required Iterable<Track> tracks,
+  required String searchQuery,
+  required bool showMissingTracks,
+  required LibraryTrackSortOption sortOption,
+  bool showExactCopies = false,
+  Map<int, TrackUserState> userStates = const {},
+  LibraryVariantEvidence evidence = const LibraryVariantEvidence(),
+}) {
+  final groups = groupLibraryTrackVersions(tracks, evidence,
+      showExactCopies: showExactCopies, showMissingTracks: showMissingTracks);
+  final byMember = {
+    for (final group in groups)
+      for (final track in group.sourceTracks) track.filePath: group,
+  };
+  final byDocument = <AudioDocumentIdentity, LibraryTrackVariants?>{};
+  for (final entry in byMember.entries) {
+    final document = audioDocumentIdentity(entry.key);
+    if (document == null) continue;
+    if (byDocument.containsKey(document) &&
+        byDocument[document] != entry.value) {
+      byDocument[document] = null;
+    } else {
+      byDocument[document] = entry.value;
+    }
+  }
+  final seen = <LibraryTrackVariants>{};
+  final visible = <Track>[];
+  final normalizedQuery = _normalizeSearchValue(searchQuery);
+  for (final track in tracks) {
+    if ((!showMissingTracks && track.isMissing) ||
+        !_matchesNormalizedSearch(track, normalizedQuery)) {
+      continue;
+    }
+    final group = byMember[track.filePath] ??
+        (byDocument.isEmpty
+            ? null
+            : byDocument[audioDocumentIdentity(track.filePath)]);
+    if (group == null) {
+      visible.add(track);
+    } else if (seen.add(group)) {
+      visible.add(group.representative);
+    }
+  }
+  final byRepresentative = {
+    for (final group in seen) group.representative.filePath: group,
+  };
+  final rows = showExactCopies
+      ? withoutRepeatedAudioSources(visible)
+      : withoutExactTrackCopies(visible,
+          preferEquivalent: (track) =>
+              byRepresentative.containsKey(track.filePath));
+  final sortStates = sortOption == LibraryTrackSortOption.recentlyPlayed &&
+          byRepresentative.isNotEmpty
+      ? _withVariantPlaybackHistory(userStates, seen)
+      : userStates;
+  return (
+    tracks:
+        sortLibraryTracks(rows, sortOption: sortOption, userStates: sortStates),
+    versions: byRepresentative,
   );
 }
 
-bool trackMatchesSearch(Track track, String query) {
-  final normalizedQuery = _normalizeSearchValue(query);
+Map<int, TrackUserState> _withVariantPlaybackHistory(
+    Map<int, TrackUserState> states, Iterable<LibraryTrackVariants> groups) {
+  final result = Map<int, TrackUserState>.of(states);
+  for (final group in groups) {
+    final id = group.representative.id!;
+    for (final track in group.sourceTracks) {
+      final state = states[track.id];
+      final playedAt = state?.lastPlayedAt;
+      final latest = result[id]?.lastPlayedAt;
+      if (playedAt != null && (latest == null || playedAt.isAfter(latest))) {
+        result[id] = state!;
+      }
+    }
+  }
+  return result;
+}
+
+bool trackMatchesSearch(Track track, String query) =>
+    _matchesNormalizedSearch(track, _normalizeSearchValue(query));
+
+bool _matchesNormalizedSearch(Track track, String normalizedQuery) {
   if (normalizedQuery.isEmpty) {
     return true;
   }

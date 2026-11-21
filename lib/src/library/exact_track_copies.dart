@@ -6,7 +6,8 @@ import 'file_content_hasher.dart';
 /// Unknown hashes never authorize hiding distinct documents. Different grants
 /// to the very same provider/document are one source even without a hash.
 /// File records, grants, user state and download receipts remain intact.
-List<Track> withoutExactTrackCopies(Iterable<Track> tracks) {
+List<Track> withoutExactTrackCopies(Iterable<Track> tracks,
+    {bool Function(Track)? preferEquivalent}) {
   final result = <Track>[];
   final indexesByContent = <String, int>{};
   for (final track in withoutRepeatedAudioSources(tracks)) {
@@ -20,7 +21,7 @@ List<Track> withoutExactTrackCopies(Iterable<Track> tracks) {
     if (index == null) {
       indexesByContent[key] = result.length;
       result.add(track);
-    } else if (_preferCopy(track, result[index])) {
+    } else if (_preferCopy(track, result[index], preferEquivalent)) {
       result[index] = track;
     }
   }
@@ -49,8 +50,14 @@ List<Track> withoutRepeatedAudioSources(Iterable<Track> tracks) {
   return result;
 }
 
-bool _preferCopy(Track candidate, Track current) {
+bool _preferCopy(Track candidate, Track current,
+    [bool Function(Track)? preferEquivalent]) {
   if (candidate.isMissing != current.isMissing) return !candidate.isMissing;
+  if (preferEquivalent != null) {
+    final candidatePreferred = preferEquivalent(candidate);
+    final currentPreferred = preferEquivalent(current);
+    if (candidatePreferred != currentPreferred) return candidatePreferred;
+  }
   // Keep the original imported ID independent of sorting/stream order.
   final candidateId = candidate.id;
   final currentId = current.id;

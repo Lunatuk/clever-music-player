@@ -14,6 +14,7 @@ import '../library/custom_artwork_service.dart';
 import '../library/artwork_cache_service.dart';
 import '../library/directory_picker_service.dart';
 import '../library/library_scanner_service.dart';
+import '../library/library_track_variants.dart';
 import '../library/library_controller.dart';
 import '../library/library_management_service.dart';
 import '../library_sync/downloaded_asset_checker.dart';
@@ -45,6 +46,7 @@ final class AppDependencies {
     required this.playbackQueue,
     required this.smtcService,
     this.diagnostics = const NoopDiagnosticsService(),
+    this.libraryVariants,
     LibraryController? libraryController,
     SourceFingerprintProbe Function()? sourceFingerprintProbeFactory,
     YandexConnectionController Function()? yandexConnectionFactory,
@@ -67,6 +69,7 @@ final class AppDependencies {
             );
 
   final LibraryController libraryController;
+  final LibraryVariantRepository? libraryVariants;
   final DiagnosticsService diagnostics;
   final AppDatabase database;
   final AppRepositories repositories;

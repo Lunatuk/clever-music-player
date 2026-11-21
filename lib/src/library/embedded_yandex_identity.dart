@@ -2,8 +2,9 @@ import '../domain/models/external_track_ref.dart';
 
 /// Builds a portable source comment in a form accepted by the library scanner.
 String? yandexSourceComment(String trackId, {String? albumId}) {
-  if (!_validId(trackId)) return null;
-  final prefix = albumId != null && _validId(albumId) ? '/album/$albumId' : '';
+  if (!isYandexCatalogueId(trackId)) return null;
+  final prefix =
+      albumId != null && isYandexCatalogueId(albumId) ? '/album/$albumId' : '';
   return 'https://music.yandex.ru$prefix/track/$trackId';
 }
 
@@ -47,21 +48,25 @@ ExternalTrackIdentity? _fromSourceUrl(String comment) {
   if (parts.length == 4 &&
       parts[0] == 'album' &&
       parts[2] == 'track' &&
-      _validId(parts[1]) &&
-      _validId(parts[3])) {
+      isYandexCatalogueId(parts[1]) &&
+      isYandexCatalogueId(parts[3])) {
     return ExternalTrackIdentity(
         provider: 'yandex_music', externalId: parts[3], variantKey: parts[1]);
   }
-  if (parts.length == 2 && parts[0] == 'track' && _validId(parts[1])) {
+  if (parts.length == 2 &&
+      parts[0] == 'track' &&
+      isYandexCatalogueId(parts[1])) {
     return ExternalTrackIdentity(
         provider: 'yandex_music', externalId: parts[1]);
   }
   return null;
 }
 
-bool _validId(String text) =>
-    RegExp(r'^[0-9]{1,32}$').stringMatch(text) == text &&
-    text.contains(RegExp(r'[1-9]'));
+bool isYandexCatalogueId(String text) =>
+    _catalogueId.stringMatch(text) == text && text.contains(_nonZeroDigit);
+
+final _catalogueId = RegExp(r'^[0-9]{1,32}$');
+final _nonZeroDigit = RegExp(r'[1-9]');
 
 const _hosts = {
   'music.yandex.ru',

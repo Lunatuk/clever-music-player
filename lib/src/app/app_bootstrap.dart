@@ -1,5 +1,6 @@
 import '../data/drift/app_database.dart';
 import '../data/repositories/drift_repositories.dart';
+import '../data/repositories/drift_library_variant_repository.dart';
 import '../diagnostics/diagnostics_service.dart';
 import '../domain/repositories/repositories.dart';
 import '../library/artwork_cache_service.dart';
@@ -98,6 +99,8 @@ Future<AppDependencies> bootstrapApplication(
     return AppDependencies(
         database: database,
         repositories: repositories,
+        libraryVariants:
+            DriftLibraryVariantRepository(database, repositories.settings),
         recommendationService: recommendations,
         libraryScanner: scanner,
         directoryPicker: local.directoryPicker,

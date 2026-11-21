@@ -15,6 +15,7 @@ import 'package:clever_music_player/src/library/directory_picker_service.dart';
 import 'package:clever_music_player/src/library/library_scanner_service.dart';
 import 'package:clever_music_player/src/library/library_controller.dart';
 import 'package:clever_music_player/src/library/library_management_service.dart';
+import 'package:clever_music_player/src/library/library_track_variants.dart';
 import 'package:clever_music_player/src/library/library_scan_control.dart';
 import 'package:clever_music_player/src/library/metadata_reader_service.dart';
 import 'package:clever_music_player/src/player/player_service.dart';
@@ -29,9 +30,48 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/learning_repository_helpers.dart';
+import 'support/library_variant_repository_fake.dart';
 import 'support/yandex_connection_fixture.dart';
 
 void main() {
+  testWidgets('desktop search and playback retain a single entry per group',
+      (tester) async {
+    await _setLargeSurface(tester);
+    final identity = ExternalTrackIdentity(
+        provider: 'yandex_music', externalId: '41', variantKey: '13');
+    final variants = FakeLibraryVariantRepository({
+      1: {identity},
+      2: {identity}
+    });
+    addTearDown(variants.close);
+    final first = _testTrack(id: 1, title: 'Andromeda')
+        .copyWith(metadataSource: MetadataSource.embeddedTags, album: 'Album');
+    final second = _testTrack(id: 2, title: 'Alternate title')
+        .copyWith(metadataSource: MetadataSource.embeddedTags);
+    final third = _testTrack(id: 3, title: 'Another song');
+    final fixture = await _HomeScreenFixture.create(
+        seedTracks: [first, second, third], libraryVariants: variants);
+    _addFixtureTearDown(tester, fixture);
+    await fixture.pump(tester);
+    await tester.tap(find.byKey(const ValueKey('nav-music')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, 'Alternate title');
+    await tester.pumpAndSettle();
+    expect(find.text('Andromeda'), findsOneWidget);
+    expect(find.text('Another song'), findsNothing);
+    final button = find.byTooltip('Варианты трека (2)');
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+    await tester.tap(find.descendant(
+        of: find.ancestor(
+            of: find.text('Alternate title'), matching: find.byType(ListTile)),
+        matching: find.byTooltip('Воспроизвести эту версию')));
+    await tester.pumpAndSettle();
+    expect(fixture.player.state.currentTrack?.id, 2);
+    expect(fixture.queue.state.playbackContext.tracks.map((t) => t.id), [2]);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
       'scan progress survives navigation and can stop without pausing music',
       (tester) async {
@@ -1558,6 +1598,7 @@ final class _HomeScreenFixture {
   static Future<_HomeScreenFixture> create({
     bool seedLibrary = false,
     List<Track>? seedTracks,
+    LibraryVariantRepository? libraryVariants,
     CustomArtworkService? customArtwork,
     DirectoryPickerService? directoryPicker,
     LibraryFolderScanner? scanFolder,
@@ -1602,6 +1643,7 @@ final class _HomeScreenFixture {
     dependencies = AppDependencies(
       database: database,
       repositories: repositories,
+      libraryVariants: libraryVariants,
       recommendationService: recommendationService,
       libraryScanner: libraryScanner,
       libraryController: library,

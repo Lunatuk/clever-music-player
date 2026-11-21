@@ -8,6 +8,7 @@ import 'package:clever_music_player/src/data/repositories/drift_repositories.dar
 import 'package:clever_music_player/src/domain/models/models.dart';
 import 'package:clever_music_player/src/domain/repositories/track_repository.dart';
 import 'package:clever_music_player/src/library/artwork_cache_service.dart';
+import 'package:clever_music_player/src/library/library_track_variants.dart';
 import 'package:clever_music_player/src/player/just_audio_player_service.dart';
 import 'package:clever_music_player/src/ui/design_preview/design_preview_screen.dart';
 import 'package:drift/native.dart';
@@ -15,8 +16,65 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/test_audio_engine.dart';
+import 'support/library_variant_repository_fake.dart';
 
 void main() {
+  testWidgets('phone can play another version once and choose its default',
+      (tester) async {
+    tester.view.physicalSize = const Size(360, 720);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final f = _Fixture();
+    addTearDown(f.close);
+    final identity = ExternalTrackIdentity(
+        provider: 'yandex_music', externalId: '15', variantKey: '77');
+    final variants = FakeLibraryVariantRepository({
+      1: {identity},
+      2: {identity}
+    });
+    addTearDown(variants.close);
+    final rich = f.track.copyWith(
+        id: 1,
+        title: 'Rich',
+        metadataSource: MetadataSource.embeddedTags,
+        album: 'Release');
+    final sparse = f.track.copyWith(
+        id: 2,
+        title: 'Sparse',
+        metadataSource: MetadataSource.embeddedTags,
+        filePath: 'content://test/d/sparse');
+    await tester.pumpWidget(f.app(library: [rich, sparse], variants: variants));
+    await tester.pumpAndSettle();
+    expect(find.text('Rich'), findsOneWidget);
+    expect(find.text('Sparse'), findsNothing);
+    final button = find.byTooltip('Варианты трека (2)');
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+    Finder sparseAction(String tooltip) => find.descendant(
+          of: find.ancestor(
+              of: find.text('Sparse'), matching: find.byType(ListTile)),
+          matching: find.byTooltip(tooltip),
+        );
+    await tester.tap(sparseAction('Воспроизвести эту версию'));
+    await tester.pumpAndSettle();
+    expect(f.lastContext!.map((t) => t.id), [2]);
+    expect(f.player.currentTrack?.id, 2);
+    expect(find.text('Rich'), findsOneWidget);
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+    await tester.tap(sparseAction('Предпочитать этот файл'));
+    await tester.pumpAndSettle();
+    expect(find.text('Rich'), findsNothing);
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Выбирать автоматически'));
+    await tester.pumpAndSettle();
+    expect(find.text('Rich'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets(
       'phone shows card coverage and can sort without legacy confidence priority',
       (tester) async {
@@ -467,6 +525,7 @@ final class _Fixture {
           {double textScale = 1,
           List<Track>? library,
           Stream<List<Track>>? stream,
+          LibraryVariantRepository? variants,
           double keyboard = 0}) =>
       MaterialApp(
         theme: ThemeData(useMaterial3: true, brightness: Brightness.dark),
@@ -478,6 +537,7 @@ final class _Fixture {
         home: AndroidLibraryScreen(
             importer: importer,
             tracks: stream ?? Stream.value(library ?? [track]),
+            libraryVariants: variants,
             player: player,
             playTrack: (track, tracks) async {
               selections++;

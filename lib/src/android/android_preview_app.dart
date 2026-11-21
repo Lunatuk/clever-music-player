@@ -10,11 +10,13 @@ import '../appearance/appearance_theme.dart';
 import '../core/async_lifecycle.dart';
 import '../diagnostics/diagnostics_service.dart';
 import '../ui/app_version_info.dart';
+import '../ui/library/track_variants_dialog.dart';
 import '../ui/track_metadata_subtitle.dart';
 import '../domain/models/track.dart';
 import '../domain/repositories/track_repository.dart';
 import '../library/artwork_cache_service.dart';
 import '../library/library_track_list.dart';
+import '../library/library_track_variants.dart';
 import '../player/player_service.dart';
 import '../player/player_state.dart';
 import '../ui/design_preview/design_preview_screen.dart';
@@ -145,6 +147,7 @@ final class _AndroidPreviewAppState extends State<AndroidPreviewApp> {
                 importer: _importer,
                 tracks:
                     widget.dependencies.repositories.tracks.watchAllTracks(),
+                libraryVariants: widget.dependencies.libraryVariants,
                 player: widget.dependencies.playerService,
                 playTrack: (track, visible) => widget.dependencies.playbackQueue
                     .playLibraryTrack(track: track, visibleTracks: visible),
@@ -173,7 +176,8 @@ final class AndroidLibraryScreen extends StatefulWidget {
       required this.next,
       this.sourceSettings,
       this.stop,
-      this.appearance});
+      this.appearance,
+      this.libraryVariants});
   final AppearanceController? appearance;
   final AndroidImportController importer;
   final Stream<List<Track>> tracks;
@@ -182,6 +186,7 @@ final class AndroidLibraryScreen extends StatefulWidget {
   final Future<void> Function() previous, next;
   final WidgetBuilder? sourceSettings;
   final Future<void> Function()? stop;
+  final LibraryVariantRepository? libraryVariants;
   @override
   State<AndroidLibraryScreen> createState() => _AndroidLibraryScreenState();
 }
@@ -190,6 +195,44 @@ final class _AndroidLibraryScreenState extends State<AndroidLibraryScreen> {
   final _search = TextEditingController();
   String _query = '';
   LibraryTrackSortOption _sort = LibraryTrackSortOption.title;
+  Stream<LibraryVariantEvidence>? _variantEvidenceStream;
+  (
+    List<Track>,
+    LibraryVariantEvidence,
+    String,
+    LibraryTrackSortOption
+  )? _viewInput;
+  LibraryTrackView? _cachedView;
+
+  @override
+  void initState() {
+    super.initState();
+    _variantEvidenceStream = widget.libraryVariants?.watchEvidence();
+  }
+
+  @override
+  void didUpdateWidget(AndroidLibraryScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.libraryVariants, widget.libraryVariants)) {
+      _variantEvidenceStream = widget.libraryVariants?.watchEvidence();
+    }
+  }
+
+  LibraryTrackView _trackView(
+      List<Track> tracks, LibraryVariantEvidence evidence) {
+    final input = (tracks, evidence, _query, _sort);
+    if (input == _viewInput) return _cachedView!;
+    final view = buildLibraryTrackView(
+        tracks: tracks,
+        searchQuery: _query,
+        showMissingTracks: false,
+        sortOption: _sort,
+        evidence: evidence);
+    _viewInput = input;
+    _cachedView = view;
+    return view;
+  }
+
   @override
   void dispose() {
     _search.dispose();
@@ -441,11 +484,6 @@ final class _AndroidLibraryScreenState extends State<AndroidLibraryScreen> {
                               child: CircularProgressIndicator());
                         }
                         final all = snapshot.data!;
-                        final tracks = buildVisibleLibraryTracks(
-                            tracks: all,
-                            searchQuery: _query,
-                            showMissingTracks: false,
-                            sortOption: _sort);
                         if (all.isEmpty) {
                           return Center(
                               child: SingleChildScrollView(
@@ -467,51 +505,89 @@ final class _AndroidLibraryScreenState extends State<AndroidLibraryScreen> {
                                             textAlign: TextAlign.center),
                                       ])));
                         }
-                        if (tracks.isEmpty) {
-                          return Center(
-                              child: SingleChildScrollView(
-                                  padding: const EdgeInsets.all(24),
-                                  child: Column(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        const Text('Ничего не найдено'),
-                                        const SizedBox(height: 8),
-                                        TextButton(
-                                            onPressed: _clearSearch,
-                                            child:
-                                                const Text('Сбросить поиск')),
-                                      ])));
-                        }
-                        return ListView.builder(
-                            itemCount: tracks.length,
-                            // Same ListTile geometry and text scaling as real
-                            // rows, without reading a prototype cover file.
-                            prototypeItem: const ListTile(
-                                leading: SizedBox.square(dimension: 52),
-                                title: Text(' ', maxLines: 1),
-                                subtitle: Text(' ', maxLines: 1)),
-                            itemBuilder: (context, index) {
-                              final track = tracks[index];
-                              return ListTile(
-                                  leading: _Cover(track: track),
-                                  title: Text(track.displayTitle,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis),
-                                  subtitle: Text(
-                                      track.artist ?? 'Неизвестный исполнитель',
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis),
-                                  trailing: Tooltip(
-                                      message: buildMetadataCompletenessTooltip(
-                                          track),
-                                      child: Text(
-                                          buildMetadataCompletenessLabel(track),
-                                          style: Theme.of(context)
-                                              .textTheme
-                                              .labelSmall)),
-                                  onTap: () => _command(
-                                      () => widget.playTrack(track, tracks)));
-                            });
+                        return StreamBuilder<LibraryVariantEvidence>(
+                          key: ObjectKey(widget.libraryVariants),
+                          stream: _variantEvidenceStream,
+                          initialData: const LibraryVariantEvidence(),
+                          builder: (context, evidenceSnapshot) {
+                            final view = _trackView(
+                                all,
+                                evidenceSnapshot.data ??
+                                    const LibraryVariantEvidence());
+                            final tracks = view.tracks;
+                            if (tracks.isEmpty) {
+                              return Center(
+                                  child: SingleChildScrollView(
+                                      padding: const EdgeInsets.all(24),
+                                      child: Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            const Text('Ничего не найдено'),
+                                            const SizedBox(height: 8),
+                                            TextButton(
+                                                onPressed: _clearSearch,
+                                                child: const Text(
+                                                    'Сбросить поиск')),
+                                          ])));
+                            }
+                            return ListView.builder(
+                                itemCount: tracks.length,
+                                // Same ListTile geometry and text scaling as real
+                                // rows, without reading a prototype cover file.
+                                prototypeItem: const ListTile(
+                                    leading: SizedBox.square(dimension: 52),
+                                    title: Text(' ', maxLines: 1),
+                                    subtitle: Text(' ', maxLines: 1)),
+                                itemBuilder: (context, index) {
+                                  final track = tracks[index];
+                                  final group = view.versions[track.filePath];
+                                  return ListTile(
+                                      leading: _Cover(track: track),
+                                      title: Text(track.displayTitle,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis),
+                                      subtitle: Text(
+                                          track.artist ??
+                                              'Неизвестный исполнитель',
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis),
+                                      trailing: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          if (group != null)
+                                            TrackVariantsButton(
+                                              group: group,
+                                              onPressed: () => unawaited(
+                                                  showTrackVariantsDialog(
+                                                context,
+                                                group: group,
+                                                repository:
+                                                    widget.libraryVariants!,
+                                                play: (track) =>
+                                                    widget.playTrack(
+                                                        track,
+                                                        group
+                                                            .withPlaybackVersion(
+                                                                track, tracks)),
+                                              )),
+                                            ),
+                                          Tooltip(
+                                              message:
+                                                  buildMetadataCompletenessTooltip(
+                                                      track),
+                                              child: Text(
+                                                  buildMetadataCompletenessLabel(
+                                                      track),
+                                                  style: Theme.of(context)
+                                                      .textTheme
+                                                      .labelSmall)),
+                                        ],
+                                      ),
+                                      onTap: () => _command(() =>
+                                          widget.playTrack(track, tracks)));
+                                });
+                          },
+                        );
                       })),
               if (MediaQuery.viewInsetsOf(context).bottom == 0)
                 StreamBuilder<PlayerState>(

@@ -9,6 +9,7 @@ import '../../domain/models/models.dart';
 import '../../domain/repositories/repositories.dart';
 import '../../library/library_controller.dart';
 import '../../library/library_track_list.dart';
+import '../../library/library_track_variants.dart';
 import '../../library_sync/yandex_connection_controller.dart';
 import '../../library_sync/yandex_library_update_controller.dart';
 import '../../player/playback_transitions.dart';
@@ -26,6 +27,7 @@ import '../queue/queue_panel.dart';
 import '../track_artwork.dart';
 import '../track_display_helpers.dart';
 import '../library/library_scan_status.dart';
+import '../library/track_variants_dialog.dart';
 import '../track_metadata_edit_dialog.dart';
 import '../track_metadata_subtitle.dart';
 import '../widgets/track_feedback_button.dart';
@@ -53,6 +55,7 @@ final class _HomeScreenState extends State<HomeScreen> {
   Stream<List<LibraryFolder>>? _foldersStream;
   Stream<PlayerState>? _pagePlayerStateStream;
   Stream<Map<int, TrackUserState>>? _userStatesStream;
+  Stream<LibraryVariantEvidence>? _variantEvidenceStream;
   List<int> _userStateTrackIds = const [];
   List<Track>? _visibleTracksInput;
   Map<int, TrackUserState>? _visibleTracksUserStatesInput;
@@ -60,7 +63,8 @@ final class _HomeScreenState extends State<HomeScreen> {
   LibraryTrackSortOption? _visibleTracksSortOptionInput;
   bool? _visibleTracksShowMissingInput;
   bool? _visibleTracksShowExactCopiesInput;
-  List<Track>? _cachedVisibleTracks;
+  LibraryVariantEvidence? _visibleTracksEvidenceInput;
+  LibraryTrackView? _cachedVisibleTracks;
   List<Track>? _missingCountInput;
   int? _cachedMissingCount;
   LibraryController? _libraryController;
@@ -222,6 +226,7 @@ final class _HomeScreenState extends State<HomeScreen> {
         .distinct(_isSamePagePlayerState)
         .asBroadcastStream();
     _userStatesStream = null;
+    _variantEvidenceStream = dependencies.libraryVariants?.watchEvidence();
     _userStateTrackIds = const [];
     _clearVisibleTracksCache();
   }
@@ -268,79 +273,99 @@ final class _HomeScreenState extends State<HomeScreen> {
           },
         );
       case _myMusicPageIndex:
-        final visibleTracks = _visibleTracksFor(
-          activeTracks: activeTracks,
-          userStates: userStates,
-        );
-        final missingCount = _missingCountFor(activeTracks);
-        return _MyMusicPage(
-          playerState: playerState,
-          queueService: dependencies.playbackQueue,
-          visibleTracks: visibleTracks,
-          totalIndexedTracks: totalIndexedTracks,
-          missingCount: missingCount,
-          userStates: userStates,
-          folderCount: folders.length,
-          trackLoadError: trackLoadError,
-          searchController: _searchController,
-          searchQuery: _searchQuery,
-          sortOption: _sortOption,
-          showMissingTracks: _showMissingTracks,
-          showExactCopies: _showExactCopies,
-          onSearchChanged: (value) {
-            setState(() {
-              _searchQuery = value;
-            });
-          },
-          onClearSearch: () {
-            _searchController.clear();
-            setState(() {
-              _searchQuery = '';
-            });
-          },
-          onSortChanged: (option) {
-            setState(() {
-              _sortOption = option;
-            });
-          },
-          onShowMissingChanged: (value) {
-            setState(() {
-              _showMissingTracks = value;
-            });
-          },
-          onShowExactCopiesChanged: (value) {
-            setState(() {
-              _showExactCopies = value;
-            });
-          },
-          onPlayTrack: (track) {
-            unawaited(
-              dependencies.playbackQueue.playLibraryTrack(
-                track: track,
-                visibleTracks: visibleTracks,
-              ),
+        return StreamBuilder<LibraryVariantEvidence>(
+          key: ObjectKey(dependencies),
+          stream: _variantEvidenceStream,
+          initialData: const LibraryVariantEvidence(),
+          builder: (context, snapshot) {
+            final view = _visibleTracksFor(
+              activeTracks: activeTracks,
+              userStates: userStates,
+              evidence: snapshot.data ?? const LibraryVariantEvidence(),
             );
-          },
-          onLikeTrack: (track) {
-            unawaited(dependencies.playbackQueue.toggleLike(track));
-          },
-          onDislikeTrack: (track) {
-            unawaited(dependencies.playbackQueue.toggleDislike(track));
-          },
-          onAddToQueue: (track) {
-            unawaited(dependencies.playbackQueue.addToQueue(track));
-          },
-          onAddToPlaylist: (track) {
-            unawaited(_addTrackToPlaylist(dependencies, track));
-          },
-          onEditTrack: (track) {
-            unawaited(_editTrackMetadata(dependencies, track));
-          },
-          onSetCustomCover: (track) {
-            unawaited(_setTrackCustomCover(dependencies, track));
-          },
-          onRemoveCustomCover: (track) {
-            unawaited(_removeTrackCustomCover(dependencies, track));
+            final visibleTracks = view.tracks;
+            final missingCount = _missingCountFor(activeTracks);
+            return _MyMusicPage(
+              playerState: playerState,
+              queueService: dependencies.playbackQueue,
+              visibleTracks: visibleTracks,
+              variants: view.versions,
+              onShowVariants: (group) => unawaited(showTrackVariantsDialog(
+                context,
+                group: group,
+                repository: dependencies.libraryVariants!,
+                play: (track) => dependencies.playbackQueue.playLibraryTrack(
+                  track: track,
+                  visibleTracks:
+                      group.withPlaybackVersion(track, visibleTracks),
+                ),
+              )),
+              totalIndexedTracks: totalIndexedTracks,
+              missingCount: missingCount,
+              userStates: userStates,
+              folderCount: folders.length,
+              trackLoadError: trackLoadError,
+              searchController: _searchController,
+              searchQuery: _searchQuery,
+              sortOption: _sortOption,
+              showMissingTracks: _showMissingTracks,
+              showExactCopies: _showExactCopies,
+              onSearchChanged: (value) {
+                setState(() {
+                  _searchQuery = value;
+                });
+              },
+              onClearSearch: () {
+                _searchController.clear();
+                setState(() {
+                  _searchQuery = '';
+                });
+              },
+              onSortChanged: (option) {
+                setState(() {
+                  _sortOption = option;
+                });
+              },
+              onShowMissingChanged: (value) {
+                setState(() {
+                  _showMissingTracks = value;
+                });
+              },
+              onShowExactCopiesChanged: (value) {
+                setState(() {
+                  _showExactCopies = value;
+                });
+              },
+              onPlayTrack: (track) {
+                unawaited(
+                  dependencies.playbackQueue.playLibraryTrack(
+                    track: track,
+                    visibleTracks: visibleTracks,
+                  ),
+                );
+              },
+              onLikeTrack: (track) {
+                unawaited(dependencies.playbackQueue.toggleLike(track));
+              },
+              onDislikeTrack: (track) {
+                unawaited(dependencies.playbackQueue.toggleDislike(track));
+              },
+              onAddToQueue: (track) {
+                unawaited(dependencies.playbackQueue.addToQueue(track));
+              },
+              onAddToPlaylist: (track) {
+                unawaited(_addTrackToPlaylist(dependencies, track));
+              },
+              onEditTrack: (track) {
+                unawaited(_editTrackMetadata(dependencies, track));
+              },
+              onSetCustomCover: (track) {
+                unawaited(_setTrackCustomCover(dependencies, track));
+              },
+              onRemoveCustomCover: (track) {
+                unawaited(_removeTrackCustomCover(dependencies, track));
+              },
+            );
           },
         );
       case _playlistsPageIndex:
@@ -395,12 +420,14 @@ final class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  List<Track> _visibleTracksFor({
+  LibraryTrackView _visibleTracksFor({
     required List<Track> activeTracks,
     required Map<int, TrackUserState> userStates,
+    required LibraryVariantEvidence evidence,
   }) {
     if (identical(_visibleTracksInput, activeTracks) &&
         identical(_visibleTracksUserStatesInput, userStates) &&
+        identical(_visibleTracksEvidenceInput, evidence) &&
         _visibleTracksSearchQueryInput == _searchQuery &&
         _visibleTracksSortOptionInput == _sortOption &&
         _visibleTracksShowMissingInput == _showMissingTracks &&
@@ -408,16 +435,18 @@ final class _HomeScreenState extends State<HomeScreen> {
       return _cachedVisibleTracks!;
     }
 
-    final visibleTracks = buildVisibleLibraryTracks(
+    final visibleTracks = buildLibraryTrackView(
       tracks: activeTracks,
       searchQuery: _searchQuery,
       showMissingTracks: _showMissingTracks,
       showExactCopies: _showExactCopies,
       sortOption: _sortOption,
       userStates: userStates,
+      evidence: evidence,
     );
     _visibleTracksInput = activeTracks;
     _visibleTracksUserStatesInput = userStates;
+    _visibleTracksEvidenceInput = evidence;
     _visibleTracksSearchQueryInput = _searchQuery;
     _visibleTracksSortOptionInput = _sortOption;
     _visibleTracksShowMissingInput = _showMissingTracks;
@@ -440,6 +469,7 @@ final class _HomeScreenState extends State<HomeScreen> {
   void _clearVisibleTracksCache() {
     _visibleTracksInput = null;
     _visibleTracksUserStatesInput = null;
+    _visibleTracksEvidenceInput = null;
     _visibleTracksSearchQueryInput = null;
     _visibleTracksSortOptionInput = null;
     _visibleTracksShowMissingInput = null;
@@ -1109,6 +1139,8 @@ final class _MyMusicPage extends StatelessWidget {
     required this.playerState,
     required this.queueService,
     required this.visibleTracks,
+    required this.variants,
+    required this.onShowVariants,
     required this.totalIndexedTracks,
     required this.missingCount,
     required this.userStates,
@@ -1137,6 +1169,8 @@ final class _MyMusicPage extends StatelessWidget {
   final PlayerState playerState;
   final PlaybackQueueService queueService;
   final List<Track> visibleTracks;
+  final Map<String, LibraryTrackVariants> variants;
+  final ValueChanged<LibraryTrackVariants> onShowVariants;
   final int totalIndexedTracks;
   final int missingCount;
   final Map<int, TrackUserState> userStates;
@@ -1247,6 +1281,8 @@ final class _MyMusicPage extends StatelessWidget {
         if (trackLoadError == null && visibleTracks.isNotEmpty)
           _TrackListSliver(
             tracks: visibleTracks,
+            variants: variants,
+            onShowVariants: onShowVariants,
             userStates: userStates,
             currentTrack: playerState.currentTrack,
             onPlayTrack: onPlayTrack,
@@ -3365,6 +3401,8 @@ final class _LibraryFolderRow extends StatelessWidget {
 final class _TrackListSliver extends StatelessWidget {
   const _TrackListSliver({
     required this.tracks,
+    required this.variants,
+    required this.onShowVariants,
     required this.userStates,
     required this.currentTrack,
     required this.onPlayTrack,
@@ -3378,6 +3416,8 @@ final class _TrackListSliver extends StatelessWidget {
   });
 
   final List<Track> tracks;
+  final Map<String, LibraryTrackVariants> variants;
+  final ValueChanged<LibraryTrackVariants> onShowVariants;
   final Map<int, TrackUserState> userStates;
   final Track? currentTrack;
   final ValueChanged<Track> onPlayTrack;
@@ -3394,13 +3434,23 @@ final class _TrackListSliver extends StatelessWidget {
     if (tracks.isEmpty) return const SliverToBoxAdapter();
 
     Widget buildRow(Track track, {bool isPrototype = false}) {
+      final group = variants[track.filePath];
       return Padding(
         padding: const EdgeInsets.only(bottom: 8),
         child: _TrackListTile(
           track: track,
           isPrototype: isPrototype,
           userState: track.id == null ? null : userStates[track.id],
-          isCurrent: isSameTrack(track, currentTrack),
+          isCurrent: isSameTrack(track, currentTrack) ||
+              (group?.sourceTracks
+                      .any((item) => isSameTrack(item, currentTrack)) ??
+                  false),
+          variantsButton: group == null || isPrototype
+              ? null
+              : TrackVariantsButton(
+                  group: group,
+                  onPressed: () => onShowVariants(group),
+                ),
           onTap: track.isMissing ? null : () => onPlayTrack(track),
           onLike: () => onLikeTrack(track),
           onDislike: () => onDislikeTrack(track),
@@ -4193,6 +4243,7 @@ final class _TrackListTile extends StatelessWidget {
   const _TrackListTile({
     required this.track,
     this.isPrototype = false,
+    this.variantsButton,
     required this.userState,
     required this.isCurrent,
     required this.onTap,
@@ -4209,6 +4260,7 @@ final class _TrackListTile extends StatelessWidget {
   // The sliver's offscreen measuring row must not load a cover or expose a
   // second copy of the first track's text. Its geometry stays identical.
   final bool isPrototype;
+  final Widget? variantsButton;
   final TrackUserState? userState;
   final bool isCurrent;
   final VoidCallback? onTap;
@@ -4244,6 +4296,7 @@ final class _TrackListTile extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
+          if (variantsButton != null) variantsButton!,
           TrackFeedbackIconButton(
             isActive: (userState?.isFavorite ?? false) &&
                 !(userState?.isHidden ?? false),
