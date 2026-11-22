@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import '../domain/models/audio_source_reference.dart';
 import '../library/audio_comparison.dart';
+import '../library/audio_fingerprint.dart';
 import '../library/embedded_yandex_identity.dart';
 import '../library/library_scan_control.dart';
 import '../library_sync/download_workspace.dart';
@@ -142,6 +143,12 @@ final class AndroidAudioMetadataBackend
       throw const AudioValidationException(AudioValidationOutcome.invalidAudio);
     }
     return (digest: _digest(result), sampleRate: rate, channels: channels);
+  }
+
+  Future<AudioFingerprint?> fingerprintDocumentAudio(
+      ContentUriAudioSource document, LibraryScanControl control) async {
+    return AudioFingerprint.decode(
+        await _run(6, control, {'document': document.storageValue}));
   }
 
   DownloadedAudioInspection _inspection(Map<String, dynamic> result) {

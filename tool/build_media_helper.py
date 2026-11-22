@@ -45,6 +45,9 @@ FLAGS = [
 ]
 BINARIES = ['ffmpeg.exe', 'ffprobe.exe', 'avcodec-61.dll', 'avfilter-10.dll',
             'avformat-61.dll', 'avutil-59.dll', 'swresample-5.dll', 'swscale-8.dll']
+FINGERPRINT_BINARIES = ['cmp_audio_fingerprint.exe', 'chromaprint.dll']
+CHROMAPRINT_SOURCE = 'chromaprint-1.6.2.tar.gz'
+CHROMAPRINT_SHA256 = 'd54ada62c16b2db396d3251ec54fc7a58909c163131a1cfcf7fa6407dbc14360'
 
 
 def digest(file):
@@ -139,6 +142,37 @@ def assemble(source_dir, downloads, output, build_info):
     (output / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf8')
 
 
+def assemble_fingerprint(ffmpeg, output, work, env):
+    # Use the same C decoder and Chromaprint sources as the Android package.
+    source = Path(__file__).resolve().parent / 'fingerprint'
+    if not source.is_dir():
+        source = Path(__file__).resolve().parent.parent / 'third_party/cmp_android_media'
+    cmake = shutil.which('cmake', path=env['PATH'])
+    ninja = shutil.which('ninja', path=env['PATH'])
+    if not cmake or not ninja:
+        raise RuntimeError('CMake 3.22+ and Ninja are required for the fingerprint helper.')
+    packaged = output / 'sources/fingerprint'
+    packaged.mkdir()
+    shutil.copy2(source / 'CMakeLists.txt', packaged)
+    shutil.copytree(source / 'chromaprint', packaged / 'chromaprint')
+    (packaged / 'src').mkdir()
+    for name in ['cmp_media.c', 'cmp_media.h', 'cmp_fingerprint_main.c']:
+        shutil.copy2(source / 'src' / name, packaged / 'src')
+    build = work / 'fingerprint'
+    run('fingerprint-configure', [cmake, '-S', str(packaged), '-B', str(build),
+        '-G', 'Ninja', '-DCMAKE_BUILD_TYPE=MinSizeRel', '-DCMAKE_MAKE_PROGRAM=' + ninja,
+        '-DCMP_FFMPEG_BUILD=' + str(ffmpeg)], work, env, work)
+    run('fingerprint-build', [cmake, '--build', str(build), '--parallel', '4'], work, env, work)
+    run('fingerprint-install', [cmake, '--install', str(build), '--prefix', str(output)],
+        work, env, work)
+    manifest_path = output / 'manifest.json'
+    manifest = json.loads(manifest_path.read_text(encoding='utf8'))
+    for name in FINGERPRINT_BINARIES:
+        manifest['files'][name] = {'bytes': (output / name).stat().st_size,
+                                    'sha256': digest(output / name)}
+    manifest_path.write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf8')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--work-dir', required=True, type=Path)
@@ -195,6 +229,7 @@ def main():
         'changes': 'No source changes. Generated configuration/build outputs only.',
         'signature': 'Release verified against FCF986EA15E6E293A5644F10B4322F04D67658D8; pinned SHA-256 thereafter.',
     })
+    assemble_fingerprint(ffmpeg, output, work, env)
     print('Bundle:', output, flush=True)
 
 

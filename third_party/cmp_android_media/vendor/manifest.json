@@ -51,8 +51,8 @@
       "sha256": "cb48bf09a11f5fb576cddb0431c8f5ed0a60157a9ec942adffc13907cbe083f2"
     },
     "NOTICE.txt": {
-      "bytes": 829,
-      "sha256": "110ba95bca395b6b87dd2ba283d9846e2dbab2d8d2a9e829ff3249547b5ad7c0"
+      "bytes": 968,
+      "sha256": "ae5fb638df7c1932dee5689af414f9c6ec2072126fee0743aefcf13e03802d1e"
     },
     "arm64-v8a/libavcodec.so": {
       "bytes": 551960,
@@ -579,8 +579,8 @@
       "sha256": "4f3cd666405bb77606ff623440127ae0037eb7919e60dc55d423d812b162bbe2"
     },
     "source-kit.zip": {
-      "bytes": 11109060,
-      "sha256": "eef37789bfdde7fb6544b70d92b8a5b15b7e014ab9c4041e107727cc8460492c"
+      "bytes": 12699454,
+      "sha256": "1f790d9cca1f6f195fd528c599f3701ae7bbaccd547235b0000fbdd58d535d74"
     }
   }
 }

@@ -17,6 +17,9 @@
 #include <libavutil/mem.h>
 #include <libavutil/sha.h>
 #include <libswresample/swresample.h>
+#ifdef CMP_AUDIO_FINGERPRINT
+#include <chromaprint.h>
+#endif
 
 #ifdef _WIN32
 #include <windows.h>
@@ -35,7 +38,6 @@ static void release_job(void) { InterlockedExchange(&busy,0); }
 static void set_cancel(int v) { InterlockedExchange(&cancelled,v); }
 static int is_cancelled(void) { return InterlockedCompareExchange(&cancelled,0,0)!=0; }
 static int64_t milliseconds(void) { return (int64_t)GetTickCount64(); }
-/* Windows is a qualification harness only, not the app's Windows backend. */
 static int open_file(const char *name, int write_mode) {
     wchar_t wide[16384];
     if (!name || !MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,name,-1,wide,16384)) return -1;
@@ -81,6 +83,8 @@ static int same_file(int first,int second) {
 #define COVER_LIMIT (8*1024*1024)
 #define JSON_LIMIT (128*1024)
 #define MAX_SECONDS (12*3600)
+#define COMPARISON_BYTES (128LL*1024*1024)
+#define COMPARISON_DURATION_US (30LL*60*1000000)
 static int64_t deadline;
 static int logged_error;
 static char response[JSON_LIMIT];
@@ -266,7 +270,8 @@ static int packet_digest(Input *in,char hex[65]) {
 done: av_packet_free(&packet); av_free(sha); return r;
 }
 typedef struct { struct AVSHA *sha; SwrContext *swr; int rate, channels, format; int64_t samples; AVChannelLayout layout; } Pcm;
-static int consume(Pcm *pcm,AVFrame *frame) {
+static int consume_pcm(void *context,AVFrame *frame) {
+    Pcm *pcm=context;
     if (interrupted(NULL) || frame->nb_samples<=0 || frame->nb_samples>131072 ||
         frame->sample_rate!=pcm->rate || frame->ch_layout.nb_channels!=pcm->channels ||
         (frame->flags & AV_FRAME_FLAG_CORRUPT)) return -1;
@@ -283,31 +288,41 @@ static int consume(Pcm *pcm,AVFrame *frame) {
     av_sha_update(pcm->sha,buffer,n*pcm->channels*4); av_free(buffer); pcm->samples+=n;
     return pcm->samples<=MAX_SECONDS*(int64_t)pcm->rate ? 0 : -1;
 }
-static int drain(AVCodecContext *decoder,AVFrame *frame,Pcm *pcm) {
+typedef int (*ConsumeAudio)(void *context,AVFrame *frame);
+static int drain(AVCodecContext *decoder,AVFrame *frame,ConsumeAudio consume,void *context) {
     int r;
     while ((r=avcodec_receive_frame(decoder,frame))>=0) {
-        int valid=consume(pcm,frame); av_frame_unref(frame); if (valid<0) return -1;
+        int valid=consume(context,frame); av_frame_unref(frame); if (valid<0) return -1;
     }
     return r==AVERROR(EAGAIN) || r==AVERROR_EOF ? 0 : -1;
 }
-static int decode_audio(Input *in,char hex[65],int64_t *duration) {
+static int read_audio_frames(Input *in,ConsumeAudio consume,void *context) {
     AVCodecParameters *p=in->format->streams[in->audio]->codecpar;
     AVCodecContext *decoder=avcodec_alloc_context3(avcodec_find_decoder(p->codec_id));
     AVFrame *frame=av_frame_alloc(); AVPacket *packet=av_packet_alloc();
-    Pcm pcm={0}; pcm.sha=av_sha_alloc(); pcm.rate=p->sample_rate; pcm.channels=p->ch_layout.nb_channels;
     int r=-1;
-    if (!decoder || !frame || !packet || !pcm.sha || av_sha_init(pcm.sha,256)<0 || avcodec_parameters_to_context(decoder,p)<0) goto done;
+    if (!decoder || !frame || !packet || avcodec_parameters_to_context(decoder,p)<0) goto done;
     decoder->thread_count=1; decoder->err_recognition=AV_EF_CRCCHECK|AV_EF_BITSTREAM|AV_EF_BUFFER|AV_EF_EXPLODE;
     if (avcodec_open2(decoder,avcodec_find_decoder(p->codec_id),NULL)<0) goto done;
     while (!interrupted(NULL) && (r=av_read_frame(in->format,packet))>=0) {
         if (packet->stream_index==in->audio && ((packet->flags & AV_PKT_FLAG_CORRUPT) ||
-            avcodec_send_packet(decoder,packet)<0 || drain(decoder,frame,&pcm)<0)) { r=-1; goto done; }
+            avcodec_send_packet(decoder,packet)<0 || drain(decoder,frame,consume,context)<0)) { r=-1; goto done; }
         av_packet_unref(packet);
     }
-    if (r!=AVERROR_EOF || interrupted(NULL) || avcodec_send_packet(decoder,NULL)<0 || drain(decoder,frame,&pcm)<0 || pcm.samples<=0) { r=-1; goto done; }
-    digest_text(pcm.sha,hex); *duration=av_rescale(pcm.samples,1000000,pcm.rate); r=0;
+    r=(r==AVERROR_EOF && !interrupted(NULL) && avcodec_send_packet(decoder,NULL)>=0 &&
+        drain(decoder,frame,consume,context)==0) ? 0 : -1;
 done:
     avcodec_free_context(&decoder); av_frame_free(&frame); av_packet_free(&packet);
+    return r;
+}
+static int decode_audio(Input *in,char hex[65],int64_t *duration) {
+    const AVCodecParameters *p=in->format->streams[in->audio]->codecpar;
+    Pcm pcm={0}; pcm.sha=av_sha_alloc(); pcm.rate=p->sample_rate; pcm.channels=p->ch_layout.nb_channels;
+    int r=-1;
+    if (pcm.sha && av_sha_init(pcm.sha,256)>=0 &&
+        read_audio_frames(in,consume_pcm,&pcm)==0 && pcm.samples>0) {
+        digest_text(pcm.sha,hex); *duration=av_rescale(pcm.samples,1000000,pcm.rate); r=0;
+    }
     swr_free(&pcm.swr); av_channel_layout_uninit(&pcm.layout); av_free(pcm.sha); return r;
 }
 static int decode_picture(AVPacket *packet,enum AVCodecID codec,int *width,int *height) {
@@ -434,33 +449,112 @@ done:
     return response;
 }
 
-static int compare_audio(Input *in,Json *json) {
-    const int64_t max_duration=30LL*60*1000000;
+static int comparison_supported(Input *in) {
     const AVCodecParameters *p=in->format->streams[in->audio]->codecpar;
     int channels=p->ch_layout.nb_channels;
-    if (in->stamp.st_size>128LL*1024*1024 || duration_us(in)>max_duration ||
-        channels<1 || channels>2 || p->sample_rate<8000 || p->sample_rate>192000) return -1;
+    if (in->stamp.st_size>COMPARISON_BYTES || duration_us(in)>COMPARISON_DURATION_US ||
+        channels<1 || channels>2 || p->sample_rate<8000 || p->sample_rate>192000) return 0;
     AVChannelLayout standard;
     av_channel_layout_default(&standard,channels);
     int layout_valid=p->ch_layout.order==AV_CHANNEL_ORDER_UNSPEC ||
         av_channel_layout_compare(&p->ch_layout,&standard)==0;
     av_channel_layout_uninit(&standard);
-    if (!layout_valid) return -1;
+    return layout_valid;
+}
+
+static int compare_audio(Input *in,Json *json) {
+    if (!comparison_supported(in)) return -1;
+    const AVCodecParameters *p=in->format->streams[in->audio]->codecpar;
     char hash[65];
     int64_t duration=0;
-    if (decode_audio(in,hash,&duration)!=0 || duration<=0 || duration>max_duration) return -1;
+    if (decode_audio(in,hash,&duration)!=0 || duration<=0 || duration>COMPARISON_DURATION_US) return -1;
     append(json,"{\"status\":\"ok\",\"digest\":\"%s\",\"sampleRate\":%d,\"channels\":%d}",
-        hash,p->sample_rate,channels);
+        hash,p->sample_rate,p->ch_layout.nb_channels);
     return 0;
 }
 
-static const char *read_descriptor(int fd,int64_t declared_length,int compare) {
+#ifdef CMP_AUDIO_FINGERPRINT
+#define FINGERPRINT_RATE 11025
+#define FINGERPRINT_MIN_SECONDS 18
+#define FINGERPRINT_MAX_WORDS 15000
+typedef struct {
+    ChromaprintContext *chromaprint;
+    SwrContext *swr;
+    AVChannelLayout layout;
+    int rate, channels, format;
+    uint8_t *buffer;
+    unsigned int buffer_size;
+    int64_t samples;
+} Fingerprint;
+
+static int feed_fingerprint(Fingerprint *fp,const uint8_t **input,int samples) {
+    int capacity=swr_get_out_samples(fp->swr,samples);
+    if (interrupted(NULL) || capacity<0 || capacity>200000) return -1;
+    av_fast_malloc(&fp->buffer,&fp->buffer_size,(size_t)capacity*sizeof(int16_t));
+    if (!fp->buffer) return -1;
+    int converted=swr_convert(fp->swr,&fp->buffer,capacity,input,samples);
+    if (converted<0) return -1;
+    fp->samples+=converted;
+    if (fp->samples>30LL*60*FINGERPRINT_RATE ||
+        (converted>0 && !chromaprint_feed(fp->chromaprint,(const int16_t *)fp->buffer,converted))) return -1;
+    return converted;
+}
+
+static int consume_fingerprint(void *context,AVFrame *frame) {
+    Fingerprint *fp=context;
+    if (interrupted(NULL) || frame->nb_samples<=0 || frame->nb_samples>131072 ||
+        frame->sample_rate!=fp->rate || frame->ch_layout.nb_channels!=fp->channels ||
+        (frame->flags & AV_FRAME_FLAG_CORRUPT)) return -1;
+    if (!fp->swr) {
+        AVChannelLayout mono=AV_CHANNEL_LAYOUT_MONO;
+        if (av_channel_layout_copy(&fp->layout,&frame->ch_layout)<0) return -1;
+        if (fp->layout.order==AV_CHANNEL_ORDER_UNSPEC) av_channel_layout_default(&fp->layout,fp->channels);
+        fp->format=frame->format;
+        if (swr_alloc_set_opts2(&fp->swr,&mono,AV_SAMPLE_FMT_S16,FINGERPRINT_RATE,
+            &fp->layout,(enum AVSampleFormat)fp->format,fp->rate,0,NULL)<0 || swr_init(fp->swr)<0) return -1;
+    } else if (fp->format!=frame->format ||
+        (frame->ch_layout.order!=AV_CHANNEL_ORDER_UNSPEC &&
+         av_channel_layout_compare(&fp->layout,&frame->ch_layout)!=0)) return -1;
+    return feed_fingerprint(fp,(const uint8_t **)frame->extended_data,frame->nb_samples)<0 ? -1 : 0;
+}
+
+static int fingerprint_audio(Input *in,Json *json) {
+    if (!comparison_supported(in)) return -1;
+    const AVCodecParameters *p=in->format->streams[in->audio]->codecpar;
+    Fingerprint fp={0};
+    fp.rate=p->sample_rate; fp.channels=p->ch_layout.nb_channels;
+    uint32_t *words=NULL;
+    int count=0, r=-1;
+    fp.chromaprint=chromaprint_new(CHROMAPRINT_ALGORITHM_TEST2);
+    if (!fp.chromaprint || !chromaprint_start(fp.chromaprint,FINGERPRINT_RATE,1) ||
+        read_audio_frames(in,consume_fingerprint,&fp)!=0 || !fp.swr) goto done;
+
+    int flushed;
+    do { flushed=feed_fingerprint(&fp,NULL,0); } while (flushed>0);
+    if (flushed<0 || fp.samples<FINGERPRINT_MIN_SECONDS*FINGERPRINT_RATE ||
+        !chromaprint_finish(fp.chromaprint) ||
+        !chromaprint_get_raw_fingerprint(fp.chromaprint,&words,&count) ||
+        count<1 || count>FINGERPRINT_MAX_WORDS) goto done;
+    append(json,"{\"status\":\"ok\",\"durationUs\":%" PRId64 ",\"fingerprint\":\"",
+        av_rescale(fp.samples,1000000,FINGERPRINT_RATE));
+    for (int i=0;i<count;i++) append(json,"%08" PRIx32,words[i]);
+    append(json,"\"}");
+    r=0;
+done:
+    if (words) chromaprint_dealloc(words);
+    if (fp.chromaprint) chromaprint_free(fp.chromaprint);
+    swr_free(&fp.swr); av_channel_layout_uninit(&fp.layout); av_free(fp.buffer);
+    return r;
+}
+#endif
+
+static const char *read_descriptor(int fd,int64_t declared_length,int (*process)(Input *,Json *)) {
     logged_error=0; response[0]=0;
     if (interrupted(NULL)) return failure("cancelled");
     Input in;
     int r=open_input_fd(&in,fd<0 ? -1 : file_dup(fd),declared_length);
     Json json={response,0,0};
-    if (r==0) r=compare ? compare_audio(&in,&json) : inspect(&in,&json);
+    if (r==0) r=process(&in,&json);
     if (r==0) {
         FileStamp after;
         if (file_stat(in.file.fd,&after)!=0 || in.stamp.st_size!=after.st_size ||
@@ -476,9 +570,16 @@ static const char *read_descriptor(int fd,int64_t declared_length,int compare) {
 }
 
 const char *cmp_media_inspect_fd(int fd,int64_t declared_length) {
-    return read_descriptor(fd,declared_length,0);
+    return read_descriptor(fd,declared_length,inspect);
 }
 
 const char *cmp_media_compare_fd(int fd,int64_t declared_length) {
-    return read_descriptor(fd,declared_length,1);
+    return read_descriptor(fd,declared_length,compare_audio);
 }
+
+#ifdef CMP_AUDIO_FINGERPRINT
+const char *cmp_media_fingerprint_fd(int fd,int64_t declared_length) {
+    deadline=milliseconds()+20000;
+    return read_descriptor(fd,declared_length,fingerprint_audio);
+}
+#endif

@@ -8,7 +8,7 @@ plugins {
 // Android-only source kit. Direct rootBundle loads use Flutter's normal asset
 // prefix; desktop bundles do not acquire a duplicate FFmpeg source archive.
 val mediaAssets = layout.buildDirectory.dir("generated/cmp-media-assets")
-val prepareMediaAssets = tasks.register<Copy>("prepareCmpMediaAssets") {
+val prepareMediaAssets = tasks.register<Sync>("prepareCmpMediaAssets") {
     into(mediaAssets)
     into("flutter_assets/third_party/cmp_android_media/vendor") {
         from(file("../../third_party/cmp_android_media/vendor"))
@@ -39,7 +39,12 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
-        externalNativeBuild { cmake { abiFilters += listOf("arm64-v8a") } }
+        externalNativeBuild {
+            cmake {
+                abiFilters += listOf("arm64-v8a")
+                arguments += "-DANDROID_STL=c++_static"
+            }
+        }
     }
 
     buildTypes {

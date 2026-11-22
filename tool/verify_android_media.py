@@ -4,13 +4,8 @@ import json
 from pathlib import Path, PurePosixPath
 import zipfile
 
-from build_media_helper import SOURCES
-
-SOURCE_FILES = ['tool/build_android_media.py', 'tool/build_media_helper.py',
-                'third_party/cmp_android_media/CMakeLists.txt',
-                'third_party/cmp_android_media/src/cmp_media.c',
-                'third_party/cmp_android_media/src/cmp_media.h',
-                'third_party/cmp_android_media/src/cmp_media_jni.c']
+from build_android_media import CHROMAPRINT_ARCHIVE, SOURCE_FILES
+from build_media_helper import CHROMAPRINT_SHA256, SOURCES
 
 
 def verify(root):
@@ -36,6 +31,9 @@ def verify(root):
         for name, (_, expected) in SOURCES.items():
             if name.startswith('ffmpeg'):
                 assert hashlib.sha256(archive.read(name)).hexdigest() == expected, name
+        upstream = archive.read(CHROMAPRINT_ARCHIVE)
+        assert hashlib.sha256(upstream).hexdigest() == CHROMAPRINT_SHA256
+        assert upstream == (root / CHROMAPRINT_ARCHIVE).read_bytes()
         for name in SOURCE_FILES:
             # Git may translate source line endings on Windows; pinned vendor
             # bytes themselves are exempt from translation in .gitattributes.

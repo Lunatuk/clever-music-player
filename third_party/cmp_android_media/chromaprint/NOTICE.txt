@@ -1,0 +1,11 @@
+Chromaprint 1.6.2 by Lukas Lalinsky and contributors
+https://github.com/acoustid/chromaprint/releases/tag/v1.6.2
+
+Distributed as a shared library. Upstream treats the complete release as
+LGPL 2.1. See LICENSE.md in the included source archive and COPYING.LGPLv2.1
+in the media helper distribution. The build uses KissFFT (BSD 3-Clause),
+whose license and copyright notices are in src/3rdparty/kissfft in the archive.
+
+CMake builds the unmodified release and uses the KissFFT implementation.
+The media helper supplies mono PCM at 11025 Hz. The library can be rebuilt
+from the archive and replaced with a compatible library in a custom package.

@@ -27,8 +27,10 @@ final class MediaHelperException implements Exception {
 /// Valid for an unchanged installed bundle. The download owner must qualify
 /// again after an application/helper update, rather than persisting this proof.
 final class QualifiedMediaHelper {
-  const QualifiedMediaHelper._(this.ffmpegPath, this.ffprobePath);
+  const QualifiedMediaHelper._(
+      this.ffmpegPath, this.ffprobePath, this.fingerprintPath);
   final String ffmpegPath, ffprobePath;
+  final String? fingerprintPath;
   String get version => BundledMediaHelper.version;
 
   FfmpegAudioMetadataBackend createMetadataBackend() =>
@@ -72,6 +74,8 @@ final class BundledMediaHelper {
     'swresample-5.dll',
     'swscale-8.dll',
   ];
+  static const _fingerprintExe = 'cmp_audio_fingerprint.exe';
+  static const _fingerprintBinaries = [_fingerprintExe, 'chromaprint.dll'];
   final Directory directory;
   final String target;
   final Duration timeout;
@@ -81,7 +85,8 @@ final class BundledMediaHelper {
   LibraryScanControl? _control;
   Future<void>? _closing;
 
-  Future<QualifiedMediaHelper> qualify({LibraryScanControl? control}) async {
+  Future<QualifiedMediaHelper> qualify(
+      {LibraryScanControl? control, bool includeFingerprint = false}) async {
     if (_closed) throw StateError('Проверка помощника закрыта.');
     if (_active != null) throw StateError('Проверка уже выполняется.');
     if (target != 'windows-x64') {
@@ -100,7 +105,8 @@ final class BundledMediaHelper {
     });
     try {
       final manifest = await _manifest(current);
-      await _verifyFiles(manifest, current);
+      final base = {for (final name in binaries) name: manifest[name]};
+      await _verifyFiles(base, current);
       final ffmpeg = p.join(directory.path, 'ffmpeg.exe');
       final ffprobe = p.join(directory.path, 'ffprobe.exe');
       for (final entry in [(ffmpeg, 'ffmpeg'), (ffprobe, 'ffprobe')]) {
@@ -146,9 +152,22 @@ final class BundledMediaHelper {
       }
       // Detect accidental replacement during probing too. Future processing
       // still assumes a stable application installation, not a hostile folder.
-      await _verifyFiles(manifest, current);
+      await _verifyFiles(base, current);
+      String? fingerprintPath;
+      if (includeFingerprint && manifest.containsKey(_fingerprintExe)) {
+        try {
+          await _verifyFiles(
+              {for (final name in _fingerprintBinaries) name: manifest[name]},
+              current);
+          fingerprintPath = p.join(directory.path, _fingerprintExe);
+        } on MediaHelperException {
+          // Exact PCM comparison is still available in this installation.
+        } on FileSystemException {
+          // The optional companion can be absent or inaccessible.
+        }
+      }
       current.throwIfCancelled();
-      return QualifiedMediaHelper._(ffmpeg, ffprobe);
+      return QualifiedMediaHelper._(ffmpeg, ffprobe, fingerprintPath);
     } on LibraryScanCancelled {
       if (timedOut) {
         throw const MediaHelperException(MediaHelperFailure.timedOut);
@@ -200,8 +219,11 @@ final class BundledMediaHelper {
       throw const MediaHelperException(MediaHelperFailure.invalidBundle);
     }
     final files = value['files'] as Map<String, dynamic>;
-    if (files.length != binaries.length ||
-        !files.keys.toSet().containsAll(binaries)) {
+    final names = files.keys.toSet();
+    if (!names.containsAll(binaries) ||
+        (files.length != binaries.length &&
+            (files.length != binaries.length + _fingerprintBinaries.length ||
+                !names.containsAll(_fingerprintBinaries)))) {
       throw const MediaHelperException(MediaHelperFailure.invalidBundle);
     }
     for (final entry in files.values) {

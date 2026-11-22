@@ -25,6 +25,10 @@ CMP_MEDIA_API const char *cmp_media_run(int op, const char *source,
 CMP_MEDIA_API const char *cmp_media_inspect_fd(int fd, int64_t declared_length);
 /* Compute full S32LE PCM identity on a borrowed mono/stereo audio descriptor. */
 CMP_MEDIA_API const char *cmp_media_compare_fd(int fd, int64_t declared_length);
+#ifdef CMP_AUDIO_FINGERPRINT
+/* Stream normalized mono audio into Chromaprint (no file output). */
+CMP_MEDIA_API const char *cmp_media_fingerprint_fd(int fd, int64_t declared_length);
+#endif
 #ifdef __cplusplus
 }
 #endif

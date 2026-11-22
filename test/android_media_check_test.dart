@@ -111,7 +111,7 @@ void main() {
             })));
     await tester.pumpAndSettle();
     expect(find.textContaining('LGPL text'), findsOneWidget);
-    await tester.tap(find.text('Сохранить исходники FFmpeg'));
+    await tester.tap(find.text('Сохранить исходники медиапомощника'));
     await tester.pumpAndSettle();
     expect(saved, [80, 75, 3, 4]);
     expect(find.text('Исходники сохранены.'), findsOneWidget);
@@ -125,7 +125,7 @@ void main() {
             save: (_) async => throw const AudioValidationException(
                 AudioValidationOutcome.unreadable))));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Сохранить исходники FFmpeg'));
+    await tester.tap(find.text('Сохранить исходники медиапомощника'));
     await tester.pumpAndSettle();
     expect(find.textContaining('Не удалось сохранить'), findsOneWidget);
   });

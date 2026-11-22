@@ -113,10 +113,11 @@ Future<AppDependencies> bootstrapApplication(
             revisionReader: audioRevision),
         audioComparison: switch (Abi.current()) {
           Abi.windowsX64 => AudioComparisonService(openDesktopAudioComparison,
-              revisionReader: audioRevision),
+              revisionReader: audioRevision, diagnostics: diagnostics),
           Abi.androidArm64 => AudioComparisonService(
               AndroidAudioComparisonReader.open,
-              revisionReader: audioRevision),
+              revisionReader: audioRevision,
+              diagnostics: diagnostics),
           _ => null,
         },
         recommendationService: recommendations,

@@ -139,6 +139,26 @@ void main() {
         backend.compareDocumentAudio(document, LibraryScanControl()),
         throwsA(isA<AudioValidationException>()));
   });
+
+  test('fingerprinting reads only the granted document and checks its response',
+      () async {
+    final document = ContentUriAudioSource(
+        'content://com.android.externalstorage.documents/document/example');
+    handler = (call) async =>
+        ok(call, {'durationUs': 62000000, 'fingerprint': '1234ffff00000000'});
+    final result =
+        await backend.fingerprintDocumentAudio(document, LibraryScanControl());
+    expect(result?.words, [0x1234ffff, 0]);
+    expect(calls.single.arguments, {
+      'requestId': calls.single.arguments['requestId'],
+      'op': 6,
+      'document': document.storageValue,
+    });
+    handler = (call) async => ok(call, {'fingerprint': 'data'});
+    expect(
+        await backend.fingerprintDocumentAudio(document, LibraryScanControl()),
+        isNull);
+  });
   final invalid = <String, Object?>{
     'durationUs': 0,
     'sizeBytes': 0,

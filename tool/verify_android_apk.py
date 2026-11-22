@@ -3,17 +3,25 @@
 Usage: python tool/verify_android_apk.py path/to/app-arm64-v8a-release.apk
 This is a build check, not a substitute for running on a 16 KB device.
 """
+import hashlib
+import io
 import json
 from pathlib import Path
 import struct
 import sys
 import zipfile
 
+from build_android_media import CHROMAPRINT_ARCHIVE
+from build_media_helper import CHROMAPRINT_SHA256
+
 
 def verify(apk):
     libraries = []
     with zipfile.ZipFile(apk) as archive, open(apk, "rb") as raw:
         assert archive.testzip() is None, "APK CRC failure"
+        kit = "assets/flutter_assets/third_party/cmp_android_media/vendor/source-kit.zip"
+        with zipfile.ZipFile(io.BytesIO(archive.read(kit))) as sources:
+            assert hashlib.sha256(sources.read(CHROMAPRINT_ARCHIVE)).hexdigest() == CHROMAPRINT_SHA256
         for entry in archive.infolist():
             if not entry.filename.endswith(".so"):
                 continue
@@ -59,6 +67,7 @@ def verify(apk):
                               "load_alignments": loads, "relro_ends": relro})
     assert any(item["name"].endswith("/libflutter.so") for item in libraries), "Missing engine"
     assert any(item["name"].endswith("/libapp.so") for item in libraries), "Missing AOT app"
+    assert any(item["name"].endswith("/libchromaprint.so") for item in libraries), "Missing Chromaprint"
     return {"apk": Path(apk).name, "libraries": libraries, "result": "passed"}
 
 

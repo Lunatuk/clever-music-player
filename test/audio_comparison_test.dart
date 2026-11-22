@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:clever_music_player/src/domain/models/models.dart';
 import 'package:clever_music_player/src/library/audio_comparison.dart';
+import 'package:clever_music_player/src/library/audio_fingerprint.dart';
 import 'package:clever_music_player/src/library/library_scan_control.dart';
 import 'package:clever_music_player/src/library/library_track_variants.dart';
 import 'package:clever_music_player/src/library_sync/bundled_media_helper.dart';
@@ -79,6 +81,82 @@ void main() {
         control: LibraryScanControl());
     expect(comparison.result, AudioComparisonResult.unreadable);
     expect(comparison.proof, isNull);
+  });
+
+  test('a whole-recording match is a hint and grants no exact proof', () async {
+    final words = _words();
+    final other = _fingerprint([0, 1, 2, 3, 4, ...words.take(475)]);
+    final reader = _FingerprintReader(_fingerprint(words), other);
+    final comparison = await AudioComparisonService((_) async => reader,
+            revisionReader: (_) async => 'a' * 64)
+        .compareWithProof(first.copyWith(id: 1), second.copyWith(id: 2),
+            control: LibraryScanControl());
+    expect(comparison.result, AudioComparisonResult.possiblySameRecording);
+    expect(comparison.proof, isNull);
+    expect(reader.closed, isTrue);
+  });
+
+  test('a change during fingerprinting discards the result', () async {
+    final fingerprint = _fingerprint(_words());
+    var revision = 'a' * 64;
+    final reader = _FingerprintReader(fingerprint, fingerprint,
+        onFingerprint: () => revision = 'b' * 64);
+    final comparison = await AudioComparisonService((_) async => reader,
+            revisionReader: (_) async => revision)
+        .compareWithProof(first, second, control: LibraryScanControl());
+    expect(comparison.result, AudioComparisonResult.unreadable);
+    expect(comparison.proof, isNull);
+    expect(reader.closed, isTrue);
+  });
+
+  test('a missing fingerprint preserves the exact result', () async {
+    final reader = _FingerprintReader(null, _fingerprint(_words()));
+    final comparison = await AudioComparisonService((_) async => reader,
+            revisionReader: (_) async => 'a' * 64)
+        .compareWithProof(first, second, control: LibraryScanControl());
+    expect(comparison.result, AudioComparisonResult.different);
+    expect(comparison.proof, isNull);
+    expect(reader.fingerprintReads, 1);
+  });
+
+  test('a differing ending fails even when the full average is high', () async {
+    final words = _words();
+    final endedDifferently = [
+      ...words.take(455),
+      for (final word in words.skip(455)) word ^ 0xffff,
+    ];
+    expect(
+        await compareRecordingFingerprints(
+            _fingerprint(words), _fingerprint(endedDifferently)),
+        RecordingSimilarity.belowThreshold);
+    expect(
+        await compareRecordingFingerprints(
+            _fingerprint(words), _fingerprint(List.filled(480, 0))),
+        RecordingSimilarity.inconclusive);
+  });
+
+  test('cancellation during the approximate pass discards the hint', () async {
+    final control = LibraryScanControl();
+    final fp = _fingerprint(_words());
+    final reader = _FingerprintReader(fp, fp, onFingerprint: control.cancel);
+    final result = await AudioComparisonService((_) async => reader,
+            revisionReader: (_) async => 'a' * 64)
+        .compare(first, second, control: control);
+    expect(result, AudioComparisonResult.cancelled);
+    expect(reader.fingerprintReads, 1);
+    expect(reader.closed, isTrue);
+  });
+
+  test('fingerprint parsing rejects malformed and oversized responses', () {
+    for (final invalid in ['G234ffff', '0123', '0' * (8 * 15001)]) {
+      expect(
+          AudioFingerprint.decode({
+            'status': 'ok',
+            'durationUs': 60000000,
+            'fingerprint': invalid,
+          }),
+          isNull);
+    }
   });
 
   testWidgets('dialog selects two independent files even with the same search',
@@ -224,6 +302,40 @@ class _Matches implements AudioMatchRepository {
 final first = track('/music/first.flac', 'First');
 final second = track('/music/second.flac', 'Second');
 final equalPcm = (digest: 'a' * 64, sampleRate: 48000, channels: 2);
+
+List<int> _words() {
+  final random = Random(42);
+  return List.generate(480, (_) => random.nextInt(1 << 32));
+}
+
+AudioFingerprint _fingerprint(List<int> words) => AudioFingerprint.decode({
+      'status': 'ok',
+      'durationUs': 62000000,
+      'fingerprint':
+          words.map((word) => word.toRadixString(16).padLeft(8, '0')).join(),
+    })!;
+
+final class _FingerprintReader extends _Reader
+    implements AudioFingerprintReader {
+  _FingerprintReader(this.left, this.right, {this.onFingerprint})
+      : super((source, _) async => (
+              digest: (source == first.source ? 'a' : 'b') * 64,
+              sampleRate: 48000,
+              channels: 2,
+            ));
+
+  final AudioFingerprint? left, right;
+  final void Function()? onFingerprint;
+  int fingerprintReads = 0;
+
+  @override
+  Future<AudioFingerprint?> readFingerprint(
+      AudioSourceReference source, LibraryScanControl control) async {
+    fingerprintReads++;
+    onFingerprint?.call();
+    return source == first.source ? left : right;
+  }
+}
 
 Track track(String path, String title) => Track(
     filePath: path,

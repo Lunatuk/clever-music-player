@@ -4,7 +4,8 @@ import json
 from pathlib import Path
 import struct
 
-from build_media_helper import BINARIES, SOURCES, digest
+from build_media_helper import (BINARIES, CHROMAPRINT_SHA256, CHROMAPRINT_SOURCE,
+                                FINGERPRINT_BINARIES, SOURCES, digest)
 
 
 def pe_imports(file):
@@ -52,12 +53,13 @@ def verify(root):
     manifest = json.loads((root / 'manifest.json').read_text(encoding='utf8'))
     if (manifest['schema'], manifest['profile'], manifest['target'], manifest['ffmpegVersion']) != (1, 'cmp-audio-1', 'windows-x64', '7.1.5'):
         raise ValueError('Incompatible bundle manifest.')
-    if set(manifest['files']) != set(BINARIES):
+    expected_binaries = BINARIES + FINGERPRINT_BINARIES
+    if set(manifest['files']) != set(expected_binaries):
         raise ValueError('Wrong binary set.')
     system = {'kernel32.dll', 'shell32.dll', 'psapi.dll', 'bcrypt.dll'}
-    supplied = {name.lower() for name in BINARIES if name.endswith('.dll')}
+    supplied = {name.lower() for name in expected_binaries if name.endswith('.dll')}
     dependencies = {}
-    for name in BINARIES:
+    for name in expected_binaries:
         file = root / name
         evidence = manifest['files'][name]
         if file.stat().st_size != evidence['bytes'] or digest(file) != evidence['sha256']:
@@ -69,11 +71,18 @@ def verify(root):
     for name, (_, expected) in SOURCES.items():
         if digest(root / 'sources' / name) != expected:
             raise ValueError('Corresponding source mismatch: ' + name)
+    fingerprint = root / 'sources/fingerprint'
+    if digest(fingerprint / 'chromaprint' / CHROMAPRINT_SOURCE) != CHROMAPRINT_SHA256:
+        raise ValueError('Corresponding Chromaprint source mismatch.')
+    if 'chromaprint.dll' not in dependencies['cmp_audio_fingerprint.exe']:
+        raise ValueError('The fingerprint helper must link Chromaprint dynamically.')
     for name in ['COPYING.LGPLv2.1', 'FFmpeg-LICENSE.md', 'zlib-LICENSE.txt', 'NOTICE.txt',
-                 'sources/build_media_helper.py', 'sources/build-info.json', 'sources/media_helper_NOTICE.txt']:
+                 'sources/build_media_helper.py', 'sources/build-info.json', 'sources/media_helper_NOTICE.txt',
+                 'sources/fingerprint/chromaprint/NOTICE.txt', 'sources/fingerprint/CMakeLists.txt',
+                 'sources/fingerprint/src/cmp_media.c', 'sources/fingerprint/chromaprint/CMakeLists.txt']:
         if not (root / name).is_file() or (root / name).stat().st_size == 0:
             raise ValueError('Missing distribution notice/recipe: ' + name)
-    return {'runtimeBytes': sum((root / name).stat().st_size for name in BINARIES),
+    return {'runtimeBytes': sum((root / name).stat().st_size for name in expected_binaries),
             'files': len([file for file in root.rglob('*') if file.is_file()]),
             'dependencies': dependencies}
 

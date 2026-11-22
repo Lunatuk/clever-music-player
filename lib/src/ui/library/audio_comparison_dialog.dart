@@ -145,6 +145,8 @@ class _AudioComparisonDialogState extends State<_AudioComparisonDialog> {
         switch (_result) {
           AudioComparisonResult.equal => 'Звук совпадает',
           AudioComparisonResult.different => 'Звук различается',
+          AudioComparisonResult.possiblySameRecording =>
+            'Возможно, та же запись. Подсказка по сходству звучания.',
           AudioComparisonResult.unreadable =>
             'Не удалось сравнить файлы. Проверь доступ к ним и формат.',
           AudioComparisonResult.cancelled => 'Сравнение остановлено',

@@ -78,6 +78,7 @@ enum DiagnosticEvent {
   androidDownloadCoordinated,
   androidDownloadOpenFailed,
   androidImportFinished,
+  audioFingerprintFinished,
 }
 
 enum DiagnosticField {
@@ -213,6 +214,7 @@ enum DiagnosticField {
   metadataCacheNativeArtworkChecks,
   metadataCacheBatchFallbackCode,
   syncLocalCopies,
+  recordingSimilarity,
 }
 
 /// Only fixed event/field names and numeric/boolean values enter the journal.

@@ -17,7 +17,7 @@ import tarfile
 import urllib.request
 import zipfile
 
-from build_media_helper import SOURCES, visual_studio_environment
+from build_media_helper import CHROMAPRINT_SOURCE, SOURCES, visual_studio_environment
 
 LIBRARIES = ['avformat', 'avcodec', 'avutil', 'swresample']
 FLAGS = [
@@ -39,6 +39,8 @@ NOTICE = """Clever Music Player Android media backend, profile cmp-android-audio
 FFmpeg 7.1.5: LGPL version 2.1 or later. Copyright the FFmpeg developers.
 No GPL, version3 or nonfree options. Dynamically linked, not a playback engine.
 Android's system zlib is used; it is not redistributed in this bundle.
+Chromaprint 1.6.2: LGPL 2.1 distribution with KissFFT (BSD 3-Clause).
+See third_party/cmp_android_media/chromaprint/NOTICE.txt inside source-kit.zip.
 Exact corresponding source, release signature/key, generated configuration,
 recipes and wrapper source are in source-kit.zip, also included inside the APK.
 The app can export this kit from its licenses page. No network is required.
@@ -47,6 +49,27 @@ key (the original signing key is not needed). See README in the source kit.
 Upstream: https://ffmpeg.org/   License: https://ffmpeg.org/legal.html
 Player source: https://github.com/Lunatuk/clever-music-player
 """
+README = (
+    'Rebuild with NDK r28c and Python 3.11+:\n'
+    'python tool/build_android_media.py --ndk <NDK> --work-dir <new-ASCII-directory> '
+    '--output third_party/cmp_android_media/vendor --source-cache .\n'
+    'Windows: provide --make <GNU-Make> and --bash <Git-Bash>; a full MSVC SDK is needed.\n'
+    'Build tool changes are generated configuration only; upstream FFmpeg source is unchanged.\n'
+    'Use CMake 3.22+ with the Android NDK toolchain, ANDROID_ABI=arm64-v8a,\n'
+    'ANDROID_PLATFORM=android-24 and ANDROID_STL=c++_static on third_party/cmp_android_media.\n'
+    'Its CMake project builds the JNI wrapper and the separate Chromaprint library.\n'
+    'Replace the corresponding APK libraries in lib/arm64-v8a, run zipalign -P 16,\n'
+    'then sign the APK with apksigner and your own key.\n'
+)
+MEDIA_ROOT = 'third_party/cmp_android_media'
+CHROMAPRINT_ARCHIVE = f'{MEDIA_ROOT}/chromaprint/{CHROMAPRINT_SOURCE}'
+SOURCE_FILES = [
+    'tool/build_android_media.py', 'tool/build_media_helper.py',
+    f'{MEDIA_ROOT}/CMakeLists.txt', f'{MEDIA_ROOT}/src/cmp_media.c',
+    f'{MEDIA_ROOT}/src/cmp_media.h', f'{MEDIA_ROOT}/src/cmp_media_jni.c',
+    f'{MEDIA_ROOT}/src/cmp_fingerprint_main.c',
+    f'{MEDIA_ROOT}/chromaprint/CMakeLists.txt', f'{MEDIA_ROOT}/chromaprint/NOTICE.txt',
+]
 
 
 def sha(path):
@@ -138,19 +161,8 @@ def assemble(ffmpeg, cache, output, tools, flags, root):
         archive.writestr('BUILD_INFO.json', json.dumps(manifest, indent=2))
         archive.writestr('NOTICE.txt', NOTICE)
         archive.write(output / 'COPYING.LGPLv2.1', 'COPYING.LGPLv2.1')
-        archive.writestr('README.txt', 'Rebuild with NDK r28c and Python 3.11+:\n'
-                          'python tool/build_android_media.py --ndk <NDK> --work-dir <new-ASCII-directory> '
-                          '--output third_party/cmp_android_media/vendor --source-cache .\n'
-                          'Windows: provide --make <GNU-Make> and --bash <Git-Bash>; a full MSVC SDK is needed.\n'
-                          'Build tool changes are generated configuration only; upstream FFmpeg source is unchanged.\n'
-                          'Replace the APK lib/arm64-v8a/libav*.so and libswresample.so with rebuilt libraries,\n'
-                          'zipalign -P 16, then apksigner sign with your own key.\n'
-                          'To rebuild the JNI wrapper, use the included CMake project with Android NDK.\n')
-        for name in ['tool/build_android_media.py', 'tool/build_media_helper.py',
-                     'third_party/cmp_android_media/CMakeLists.txt',
-                     'third_party/cmp_android_media/src/cmp_media.c',
-                     'third_party/cmp_android_media/src/cmp_media.h',
-                     'third_party/cmp_android_media/src/cmp_media_jni.c']:
+        archive.writestr('README.txt', README)
+        for name in [*SOURCE_FILES, CHROMAPRINT_ARCHIVE]:
             archive.write(root / name, name)
     manifest['files']['source-kit.zip'] = {'bytes': kit.stat().st_size, 'sha256': sha(kit)}
     (output / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf8')

@@ -1,5 +1,6 @@
 import '../domain/models/audio_source_reference.dart';
 import '../library/audio_comparison.dart';
+import '../library/audio_fingerprint.dart';
 import '../library/library_scan_control.dart';
 import '../library_sync/downloaded_audio_validation.dart';
 import 'android_audio_metadata_backend.dart';
@@ -20,7 +21,8 @@ Future<String?> readAndroidAudioRevision(AudioSourceReference source) async {
   ]);
 }
 
-final class AndroidAudioComparisonReader implements AudioComparisonReader {
+final class AndroidAudioComparisonReader
+    implements AudioComparisonReader, AudioFingerprintReader {
   AndroidAudioComparisonReader(this._backend);
 
   static Future<AndroidAudioComparisonReader> open(
@@ -36,6 +38,13 @@ final class AndroidAudioComparisonReader implements AudioComparisonReader {
   }
 
   final AndroidAudioMetadataBackend _backend;
+
+  @override
+  Future<AudioFingerprint?> readFingerprint(
+      AudioSourceReference source, LibraryScanControl control) async {
+    if (source is! ContentUriAudioSource) return null;
+    return _backend.fingerprintDocumentAudio(source, control);
+  }
 
   @override
   Future<AudioPcmSignature> read(

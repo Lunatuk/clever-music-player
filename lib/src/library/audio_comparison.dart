@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 
+import '../diagnostics/diagnostics_service.dart';
 import '../domain/models/audio_document_identity.dart';
 import '../domain/models/audio_source_reference.dart';
 import '../domain/models/track.dart';
@@ -11,6 +12,8 @@ import '../library_sync/bundled_media_helper.dart';
 import '../library_sync/downloaded_audio_metadata.dart';
 import '../library_sync/downloaded_audio_validation.dart';
 import '../library_sync/ffmpeg_audio_metadata_backend.dart';
+import '../library_sync/media_process_runner.dart';
+import 'audio_fingerprint.dart';
 import 'library_scan_control.dart';
 
 const audioComparisonMaxBytes = 128 * 1024 * 1024;
@@ -23,7 +26,14 @@ typedef AudioComparison = ({
   AudioMatchProof? proof
 });
 
-enum AudioComparisonResult { equal, different, unreadable, cancelled, timedOut }
+enum AudioComparisonResult {
+  equal,
+  different,
+  possiblySameRecording,
+  unreadable,
+  cancelled,
+  timedOut
+}
 
 final class AudioMatchProof {
   const AudioMatchProof._(this.first, this.second, this.key, this.firstRevision,
@@ -78,11 +88,14 @@ abstract interface class AudioComparisonReader {
 
 final class AudioComparisonService {
   const AudioComparisonService(this._open,
-      {this.timeout = const Duration(seconds: 45), this.revisionReader});
+      {this.timeout = const Duration(seconds: 45),
+      this.revisionReader,
+      this.diagnostics = const NoopDiagnosticsService()});
 
   final Future<AudioComparisonReader> Function(LibraryScanControl) _open;
   final Duration timeout;
   final AudioRevisionReader? revisionReader;
+  final DiagnosticsService diagnostics;
 
   Future<AudioComparisonResult> compare(Track first, Track second,
           {required LibraryScanControl control}) async =>
@@ -130,6 +143,30 @@ final class AudioComparisonService {
         return (result: AudioComparisonResult.unreadable, proof: null);
       }
       if (left != right) {
+        if (reader is AudioFingerprintReader &&
+            leftRevision != null &&
+            rightRevision != null) {
+          final possiblySame = await _compareFingerprints(
+              reader as AudioFingerprintReader,
+              firstSource,
+              secondSource,
+              operation);
+          operation.throwIfCancelled();
+          if (leftRevision !=
+                  await tryAudioRevision(revisionReader, firstSource) ||
+              rightRevision !=
+                  await tryAudioRevision(revisionReader, secondSource)) {
+            operation.throwIfCancelled();
+            return (result: AudioComparisonResult.unreadable, proof: null);
+          }
+          operation.throwIfCancelled();
+          if (possiblySame) {
+            return (
+              result: AudioComparisonResult.possiblySameRecording,
+              proof: null
+            );
+          }
+        }
         return (result: AudioComparisonResult.different, proof: null);
       }
       final key = '1:${left.sampleRate}:${left.channels}:${left.digest}';
@@ -158,22 +195,58 @@ final class AudioComparisonService {
       await reader?.close();
     }
   }
+
+  Future<bool> _compareFingerprints(
+      AudioFingerprintReader reader,
+      AudioSourceReference first,
+      AudioSourceReference second,
+      LibraryScanControl control) async {
+    final clock = Stopwatch()..start();
+    var similarity = RecordingSimilarity.inconclusive;
+    try {
+      final left = await reader.readFingerprint(first, control);
+      control.throwIfCancelled();
+      if (left == null) return false;
+      final right = await reader.readFingerprint(second, control);
+      control.throwIfCancelled();
+      if (right == null) return false;
+      similarity = await compareRecordingFingerprints(left, right);
+      control.throwIfCancelled();
+      return similarity == RecordingSimilarity.possible;
+    } on LibraryScanCancelled {
+      rethrow;
+    } on Object {
+      return false;
+    } finally {
+      diagnostics.record(DiagnosticEvent.audioFingerprintFinished, fields: {
+        DiagnosticField.elapsedMs: clock.elapsedMilliseconds,
+        DiagnosticField.recordingSimilarity:
+            control.isCancellationRequested ? 3 : similarity.index,
+      });
+    }
+  }
 }
 
 Future<AudioComparisonReader> openDesktopAudioComparison(
     LibraryScanControl control) async {
   final helper = BundledMediaHelper.forCurrentProcess();
   try {
-    final qualified = await helper.qualify(control: control);
-    return DesktopAudioComparisonReader(qualified.createMetadataBackend());
+    final qualified =
+        await helper.qualify(control: control, includeFingerprint: true);
+    return DesktopAudioComparisonReader(qualified.createMetadataBackend(),
+        fingerprintPath: qualified.fingerprintPath);
   } finally {
     await helper.close();
   }
 }
 
-final class DesktopAudioComparisonReader implements AudioComparisonReader {
-  const DesktopAudioComparisonReader(this._backend);
+final class DesktopAudioComparisonReader
+    implements AudioComparisonReader, AudioFingerprintReader {
+  DesktopAudioComparisonReader(this._backend, {String? fingerprintPath})
+      : _fingerprintPath = fingerprintPath;
   final FfmpegAudioMetadataBackend _backend;
+  final String? _fingerprintPath;
+  final _fingerprints = BoundedMediaProcessRunner(maxStdoutBytes: 128 * 1024);
 
   @override
   Future<AudioPcmSignature> read(
@@ -217,7 +290,23 @@ final class DesktopAudioComparisonReader implements AudioComparisonReader {
   }
 
   @override
-  Future<void> close() => _backend.close();
+  Future<AudioFingerprint?> readFingerprint(
+      AudioSourceReference source, LibraryScanControl control) async {
+    final executable = _fingerprintPath;
+    if (executable == null || source is! FileAudioSource) return null;
+    final result = await _fingerprints.run(
+        executable, [File(source.path).absolute.path], control);
+    if (result.exitCode != 0 || result.hadStderr) return null;
+    final value = jsonDecode(result.stdout);
+    return value is Map<String, dynamic>
+        ? AudioFingerprint.decode(value)
+        : null;
+  }
+
+  @override
+  Future<void> close() async {
+    await Future.wait([_backend.close(), _fingerprints.close()]);
+  }
 }
 
 const _invalidAudio =

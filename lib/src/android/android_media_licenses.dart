@@ -33,7 +33,7 @@ final class _AndroidMediaLicensesState extends State<AndroidMediaLicenses> {
           data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
       final result = await (widget.save?.call(bytes) ??
           FilePicker.platform.saveFile(
-              fileName: 'clever-android-ffmpeg-7.1.5-sources.zip',
+              fileName: 'clever-android-media-sources.zip',
               type: FileType.custom,
               allowedExtensions: const ['zip'],
               bytes: bytes));
@@ -58,7 +58,7 @@ final class _AndroidMediaLicensesState extends State<AndroidMediaLicenses> {
           padding: const EdgeInsets.all(16),
           child:
               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const Text('FFmpeg 7.1.5 · LGPL 2.1+'),
+            const Text('FFmpeg 7.1.5 и Chromaprint 1.6.2'),
             const SizedBox(height: 8),
             const Text(
                 'Соответствующие исходники, настройки сборки и инструкции '
@@ -66,7 +66,7 @@ final class _AndroidMediaLicensesState extends State<AndroidMediaLicenses> {
             OutlinedButton.icon(
                 onPressed: _saving ? null : _save,
                 icon: const Icon(Icons.save_alt),
-                label: const Text('Сохранить исходники FFmpeg')),
+                label: const Text('Сохранить исходники медиапомощника')),
             if (_saving) const LinearProgressIndicator(),
             if (_message != null) Text(_message!),
             const SizedBox(height: 16),
