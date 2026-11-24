@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../app/app_dependencies.dart';
@@ -14,12 +15,16 @@ import '../ui/library/audio_comparison_dialog.dart';
 import '../ui/library/track_variants_dialog.dart';
 import '../ui/track_metadata_subtitle.dart';
 import '../domain/models/track.dart';
+import '../domain/models/track_user_state.dart';
 import '../domain/repositories/track_repository.dart';
+import '../domain/repositories/track_user_state_repository.dart';
 import '../library/artwork_cache_service.dart';
 import '../library/library_track_list.dart';
 import '../library/library_track_variants.dart';
 import '../player/player_service.dart';
 import '../player/player_state.dart';
+import '../queue/playback_queue_service.dart';
+import '../queue/queue_state.dart';
 import '../ui/design_preview/design_preview_screen.dart';
 import 'android_import_controller.dart';
 import 'android_import_metadata_cache.dart';
@@ -149,6 +154,9 @@ final class _AndroidPreviewAppState extends State<AndroidPreviewApp> {
                 tracks:
                     widget.dependencies.repositories.tracks.watchAllTracks(),
                 libraryVariants: widget.dependencies.libraryVariants,
+                feedbackRepository:
+                    widget.dependencies.repositories.trackUserState,
+                queue: widget.dependencies.playbackQueue,
                 compareAudio: widget.dependencies.audioComparison == null
                     ? null
                     : _compareAudio,
@@ -196,6 +204,8 @@ final class AndroidLibraryScreen extends StatefulWidget {
       this.stop,
       this.appearance,
       this.libraryVariants,
+      this.feedbackRepository,
+      this.queue,
       this.compareAudio});
   final AppearanceController? appearance;
   final AndroidImportController importer;
@@ -206,22 +216,45 @@ final class AndroidLibraryScreen extends StatefulWidget {
   final WidgetBuilder? sourceSettings;
   final Future<void> Function()? stop;
   final LibraryVariantRepository? libraryVariants;
+  final TrackUserStateRepository? feedbackRepository;
+  final PlaybackQueueService? queue;
   final Future<void> Function(BuildContext, String, LibraryVariantEvidence)?
       compareAudio;
   @override
   State<AndroidLibraryScreen> createState() => _AndroidLibraryScreenState();
 }
 
+enum _FeedbackFilter {
+  all('Все треки', null),
+  favorites('Избранное', TrackFeedback.like),
+  disliked('Не нравится', TrackFeedback.dislike);
+
+  const _FeedbackFilter(this.label, this.feedback);
+  final String label;
+  final TrackFeedback? feedback;
+}
+
+TrackFeedback? _visibleFeedback(TrackUserState? state) {
+  if (state?.isHidden == true) return TrackFeedback.dislike;
+  return state?.isFavorite == true ? TrackFeedback.like : null;
+}
+
 final class _AndroidLibraryScreenState extends State<AndroidLibraryScreen> {
   final _search = TextEditingController();
   String _query = '';
   LibraryTrackSortOption _sort = LibraryTrackSortOption.title;
+  _FeedbackFilter _filter = _FeedbackFilter.all;
   Stream<LibraryVariantEvidence>? _variantEvidenceStream;
+  Stream<Map<int, TrackFeedback>>? _feedbackStream;
+  List<Track>? _feedbackTracks;
+  List<int> _feedbackIds = const [];
   (
     List<Track>,
     LibraryVariantEvidence,
     String,
-    LibraryTrackSortOption
+    LibraryTrackSortOption,
+    _FeedbackFilter,
+    Map<int, TrackFeedback>?
   )? _viewInput;
   LibraryTrackView? _cachedView;
 
@@ -237,14 +270,50 @@ final class _AndroidLibraryScreenState extends State<AndroidLibraryScreen> {
     if (!identical(oldWidget.libraryVariants, widget.libraryVariants)) {
       _variantEvidenceStream = widget.libraryVariants?.watchEvidence();
     }
+    if (!identical(oldWidget.feedbackRepository, widget.feedbackRepository)) {
+      _feedbackStream = null;
+      _feedbackTracks = null;
+    }
   }
 
-  LibraryTrackView _trackView(
-      List<Track> tracks, LibraryVariantEvidence evidence) {
-    final input = (tracks, evidence, _query, _sort);
+  Stream<Map<int, TrackFeedback>>? _watchFeedback(List<Track> tracks) {
+    final repository = widget.feedbackRepository;
+    if (repository == null || identical(_feedbackTracks, tracks)) {
+      return _feedbackStream;
+    }
+    _feedbackTracks = tracks;
+    final ids = tracks.map((track) => track.id).whereType<int>().toList()
+      ..sort();
+    if (_feedbackStream == null || !listEquals(ids, _feedbackIds)) {
+      _feedbackIds = ids;
+      _feedbackStream = repository
+          .watchTrackStatesByTrackIds(ids)
+          .map((states) => {
+                for (final entry in states.entries)
+                  if (_visibleFeedback(entry.value) case final item?)
+                    entry.key: item,
+              })
+          .distinct(mapEquals);
+    }
+    return _feedbackStream;
+  }
+
+  LibraryTrackView _trackView(List<Track> tracks,
+      LibraryVariantEvidence evidence, Map<int, TrackFeedback> feedback) {
+    final filter = _filter.feedback;
+    final input = (
+      tracks,
+      evidence,
+      _query,
+      _sort,
+      _filter,
+      filter == null ? null : feedback
+    );
     if (input == _viewInput) return _cachedView!;
     final view = buildLibraryTrackView(
-        tracks: tracks,
+        tracks: filter == null
+            ? tracks
+            : tracks.where((track) => feedback[track.id] == filter),
         searchQuery: _query,
         showMissingTracks: false,
         sortOption: _sort,
@@ -275,6 +344,61 @@ final class _AndroidLibraryScreenState extends State<AndroidLibraryScreen> {
                 Text('Не удалось выполнить действие. Попробуйте ещё раз.')));
       }
     }
+  }
+
+  Widget _feedbackButton(Track track, TrackFeedback? feedback,
+      {bool nowPlaying = false}) {
+    final queue = widget.queue;
+    if (queue == null || track.id == null) return const SizedBox.shrink();
+    return PopupMenuButton<TrackFeedback>(
+      tooltip: nowPlaying ? 'Оценка текущего трека' : 'Оценка трека',
+      icon: Icon(switch (feedback) {
+        TrackFeedback.like => Icons.favorite_rounded,
+        TrackFeedback.dislike => Icons.thumb_down_rounded,
+        null => Icons.more_vert_rounded,
+      }),
+      onSelected: (value) => _command(() async {
+        switch (value) {
+          case TrackFeedback.like:
+            await queue.toggleLike(track);
+          case TrackFeedback.dislike:
+            await queue.toggleDislike(track);
+        }
+        if (queue.state.lastError != null) {
+          throw StateError('Оценка трека не была сохранена.');
+        }
+      }),
+      itemBuilder: (_) => [
+        PopupMenuItem(
+          value: TrackFeedback.like,
+          child: Text(feedback == TrackFeedback.like
+              ? 'Убрать из избранного'
+              : 'В избранное'),
+        ),
+        PopupMenuItem(
+          value: TrackFeedback.dislike,
+          child: Text(feedback == TrackFeedback.dislike
+              ? 'Убрать дизлайк'
+              : 'Не нравится'),
+        ),
+      ],
+    );
+  }
+
+  Widget _nowPlayingFeedback(Track track) {
+    final queue = widget.queue;
+    if (queue == null || track.id == null) return const SizedBox.shrink();
+    return StreamBuilder<QueueState>(
+      stream: queue.stateStream,
+      initialData: queue.state,
+      builder: (context, snapshot) {
+        final state = snapshot.data ?? queue.state;
+        final feedback = state.currentTrack?.id == track.id
+            ? _visibleFeedback(state.currentTrackUserState)
+            : null;
+        return _feedbackButton(track, feedback, nowPlaying: true);
+      },
+    );
   }
 
   List<Widget> _playbackButtons(PlayerState state) => [
@@ -461,6 +585,22 @@ final class _AndroidLibraryScreenState extends State<AndroidLibraryScreen> {
                         icon: const Icon(Icons.compare_arrows),
                       ),
                   ])),
+              if (widget.feedbackRepository != null)
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Row(children: [
+                    for (final filter in _FeedbackFilter.values)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: ChoiceChip(
+                          label: Text(filter.label),
+                          selected: filter == _filter,
+                          onSelected: (_) => setState(() => _filter = filter),
+                        ),
+                      ),
+                  ]),
+                ),
               ListenableBuilder(
                   listenable: widget.importer,
                   builder: (context, _) {
@@ -539,84 +679,113 @@ final class _AndroidLibraryScreenState extends State<AndroidLibraryScreen> {
                           key: ObjectKey(widget.libraryVariants),
                           stream: _variantEvidenceStream,
                           initialData: const LibraryVariantEvidence(),
-                          builder: (context, evidenceSnapshot) {
-                            final view = _trackView(
-                                all,
-                                evidenceSnapshot.data ??
-                                    const LibraryVariantEvidence());
-                            final tracks = view.tracks;
-                            if (tracks.isEmpty) {
-                              return Center(
-                                  child: SingleChildScrollView(
-                                      padding: const EdgeInsets.all(24),
-                                      child: Column(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            const Text('Ничего не найдено'),
-                                            const SizedBox(height: 8),
-                                            TextButton(
-                                                onPressed: _clearSearch,
-                                                child: const Text(
-                                                    'Сбросить поиск')),
-                                          ])));
-                            }
-                            return ListView.builder(
-                                itemCount: tracks.length,
-                                // Same ListTile geometry and text scaling as real
-                                // rows, without reading a prototype cover file.
-                                prototypeItem: const ListTile(
-                                    leading: SizedBox.square(dimension: 52),
-                                    title: Text(' ', maxLines: 1),
-                                    subtitle: Text(' ', maxLines: 1)),
-                                itemBuilder: (context, index) {
-                                  final track = tracks[index];
-                                  final group = view.versions[track.filePath];
-                                  return ListTile(
-                                      leading: _Cover(track: track),
-                                      title: Text(track.displayTitle,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis),
-                                      subtitle: Text(
-                                          track.artist ??
-                                              'Неизвестный исполнитель',
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis),
-                                      trailing: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          if (group != null)
-                                            TrackVariantsButton(
-                                              group: group,
-                                              onPressed: () => unawaited(
-                                                  showTrackVariantsDialog(
-                                                context,
-                                                group: group,
-                                                repository:
-                                                    widget.libraryVariants!,
-                                                play: (track) =>
-                                                    widget.playTrack(
-                                                        track,
-                                                        group
-                                                            .withPlaybackVersion(
-                                                                track, tracks)),
-                                              )),
-                                            ),
-                                          Tooltip(
-                                              message:
-                                                  buildMetadataCompletenessTooltip(
-                                                      track),
-                                              child: Text(
-                                                  buildMetadataCompletenessLabel(
-                                                      track),
-                                                  style: Theme.of(context)
-                                                      .textTheme
-                                                      .labelSmall)),
-                                        ],
-                                      ),
-                                      onTap: () => _command(() =>
-                                          widget.playTrack(track, tracks)));
-                                });
-                          },
+                          builder: (context, evidenceSnapshot) => StreamBuilder<
+                                  Map<int, TrackFeedback>>(
+                              stream: _watchFeedback(all),
+                              builder: (context, feedbackSnapshot) {
+                                final feedback = feedbackSnapshot.data ??
+                                    const <int, TrackFeedback>{};
+                                if (_filter != _FeedbackFilter.all &&
+                                    !feedbackSnapshot.hasData) {
+                                  return Center(
+                                      child: feedbackSnapshot.hasError
+                                          ? const Text(
+                                              'Не удалось загрузить оценки треков.')
+                                          : const CircularProgressIndicator());
+                                }
+                                final view = _trackView(
+                                    all,
+                                    evidenceSnapshot.data ??
+                                        const LibraryVariantEvidence(),
+                                    feedback);
+                                final tracks = view.tracks;
+                                if (tracks.isEmpty) {
+                                  return Center(
+                                      child: SingleChildScrollView(
+                                          padding: const EdgeInsets.all(24),
+                                          child: Column(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Text(_query.isNotEmpty ||
+                                                        _filter ==
+                                                            _FeedbackFilter.all
+                                                    ? 'Ничего не найдено'
+                                                    : _filter ==
+                                                            _FeedbackFilter
+                                                                .favorites
+                                                        ? 'В избранном пока пусто'
+                                                        : 'Треков с дизлайком пока нет'),
+                                                const SizedBox(height: 8),
+                                                if (_query.isNotEmpty)
+                                                  TextButton(
+                                                      onPressed: _clearSearch,
+                                                      child: const Text(
+                                                          'Сбросить поиск')),
+                                              ])));
+                                }
+                                return ListView.builder(
+                                    key: ValueKey(_filter),
+                                    itemCount: tracks.length,
+                                    // Same ListTile geometry and text scaling as real
+                                    // rows, without reading a prototype cover file.
+                                    prototypeItem: const ListTile(
+                                        leading: SizedBox.square(dimension: 52),
+                                        title: Text(' ', maxLines: 1),
+                                        subtitle: Text(' ', maxLines: 1)),
+                                    itemBuilder: (context, index) {
+                                      final track = tracks[index];
+                                      final group =
+                                          view.versions[track.filePath];
+                                      return ListTile(
+                                          leading: _Cover(track: track),
+                                          title: Text(track.displayTitle,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis),
+                                          subtitle: Text(
+                                              track.artist ??
+                                                  'Неизвестный исполнитель',
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis),
+                                          trailing: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              if (group != null)
+                                                TrackVariantsButton(
+                                                  group: group,
+                                                  onPressed: () => unawaited(
+                                                      showTrackVariantsDialog(
+                                                    context,
+                                                    group: group,
+                                                    repository:
+                                                        widget.libraryVariants!,
+                                                    play: (track) =>
+                                                        widget.playTrack(
+                                                            track,
+                                                            group
+                                                                .withPlaybackVersion(
+                                                                    track,
+                                                                    tracks)),
+                                                  )),
+                                                ),
+                                              Tooltip(
+                                                  message:
+                                                      buildMetadataCompletenessTooltip(
+                                                          track),
+                                                  child: Text(
+                                                      buildMetadataCompletenessLabel(
+                                                          track),
+                                                      style: Theme.of(context)
+                                                          .textTheme
+                                                          .labelSmall)),
+                                              if (widget.queue != null)
+                                                _feedbackButton(
+                                                    track, feedback[track.id]),
+                                            ],
+                                          ),
+                                          onTap: () => _command(() =>
+                                              widget.playTrack(track, tracks)));
+                                    });
+                              }),
                         );
                       })),
               if (MediaQuery.viewInsetsOf(context).bottom == 0)
@@ -663,15 +832,23 @@ final class _AndroidLibraryScreenState extends State<AndroidLibraryScreen> {
                                           'Не удалось открыть трек. Выберите файл заново через +.',
                                           maxLines: 2,
                                           overflow: TextOverflow.ellipsis),
-                                    Slider(
-                                        value: position.toDouble(),
-                                        max: total > 0 ? total.toDouble() : 1,
-                                        onChanged: total <= 0
-                                            ? null
-                                            : (value) => _command(() =>
-                                                widget.player.seek(Duration(
-                                                    milliseconds:
-                                                        value.round())))),
+                                    Row(children: [
+                                      Expanded(
+                                          child: Slider(
+                                              value: position.toDouble(),
+                                              max: total > 0
+                                                  ? total.toDouble()
+                                                  : 1,
+                                              onChanged: total <= 0
+                                                  ? null
+                                                  : (value) => _command(() =>
+                                                      widget
+                                                          .player
+                                                          .seek(Duration(
+                                                              milliseconds: value
+                                                                  .round()))))),
+                                      _nowPlayingFeedback(track),
+                                    ]),
                                     if (!compact)
                                       Row(
                                           mainAxisAlignment:

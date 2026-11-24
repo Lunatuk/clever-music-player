@@ -10,6 +10,8 @@ import 'package:clever_music_player/src/domain/repositories/track_repository.dar
 import 'package:clever_music_player/src/library/artwork_cache_service.dart';
 import 'package:clever_music_player/src/library/library_track_variants.dart';
 import 'package:clever_music_player/src/player/just_audio_player_service.dart';
+import 'package:clever_music_player/src/queue/playback_queue_service.dart';
+import 'package:clever_music_player/src/recommendation/recommendation_service.dart';
 import 'package:clever_music_player/src/ui/design_preview/design_preview_screen.dart';
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
@@ -19,6 +21,80 @@ import 'support/test_audio_engine.dart';
 import 'support/library_variant_repository_fake.dart';
 
 void main() {
+  testWidgets(
+      'phone shares row and player ratings and keeps the filtered queue',
+      (tester) async {
+    tester.view.physicalSize = const Size(360, 740);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final f = _Fixture();
+    addTearDown(f.close);
+    final repositories =
+        DriftRepositories(f.database, shareDocumentFeedback: true);
+    final first = f.track.copyWith(title: 'Rated');
+    final second = f.track
+        .copyWith(title: 'Other', filePath: 'content://music.test/other');
+    final rated =
+        first.copyWith(id: await repositories.tracks.upsertTrack(first));
+    final other =
+        second.copyWith(id: await repositories.tracks.upsertTrack(second));
+    final queue = PlaybackQueueService(
+      playerService: f.player,
+      tracks: repositories.tracks,
+      trackUserState: repositories.trackUserState,
+      playbackEvents: repositories.playbackEvents,
+      recommendationService: RecommendationService(
+          tracks: repositories.tracks,
+          trackUserState: repositories.trackUserState,
+          playbackEvents: repositories.playbackEvents),
+    );
+    addTearDown(queue.dispose);
+    await tester.pumpWidget(f.app(library: [rated, other], queue: queue));
+    await tester.pumpAndSettle();
+
+    final ratedRow = find.widgetWithText(ListTile, 'Rated');
+    await tester.tap(find.descendant(
+        of: ratedRow, matching: find.byTooltip('Оценка трека')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('В избранное'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(ChoiceChip, 'Избранное'));
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(ListTile, 'Other'), findsNothing);
+
+    await tester.tap(ratedRow);
+    await tester.pumpAndSettle();
+    expect(f.lastContext?.map((t) => t.id), [rated.id]);
+    expect(queue.state.isCurrentTrackLiked, isTrue);
+    await tester.tap(find.byTooltip('Оценка текущего трека'));
+    await tester.pumpAndSettle();
+    await tester
+        .tap(find.widgetWithText(PopupMenuItem<TrackFeedback>, 'Не нравится'));
+    await tester.pumpAndSettle();
+    expect(find.text('В избранном пока пусто'), findsOneWidget);
+    expect(f.player.currentTrack?.id, rated.id);
+    expect(f.player.isPlaying, isTrue);
+    final dislikedFilter = find.widgetWithText(ChoiceChip, 'Не нравится');
+    await tester.ensureVisible(dislikedFilter);
+    await tester.pumpAndSettle();
+    await tester.tap(dislikedFilter);
+    await tester.pumpAndSettle();
+    expect(ratedRow, findsOneWidget);
+    expect(queue.state.isCurrentTrackDisliked, isTrue);
+    await tester.tap(find.descendant(
+        of: ratedRow, matching: find.byTooltip('Оценка трека')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Убрать дизлайк'));
+    await tester.pumpAndSettle();
+    expect(find.text('Треков с дизлайком пока нет'), findsOneWidget);
+    expect(queue.state.isCurrentTrackDisliked, isFalse);
+    expect(f.player.isPlaying, isTrue);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+  });
+
   testWidgets('phone can play another version once and choose its default',
       (tester) async {
     tester.view.physicalSize = const Size(360, 720);
@@ -526,6 +602,7 @@ final class _Fixture {
           List<Track>? library,
           Stream<List<Track>>? stream,
           LibraryVariantRepository? variants,
+          PlaybackQueueService? queue,
           double keyboard = 0}) =>
       MaterialApp(
         theme: ThemeData(useMaterial3: true, brightness: Brightness.dark),
@@ -538,11 +615,21 @@ final class _Fixture {
             importer: importer,
             tracks: stream ?? Stream.value(library ?? [track]),
             libraryVariants: variants,
+            queue: queue,
+            feedbackRepository: queue == null
+                ? null
+                : DriftTrackUserStateRepository(database,
+                    shareDocumentFeedback: true),
             player: player,
             playTrack: (track, tracks) async {
               selections++;
               lastContext = tracks;
-              await player.playTrack(track);
+              if (queue == null) {
+                await player.playTrack(track);
+              } else {
+                await queue.playLibraryTrack(
+                    track: track, visibleTracks: tracks);
+              }
             },
             previous: () async {},
             next: () async {

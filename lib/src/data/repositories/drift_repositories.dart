@@ -1,5 +1,6 @@
 import 'package:drift/drift.dart';
 
+import '../../domain/models/audio_document_identity.dart';
 import '../../domain/models/models.dart';
 import '../../domain/repositories/repositories.dart';
 import '../../library/library_track_variants.dart';
@@ -15,7 +16,7 @@ import 'drift_publication_retention_repository.dart';
 import 'drift_yandex_session_repository.dart';
 
 final class DriftRepositories implements AppRepositories {
-  DriftRepositories(AppDatabase database)
+  DriftRepositories(AppDatabase database, {bool shareDocumentFeedback = false})
       : _database = database,
         libraryFolders = DriftLibraryRepository(database),
         tracks = DriftTrackRepository(database),
@@ -29,7 +30,8 @@ final class DriftRepositories implements AppRepositories {
         yandexSessions = DriftYandexSessionRepository(database),
         playlists = DriftPlaylistRepository(database),
         playbackEvents = DriftPlaybackEventRepository(database),
-        trackUserState = DriftTrackUserStateRepository(database),
+        trackUserState = DriftTrackUserStateRepository(database,
+            shareDocumentFeedback: shareDocumentFeedback),
         settings = DriftSettingsRepository(database);
 
   final AppDatabase _database;
@@ -1094,9 +1096,11 @@ final class DriftPlaybackEventRepository implements PlaybackEventRepository {
 }
 
 final class DriftTrackUserStateRepository implements TrackUserStateRepository {
-  const DriftTrackUserStateRepository(this._database);
+  const DriftTrackUserStateRepository(this._database,
+      {this.shareDocumentFeedback = false});
 
   final AppDatabase _database;
+  final bool shareDocumentFeedback;
 
   @override
   Future<void> upsertState(TrackUserState state) async {
@@ -1112,9 +1116,14 @@ final class DriftTrackUserStateRepository implements TrackUserStateRepository {
     required DateTime updatedAt,
   }) {
     return _database.transaction(() async {
+      final documents = shareDocumentFeedback
+          ? _readDocumentStates(await _documentStates().get())
+          : null;
+      final aliases = documents?.aliasIds(trackId) ?? const [];
+      final feedbackId = documents?.feedback(trackId)?.trackId ?? trackId;
       await _database.into(_database.trackUserStates).insert(
             TrackUserStatesCompanion.insert(
-              trackId: Value(trackId),
+              trackId: Value(feedbackId),
               updatedAt: updatedAt,
             ),
             mode: InsertMode.insertOrIgnore,
@@ -1130,15 +1139,40 @@ final class DriftTrackUserStateRepository implements TrackUserStateRepository {
       await _database.customUpdate(
         'UPDATE track_user_state SET $assignments, rating = NULL, '
         'updated_at = MAX(updated_at, ?) WHERE track_id = ?',
-        variables: [Variable<DateTime>(updatedAt), Variable<int>(trackId)],
+        variables: [Variable<DateTime>(updatedAt), Variable<int>(feedbackId)],
         updates: {_database.trackUserStates},
       );
-      return (await findByTrackId(trackId))!;
+      final result = (await _findStoredState(feedbackId))!;
+      for (final id in aliases) {
+        if (id == feedbackId) continue;
+        await _database.customInsert(
+          'INSERT INTO track_user_state '
+          '(track_id, is_favorite, is_hidden, updated_at) VALUES (?, ?, ?, ?) '
+          'ON CONFLICT(track_id) DO UPDATE SET '
+          'is_favorite = excluded.is_favorite, is_hidden = excluded.is_hidden, '
+          'rating = NULL, updated_at = MAX(updated_at, excluded.updated_at)',
+          variables: [
+            Variable<int>(id),
+            Variable<bool>(result.isFavorite),
+            Variable<bool>(result.isHidden),
+            Variable<DateTime>(updatedAt)
+          ],
+          updates: {_database.trackUserStates},
+        );
+      }
+      return feedbackId == trackId
+          ? result
+          : (await _findStoredState(trackId))!;
     });
   }
 
   @override
-  Future<TrackUserState?> findByTrackId(int trackId) async {
+  Future<TrackUserState?> findByTrackId(int trackId) async =>
+      shareDocumentFeedback
+          ? _readDocumentStates(await _documentStates().get()).forTrack(trackId)
+          : _findStoredState(trackId);
+
+  Future<TrackUserState?> _findStoredState(int trackId) async {
     final row = await (_database.select(_database.trackUserStates)
           ..where((table) => table.trackId.equals(trackId)))
         .getSingleOrNull();
@@ -1154,6 +1188,9 @@ final class DriftTrackUserStateRepository implements TrackUserStateRepository {
     if (ids.isEmpty) {
       return const {};
     }
+    if (shareDocumentFeedback) {
+      return _readDocumentStates(await _documentStates().get()).forTracks(ids);
+    }
 
     final rows = await (_database.select(_database.trackUserStates)
           ..where((table) => table.trackId.isIn(ids)))
@@ -1166,6 +1203,12 @@ final class DriftTrackUserStateRepository implements TrackUserStateRepository {
 
   @override
   Stream<TrackUserState?> watchTrackState(int trackId) {
+    if (shareDocumentFeedback) {
+      return _documentStates()
+          .watch()
+          .map((rows) => _readDocumentStates(rows).forTrack(trackId))
+          .distinct();
+    }
     final query = _database.select(_database.trackUserStates)
       ..where((table) => table.trackId.equals(trackId));
 
@@ -1181,6 +1224,11 @@ final class DriftTrackUserStateRepository implements TrackUserStateRepository {
     final ids = trackIds.toSet().toList();
     if (ids.isEmpty) {
       return Stream.value(const {});
+    }
+    if (shareDocumentFeedback) {
+      return _documentStates()
+          .watch()
+          .map((rows) => _readDocumentStates(rows).forTracks(ids));
     }
 
     final query = _database.select(_database.trackUserStates)
@@ -1199,6 +1247,81 @@ final class DriftTrackUserStateRepository implements TrackUserStateRepository {
           ..where((table) => table.trackId.equals(trackId)))
         .go();
   }
+
+  Selectable<QueryRow> _documentStates() => _database.customSelect(
+        'SELECT t.id AS source_id, t.file_path AS source_path, s.* '
+        'FROM tracks t LEFT JOIN track_user_state s ON s.track_id = t.id '
+        "WHERE s.track_id IS NOT NULL OR t.file_path GLOB 'content://*'",
+        readsFrom: {_database.tracks, _database.trackUserStates},
+      );
+
+  _DocumentFeedbackSnapshot _readDocumentStates(List<QueryRow> rows) {
+    final snapshot = _DocumentFeedbackSnapshot();
+    for (final row in rows) {
+      snapshot.add(
+        row.read<int>('source_id'),
+        audioDocumentIdentity(row.read<String>('source_path')),
+        row.readNullable<int>('track_id') == null
+            ? null
+            : trackUserStateFromRow(_database.trackUserStates.map(row.data)),
+      );
+    }
+    return snapshot;
+  }
+}
+
+final class _DocumentFeedbackSnapshot {
+  final states = <int, TrackUserState>{};
+  final documents = <int, AudioDocumentIdentity>{};
+  final members = <AudioDocumentIdentity, List<int>>{};
+  final votes = <AudioDocumentIdentity, TrackUserState>{};
+
+  void add(int id, AudioDocumentIdentity? document, TrackUserState? state) {
+    if (state != null) states[id] = state;
+    if (document == null) return;
+    documents[id] = document;
+    (members[document] ??= []).add(id);
+    if (state == null ||
+        (!state.isFavorite && !state.isHidden && state.rating == null)) {
+      return;
+    }
+    final previous = votes[document];
+    if (previous == null ||
+        state.updatedAt.isAfter(previous.updatedAt) ||
+        (state.updatedAt.isAtSameMomentAs(previous.updatedAt) &&
+            id < previous.trackId)) {
+      votes[document] = state;
+    }
+  }
+
+  List<int>? aliasIds(int id) => members[documents[id]];
+  TrackUserState? feedback(int id) => votes[documents[id]];
+
+  TrackUserState? forTrack(int id) {
+    final state = states[id];
+    final vote = feedback(id);
+    if (vote == null || identical(vote, state)) return state;
+    return TrackUserState(
+      trackId: id,
+      isFavorite: vote.isFavorite,
+      isHidden: vote.isHidden,
+      rating: vote.rating,
+      playCount: state?.playCount ?? 0,
+      completeCount: state?.completeCount ?? 0,
+      skipCount: state?.skipCount ?? 0,
+      lastPlayedAt: state?.lastPlayedAt,
+      lastSkippedAt: state?.lastSkippedAt,
+      lastCompletedAt: state?.lastCompletedAt,
+      userScoreBoost: state?.userScoreBoost ?? 0,
+      preferredWaveMode: state?.preferredWaveMode,
+      updatedAt: state?.updatedAt ?? vote.updatedAt,
+    );
+  }
+
+  Map<int, TrackUserState> forTracks(Iterable<int> ids) => {
+        for (final id in ids)
+          if (forTrack(id) case final state?) id: state,
+      };
 }
 
 final class DriftSettingsRepository implements SettingsRepository {

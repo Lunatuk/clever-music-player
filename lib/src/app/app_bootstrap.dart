@@ -1,4 +1,5 @@
 import 'dart:ffi';
+import 'dart:io';
 
 import '../android/android_audio_comparison_reader.dart';
 import '../data/drift/app_database.dart';
@@ -63,7 +64,8 @@ Future<AppDependencies> bootstrapApplication(
     owned.add(AppCleanupAction(AppResource.database, database.close));
     // Force lazy open/migration while rollback still owns the connection.
     await database.customSelect('SELECT 1').get();
-    final repositories = DriftRepositories(database);
+    final repositories =
+        DriftRepositories(database, shareDocumentFeedback: Platform.isAndroid);
     final recommendations = RecommendationService(
         tracks: repositories.tracks,
         trackUserState: repositories.trackUserState,

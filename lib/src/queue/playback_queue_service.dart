@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 
 import '../core/async_lifecycle.dart';
 import '../diagnostics/diagnostics_service.dart';
+import '../domain/models/audio_document_identity.dart';
 import '../domain/models/models.dart';
 import '../domain/repositories/repositories.dart';
 import '../player/player_service.dart';
@@ -1746,10 +1747,15 @@ final class PlaybackQueueService {
               updatedAt: now);
           _invalidateNextPreparation();
           _emit(_state.copyWith(lastError: null));
-          if (_isSameCurrentTrack(track)) {
+          final current = _playerService.currentTrack ?? _state.currentTrack;
+          final document = audioDocumentIdentity(track.filePath);
+          if (current != null &&
+              (_isSameTrack(track, current) ||
+                  (document != null &&
+                      document == audioDocumentIdentity(current.filePath)))) {
             // Reload with a generation guard: an older toggle may finish after a
             // newer one or after switching tracks. Never paint its stale result.
-            await _loadCurrentTrackUserState(track);
+            await _loadCurrentTrackUserState(current);
           }
         } on Object catch (error) {
           diagnostics.record(DiagnosticEvent.trackFeedbackWriteFailed,

@@ -40,6 +40,101 @@ void main() {
     );
   }
 
+  Future<int> registerDocument(String grant,
+      {String document = 'primary:Music/Sub/Track.mp3', int? folderId}) {
+    final uri = Uri(
+      scheme: 'content',
+      host: 'com.android.externalstorage.documents',
+      pathSegments: ['tree', grant, 'document', document],
+    );
+    return repositories.tracks.upsertTrack(Track(
+      filePath: uri.toString(),
+      title: 'Same title',
+      libraryFolderId: folderId,
+      addedAt: now,
+      updatedAt: now,
+    ));
+  }
+
+  test('Android document feedback survives a disabled folder and restart',
+      () async {
+    final folder = await repositories.libraryFolders.upsertFolder(LibraryFolder(
+        path:
+            'content://com.android.externalstorage.documents/tree/primary%3AMusic',
+        displayName: 'Music',
+        createdAt: now,
+        updatedAt: now));
+    final primary = await registerDocument('primary:Music', folderId: folder);
+    final alias = await registerDocument('primary:Music/Sub');
+    final other = await registerDocument('primary:Music',
+        document: 'primary:Music/Track.mp3');
+    final feedback =
+        DriftTrackUserStateRepository(database, shareDocumentFeedback: true);
+    await repositories.trackUserState.upsertState(TrackUserState(
+        trackId: primary, playCount: 9, lastPlayedAt: now, updatedAt: now));
+    await repositories.trackUserState.upsertState(TrackUserState(
+        trackId: alias, playCount: 4, skipCount: 2, updatedAt: now));
+    await feedback.toggleFeedback(primary, TrackFeedback.like, updatedAt: now);
+    await repositories.libraryFolders.setFolderEnabled(
+      folder,
+      isEnabled: false,
+      updatedAt: now,
+    );
+    expect((await repositories.tracks.watchAllTracks().first).map((t) => t.id),
+        containsAll([alias, other]));
+    expect((await repositories.tracks.watchAllTracks().first).map((t) => t.id),
+        isNot(contains(primary)));
+    await database.close();
+    database = AppDatabase(NativeDatabase(databaseFile));
+    repositories = DriftRepositories(database, shareDocumentFeedback: true);
+    final reopened = repositories.trackUserState;
+    final visible =
+        await reopened.watchTrackStatesByTrackIds([alias, other]).first;
+    expect(visible[alias]?.isFavorite, isTrue);
+    expect(visible[alias]?.playCount, 4);
+    expect(visible[alias]?.skipCount, 2);
+    expect(visible[other], isNull);
+    await reopened.toggleFeedback(alias, TrackFeedback.dislike, updatedAt: now);
+    final states = await reopened.findByTrackIds([primary, alias, other]);
+    expect(states[primary]?.isHidden, isTrue);
+    expect(states[alias]?.isFavorite, isFalse);
+    expect(states[primary]?.playCount, 9);
+    expect(states[alias]?.playCount, 4);
+    expect(states[other], isNull);
+  });
+
+  test('a new grant inherits the mark and can clear it without moving history',
+      () async {
+    final primary = await registerDocument('primary:Music');
+    final feedback =
+        DriftTrackUserStateRepository(database, shareDocumentFeedback: true);
+    await feedback.toggleFeedback(primary, TrackFeedback.like, updatedAt: now);
+    final alias = await registerDocument('primary:Music/Sub');
+    expect((await feedback.findByTrackId(alias))?.isFavorite, isTrue);
+    await feedback.toggleFeedback(alias, TrackFeedback.like, updatedAt: now);
+    expect((await feedback.findByTrackId(primary))?.isFavorite, isFalse);
+    expect((await feedback.findByTrackId(alias))?.isFavorite, isFalse);
+  });
+
+  test('a failed alias write rolls back the whole feedback change', () async {
+    final primary = await registerDocument('primary:Music');
+    final alias = await registerDocument('primary:Music/Sub');
+    final feedback =
+        DriftTrackUserStateRepository(database, shareDocumentFeedback: true);
+    await feedback.toggleFeedback(primary, TrackFeedback.like, updatedAt: now);
+    await database.customStatement(
+        'CREATE TRIGGER fail_alias BEFORE UPDATE ON track_user_state '
+        'WHEN OLD.track_id = $alias '
+        "BEGIN SELECT RAISE(ABORT, 'simulated alias failure'); END");
+    await expectLater(
+        feedback.toggleFeedback(primary, TrackFeedback.dislike, updatedAt: now),
+        throwsException);
+    final states =
+        await repositories.trackUserState.findByTrackIds([primary, alias]);
+    expect(states[primary]?.isFavorite, isTrue);
+    expect(states[alias]?.isFavorite, isTrue);
+  });
+
   test('concurrent history and feedback preserve all counts and preferences',
       () async {
     final older = now.subtract(const Duration(days: 1));
