@@ -14,6 +14,7 @@ Future<void> showAudioComparisonDialog(
   required List<Track> tracks,
   required AudioComparisonService comparison,
   AudioMatchRepository? matches,
+  LibraryVariantEvidence evidence = const LibraryVariantEvidence(),
   String searchQuery = '',
 }) =>
     showDialog<void>(
@@ -23,6 +24,7 @@ Future<void> showAudioComparisonDialog(
           tracks: tracks,
           comparison: comparison,
           matches: matches,
+          evidence: evidence,
           searchQuery: searchQuery),
     );
 
@@ -31,11 +33,13 @@ class _AudioComparisonDialog extends StatefulWidget {
       {required this.tracks,
       required this.comparison,
       this.matches,
+      required this.evidence,
       required this.searchQuery});
 
   final List<Track> tracks;
   final AudioComparisonService comparison;
   final AudioMatchRepository? matches;
+  final LibraryVariantEvidence evidence;
   final String searchQuery;
 
   @override
@@ -45,13 +49,16 @@ class _AudioComparisonDialog extends StatefulWidget {
 class _AudioComparisonDialogState extends State<_AudioComparisonDialog> {
   static const _resultLimit = 100;
   final _selected = <Track>[];
+  final _savedMatches = <int, String>{};
   late final TextEditingController _search;
   late final List<Track> _tracks;
   LibraryScanControl? _control;
   AudioComparisonResult? _result;
+  AudioCandidateSearchResult? _found;
   AudioMatchProof? _proof;
   String? _saveMessage;
   bool _saving = false;
+  bool _finding = false;
 
   @override
   void initState() {
@@ -77,6 +84,7 @@ class _AudioComparisonDialogState extends State<_AudioComparisonDialog> {
     setState(() {
       _control = control;
       _result = null;
+      _found = null;
       _proof = null;
       _saveMessage = null;
     });
@@ -95,14 +103,64 @@ class _AudioComparisonDialogState extends State<_AudioComparisonDialog> {
     });
   }
 
+  Future<void> _findSimilar() async {
+    if (_selected.length != 1 || _control != null) return;
+    FocusScope.of(context).unfocus();
+    final reference = _selected.single;
+    final control = LibraryScanControl();
+    setState(() {
+      _control = control;
+      _finding = true;
+      _found = null;
+      _result = null;
+      _proof = null;
+      _saveMessage = null;
+    });
+    final hasLink = _hasCatalogueLink(reference);
+    final knownAudio = _knownAudioMatch(reference);
+    AudioCandidateSearchResult result;
+    try {
+      result = await widget.comparison.findSimilarRecordings(
+        reference,
+        _tracks,
+        control: control,
+        alreadyKnown: (track) =>
+            (hasLink && _hasCatalogueLink(track)) ||
+            (knownAudio != null && knownAudio == _knownAudioMatch(track)),
+      );
+    } on Object {
+      result = (
+        outcome: AudioCandidateSearchOutcome.unreadable,
+        matches: const [],
+        checked: 0,
+        candidates: 0
+      );
+    }
+    if (!mounted) return;
+    setState(() {
+      _control = null;
+      _finding = false;
+      _found = result;
+    });
+  }
+
+  bool _hasCatalogueLink(Track track) =>
+      widget.evidence.identities[track.id]?.any(isLibraryVariantIdentity) ??
+      false;
+
+  String? _knownAudioMatch(Track track) =>
+      _savedMatches[track.id] ?? widget.evidence.audioMatches[track.id];
+
   Future<void> _save() async {
     final proof = _proof;
     final matches = widget.matches;
     if (proof == null || matches == null) return;
     setState(() => _saving = true);
     String message;
+    AudioMatchSaveResult? saved;
     try {
-      message = switch (await matches.rememberAudioMatch(proof)) {
+      saved = await matches.rememberAudioMatch(proof);
+      message = switch (saved) {
         AudioMatchSaveResult.saved => 'Совпадение сохранено в медиатеке',
         AudioMatchSaveResult.changed => 'Файлы изменились. Сравни их ещё раз.',
         AudioMatchSaveResult.releaseConflict =>
@@ -113,6 +171,10 @@ class _AudioComparisonDialogState extends State<_AudioComparisonDialog> {
     }
     if (!mounted) return;
     setState(() {
+      if (saved == AudioMatchSaveResult.saved) {
+        _savedMatches[proof.first.id!] = proof.key;
+        _savedMatches[proof.second.id!] = proof.key;
+      }
       _saving = false;
       _proof = null;
       _saveMessage = message;
@@ -124,6 +186,7 @@ class _AudioComparisonDialogState extends State<_AudioComparisonDialog> {
           _selected.add(track);
         }
         _result = null;
+        _found = null;
         _proof = null;
         _saveMessage = null;
       });
@@ -134,14 +197,18 @@ class _AudioComparisonDialogState extends State<_AudioComparisonDialog> {
     final readyToSave = _proof != null && widget.matches != null;
     final availableHeight = MediaQuery.sizeOf(context).height -
         MediaQuery.viewInsetsOf(context).bottom;
+    final found = _found;
+    final suggested = found?.matches ?? const <Track>[];
     final results = _tracks
         .where((track) =>
             !_selected.any((selected) => _sameFile(selected, track)) &&
+            !suggested.any((candidate) => _sameFile(candidate, track)) &&
             trackMatchesSearch(track, _search.text))
         .take(_resultLimit + 1)
         .toList(growable: false);
     final shown = results.length.clamp(0, _resultLimit);
     final message = _saveMessage ??
+        (found == null ? null : _candidateMessage(found)) ??
         switch (_result) {
           AudioComparisonResult.equal => 'Звук совпадает',
           AudioComparisonResult.different => 'Звук различается',
@@ -170,7 +237,9 @@ class _AudioComparisonDialogState extends State<_AudioComparisonDialog> {
                       const SizedBox(height: 16),
                       Text(_saving
                           ? 'Сохраняю версии…'
-                          : 'Сравниваю звук двух файлов…'),
+                          : _finding
+                              ? 'Ищу похожие записи…'
+                              : 'Сравниваю звук двух файлов…'),
                     ],
                   ),
                 )
@@ -187,6 +256,8 @@ class _AudioComparisonDialogState extends State<_AudioComparisonDialog> {
                       ),
                       const SizedBox(height: 12),
                       Text('Выбрано ${_selected.length} из 2'),
+                      if (_selected.isEmpty)
+                        const Text('Для поиска похожих выбери один трек.'),
                       for (final track in _selected)
                         _TrackChoice(
                             track: track,
@@ -198,7 +269,9 @@ class _AudioComparisonDialogState extends State<_AudioComparisonDialog> {
                           child:
                               Semantics(liveRegion: true, child: Text(message)),
                         ),
-                      if (shown == 0)
+                      for (final track in suggested)
+                        _TrackChoice(track: track, onTap: () => _toggle(track)),
+                      if (shown == 0 && suggested.isEmpty)
                         const Padding(
                           padding: EdgeInsets.only(top: 10),
                           child: Text('Подходящих файлов больше нет.'),
@@ -232,6 +305,9 @@ class _AudioComparisonDialogState extends State<_AudioComparisonDialog> {
             if (readyToSave)
               FilledButton(
                   onPressed: _save, child: const Text('Сгруппировать версии'))
+            else if (_selected.length == 1)
+              FilledButton(
+                  onPressed: _findSimilar, child: const Text('Найти похожие'))
             else
               FilledButton(
                   onPressed: _selected.length == 2 ? _compare : null,
@@ -242,6 +318,21 @@ class _AudioComparisonDialogState extends State<_AudioComparisonDialog> {
     );
   }
 }
+
+String _candidateMessage(AudioCandidateSearchResult result) =>
+    switch (result.outcome) {
+      AudioCandidateSearchOutcome.cancelled => 'Поиск похожих остановлен.',
+      AudioCandidateSearchOutcome.timedOut =>
+        'Поиск занял слишком много времени.',
+      AudioCandidateSearchOutcome.unreadable =>
+        'Не удалось прочитать выбранный трек. Проверь доступ и формат.',
+      AudioCandidateSearchOutcome.completed when result.candidates == 0 =>
+        'Кандидатов по названию, исполнителю и длительности нет.',
+      AudioCandidateSearchOutcome.completed when result.checked == 0 =>
+        'Не удалось проверить звук у кандидатов.',
+      AudioCandidateSearchOutcome.completed =>
+        'Возможные версии: ${result.matches.length}. Проверено ${result.checked} из ${result.candidates}.',
+    };
 
 bool _sameFile(Track left, Track right) {
   if (left.filePath == right.filePath) return true;

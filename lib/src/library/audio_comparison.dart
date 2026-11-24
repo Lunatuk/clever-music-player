@@ -15,6 +15,7 @@ import '../library_sync/ffmpeg_audio_metadata_backend.dart';
 import '../library_sync/media_process_runner.dart';
 import 'audio_fingerprint.dart';
 import 'library_scan_control.dart';
+import 'recording_candidate_selection.dart';
 
 const audioComparisonMaxBytes = 128 * 1024 * 1024;
 const audioComparisonMaxDuration = Duration(minutes: 30);
@@ -25,6 +26,14 @@ typedef AudioComparison = ({
   AudioComparisonResult result,
   AudioMatchProof? proof
 });
+typedef AudioCandidateSearchResult = ({
+  AudioCandidateSearchOutcome outcome,
+  List<Track> matches,
+  int checked,
+  int candidates,
+});
+
+enum AudioCandidateSearchOutcome { completed, unreadable, cancelled, timedOut }
 
 enum AudioComparisonResult {
   equal,
@@ -100,6 +109,119 @@ final class AudioComparisonService {
   Future<AudioComparisonResult> compare(Track first, Track second,
           {required LibraryScanControl control}) async =>
       (await compareWithProof(first, second, control: control)).result;
+
+  Future<AudioCandidateSearchResult> findSimilarRecordings(
+    Track reference,
+    Iterable<Track> library, {
+    required LibraryScanControl control,
+    bool Function(Track)? alreadyKnown,
+  }) async {
+    final operation = LibraryScanControl();
+    control.addCancellationListener(operation.cancel);
+    final timer = Timer(timeout, operation.cancel);
+    final clock = Stopwatch()..start();
+    AudioComparisonReader? reader;
+    var checked = 0;
+    var count = 0;
+
+    AudioCandidateSearchResult finish(AudioCandidateSearchOutcome outcome,
+        [List<Track> matches = const []]) {
+      diagnostics.record(DiagnosticEvent.audioCandidateSearchFinished, fields: {
+        DiagnosticField.elapsedMs: clock.elapsedMilliseconds,
+        DiagnosticField.recordingSearchOutcome: outcome.index,
+        DiagnosticField.candidateCount: count,
+        DiagnosticField.candidateChecked: checked,
+        DiagnosticField.candidateMatches: matches.length,
+      });
+      return (
+        outcome: outcome,
+        matches: matches,
+        checked: checked,
+        candidates: count
+      );
+    }
+
+    try {
+      operation.throwIfCancelled();
+      final candidates = selectRecordingCandidates(reference, library,
+          alreadyKnown: alreadyKnown);
+      count = candidates.length;
+      if (count == 0) return finish(AudioCandidateSearchOutcome.completed);
+      final opened = reader = await _open(operation);
+      if (opened is! AudioFingerprintReader) {
+        return finish(AudioCandidateSearchOutcome.unreadable);
+      }
+      final fingerprints = opened as AudioFingerprintReader;
+      final origin = await _readCurrentFingerprint(
+          fingerprints, reference.source, operation);
+      if (origin == null) return finish(AudioCandidateSearchOutcome.unreadable);
+
+      final matches = <({Track track, String revision})>[];
+      for (final track in candidates.take(recordingCandidateLimit)) {
+        final current = await _readCurrentFingerprint(
+            fingerprints, track.source, operation);
+        if (current == null) continue;
+        final similarity = await compareRecordingFingerprints(
+            origin.fingerprint, current.fingerprint);
+        operation.throwIfCancelled();
+        if (similarity != RecordingSimilarity.inconclusive) checked++;
+        if (similarity == RecordingSimilarity.possible) {
+          matches.add((track: track, revision: current.revision));
+        }
+      }
+
+      final confirmed = <Track>[];
+      for (final match in matches) {
+        if (match.revision ==
+            await tryAudioRevision(revisionReader, match.track.source)) {
+          confirmed.add(match.track);
+        }
+        operation.throwIfCancelled();
+      }
+      final currentRevision =
+          await tryAudioRevision(revisionReader, reference.source);
+      operation.throwIfCancelled();
+      if (origin.revision != currentRevision) {
+        return finish(AudioCandidateSearchOutcome.unreadable);
+      }
+      return finish(
+          AudioCandidateSearchOutcome.completed, List.unmodifiable(confirmed));
+    } on Object {
+      return finish(control.isCancellationRequested
+          ? AudioCandidateSearchOutcome.cancelled
+          : operation.isCancellationRequested
+              ? AudioCandidateSearchOutcome.timedOut
+              : AudioCandidateSearchOutcome.unreadable);
+    } finally {
+      timer.cancel();
+      control.removeCancellationListener(operation.cancel);
+      await reader?.close();
+    }
+  }
+
+  Future<({AudioFingerprint fingerprint, String revision})?>
+      _readCurrentFingerprint(AudioFingerprintReader reader,
+          AudioSourceReference source, LibraryScanControl control) async {
+    control.throwIfCancelled();
+    final before = await tryAudioRevision(revisionReader, source);
+    control.throwIfCancelled();
+    if (before == null) return null;
+    AudioFingerprint? fingerprint;
+    try {
+      fingerprint = await reader.readFingerprint(source, control);
+    } on LibraryScanCancelled {
+      rethrow;
+    } on Object {
+      // Keep searching when one local file cannot be decoded.
+    }
+    control.throwIfCancelled();
+    if (fingerprint == null) return null;
+    final after = await tryAudioRevision(revisionReader, source);
+    control.throwIfCancelled();
+    return before == after
+        ? (fingerprint: fingerprint, revision: before)
+        : null;
+  }
 
   Future<AudioComparison> compareWithProof(Track first, Track second,
       {required LibraryScanControl control}) async {

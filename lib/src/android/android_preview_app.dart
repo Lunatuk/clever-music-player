@@ -168,7 +168,8 @@ final class _AndroidPreviewAppState extends State<AndroidPreviewApp> {
                     .stop),
           ));
 
-  Future<void> _compareAudio(BuildContext context, String query) async {
+  Future<void> _compareAudio(BuildContext context, String query,
+      LibraryVariantEvidence evidence) async {
     final comparison = widget.dependencies.audioComparison!;
     final tracks =
         await widget.dependencies.repositories.tracks.watchAllTracks().first;
@@ -177,6 +178,7 @@ final class _AndroidPreviewAppState extends State<AndroidPreviewApp> {
         tracks: tracks,
         comparison: comparison,
         matches: widget.dependencies.audioMatches,
+        evidence: evidence,
         searchQuery: query);
   }
 }
@@ -204,7 +206,8 @@ final class AndroidLibraryScreen extends StatefulWidget {
   final WidgetBuilder? sourceSettings;
   final Future<void> Function()? stop;
   final LibraryVariantRepository? libraryVariants;
-  final Future<void> Function(BuildContext, String)? compareAudio;
+  final Future<void> Function(BuildContext, String, LibraryVariantEvidence)?
+      compareAudio;
   @override
   State<AndroidLibraryScreen> createState() => _AndroidLibraryScreenState();
 }
@@ -451,8 +454,10 @@ final class _AndroidLibraryScreenState extends State<AndroidLibraryScreen> {
                     if (widget.compareAudio != null)
                       IconButton(
                         tooltip: 'Сравнить аудио',
-                        onPressed: () => _command(
-                            () => widget.compareAudio!(context, _query)),
+                        onPressed: () => _command(() => widget.compareAudio!(
+                            context,
+                            _query,
+                            _viewInput?.$2 ?? const LibraryVariantEvidence())),
                         icon: const Icon(Icons.compare_arrows),
                       ),
                   ])),

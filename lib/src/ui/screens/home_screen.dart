@@ -299,6 +299,7 @@ final class _HomeScreenState extends State<HomeScreen> {
                       tracks: activeTracks,
                       comparison: audioComparison,
                       matches: dependencies.audioMatches,
+                      evidence: snapshot.data ?? const LibraryVariantEvidence(),
                       searchQuery: _searchQuery)),
               onShowVariants: (group) => unawaited(showTrackVariantsDialog(
                 context,

@@ -7,6 +7,7 @@ import 'package:clever_music_player/src/library/audio_comparison.dart';
 import 'package:clever_music_player/src/library/audio_fingerprint.dart';
 import 'package:clever_music_player/src/library/library_scan_control.dart';
 import 'package:clever_music_player/src/library/library_track_variants.dart';
+import 'package:clever_music_player/src/library/recording_candidate_selection.dart';
 import 'package:clever_music_player/src/library_sync/bundled_media_helper.dart';
 import 'package:clever_music_player/src/library_sync/downloaded_audio_metadata.dart';
 import 'package:clever_music_player/src/library_sync/downloaded_audio_validation.dart';
@@ -159,6 +160,119 @@ void main() {
     }
   });
 
+  test('candidate preselection uses title, artist, duration and known copies',
+      () {
+    const duration = Duration(seconds: 62);
+    final reference = track('/music/one.flac', 'ANDROMEDA – 2019').copyWith(
+        artist: 'LXST CXNTURY', duration: duration, album: 'Andromeda');
+    final possible = track('/music/two.m4a', 'Andromeda (2019)').copyWith(
+        artist: 'lxst   CXNTURY', duration: duration, album: 'Andromeda');
+    final unknownArtist =
+        track('/music/3.m4a', 'Andromeda 2019').copyWith(duration: duration);
+    final sameTitleOtherArtist = track('/music/4.m4a', 'Andromeda 2019')
+        .copyWith(artist: 'Another Artist', duration: duration);
+    final longer = possible.copyWith(
+        filePath: '/music/5.m4a', duration: const Duration(seconds: 65));
+    final missing =
+        possible.copyWith(filePath: '/music/6.m4a', isMissing: true);
+    final known = possible.copyWith(filePath: '/music/7.m4a');
+    expect(
+        selectRecordingCandidates(
+            reference,
+            [
+              reference,
+              unknownArtist,
+              sameTitleOtherArtist,
+              longer,
+              missing,
+              known,
+              possible
+            ],
+            alreadyKnown: (item) => identical(item, known)),
+        [possible, unknownArtist]);
+  });
+
+  test('same SAF document across folder grants is not a candidate', () {
+    final reference = first.copyWith(
+        filePath:
+            'content://com.android.externalstorage.documents/tree/primary%3AMusic/document/primary%3AMusic%2Ftrack.flac',
+        artist: 'Artist');
+    final alias = reference.copyWith(
+        filePath:
+            'content://com.android.externalstorage.documents/tree/primary%3A/document/primary%3AMusic%2Ftrack.flac');
+    expect(selectRecordingCandidates(reference, [alias]), isEmpty);
+  });
+
+  test('candidate search reads the reference once and bounds audio work',
+      () async {
+    final reference = first.copyWith(artist: 'Composer');
+    final candidates = List.generate(
+        12,
+        (i) => reference.copyWith(
+            filePath: '/music/candidate-${i.toString().padLeft(2, '0')}.m4a'));
+    final words = _words();
+    final unrelated =
+        _fingerprint(words.map((word) => word ^ 0xffffffff).toList());
+    final reader = _CandidateReader((source, _) async =>
+        source == candidates[1].source ? unrelated : _fingerprint(words));
+    final search = AudioComparisonService((_) async => reader,
+        revisionReader: (_) async => 'a' * 64);
+    final result = await search.findSimilarRecordings(reference, candidates,
+        control: LibraryScanControl());
+    expect(result.outcome, AudioCandidateSearchOutcome.completed);
+    expect(result.candidates, 12);
+    expect(result.checked, recordingCandidateLimit);
+    expect(result.matches, [candidates.first, ...candidates.skip(2).take(6)]);
+    expect(reader.fingerprintSources, [
+      reference.source,
+      ...candidates.take(recordingCandidateLimit).map((t) => t.source)
+    ]);
+    expect(reader.reads, 0);
+    expect(reader.closed, isTrue);
+  });
+
+  test('candidate search discards modified results and skips unreadable files',
+      () async {
+    final reference = first.copyWith(artist: 'Composer');
+    final two = reference.copyWith(filePath: '/music/2.m4a');
+    final three = reference.copyWith(filePath: '/music/3.m4a');
+    final four = reference.copyWith(filePath: '/music/4.m4a');
+    var revision = 'a' * 64;
+    final fp = _fingerprint(_words());
+    final reader = _CandidateReader((source, _) async {
+      if (source == three.source) throw const FormatException();
+      if (source == four.source) revision = 'b' * 64;
+      return fp;
+    });
+    final result = await AudioComparisonService((_) async => reader,
+        revisionReader: (source) async =>
+            source == two.source ? revision : 'c' * 64).findSimilarRecordings(
+        reference, [two, three, four],
+        control: LibraryScanControl());
+    expect(result.checked, 2);
+    expect(result.matches, [four]);
+  });
+
+  test('candidate cancellation stops the queue and releases its reader',
+      () async {
+    final reference = first.copyWith(artist: 'Composer');
+    final control = LibraryScanControl();
+    final fp = _fingerprint(_words());
+    final reader = _CandidateReader((_, __) async {
+      control.cancel();
+      return fp;
+    });
+    final result = await AudioComparisonService((_) async => reader,
+            revisionReader: (_) async => 'a' * 64)
+        .findSimilarRecordings(
+            reference, [reference.copyWith(filePath: '/music/2.m4a')],
+            control: control);
+    expect(result.outcome, AudioCandidateSearchOutcome.cancelled);
+    expect(result.matches, isEmpty);
+    expect(reader.fingerprintSources, [reference.source]);
+    expect(reader.closed, isTrue);
+  });
+
   testWidgets('dialog selects two independent files even with the same search',
       (tester) async {
     tester.view.physicalSize = const Size(360, 720);
@@ -194,6 +308,47 @@ void main() {
     expect(find.text('Звук совпадает'), findsOneWidget);
     expect(reader.reads, 2);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'dialog finds a candidate outside the manual filter and selects it',
+      (tester) async {
+    final reference = first.copyWith(title: 'Original!', artist: 'Composer');
+    final candidate = second.copyWith(title: 'ORIGINAL', artist: 'COMPOSER');
+    final fp = _fingerprint(_words());
+    final reader = _CandidateReader((_, __) async => fp);
+    final service = AudioComparisonService((_) async => reader,
+        revisionReader: (_) async => 'a' * 64);
+    await tester.pumpWidget(MaterialApp(
+        home: Builder(
+            builder: (context) => Scaffold(
+                    body: TextButton(
+                  onPressed: () => showAudioComparisonDialog(context,
+                      tracks: [reference, candidate],
+                      comparison: service,
+                      searchQuery: 'Original!'),
+                  child: const Text('Открыть'),
+                )))));
+    await tester.tap(find.text('Открыть'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.descendant(
+        of: find.byType(ListTile), matching: find.text('Original!')));
+    await tester.pumpAndSettle();
+    expect(find.text('ORIGINAL'), findsNothing);
+    await tester.tap(find.text('Найти похожие'));
+    for (var tick = 0; !reader.finished.isCompleted && tick < 20; tick++) {
+      await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 20)));
+      await tester.pump();
+    }
+    expect(reader.finished.isCompleted, isTrue);
+    await tester.pumpAndSettle();
+    expect(find.text('Возможные версии: 1. Проверено 1 из 1.'), findsOneWidget);
+    await tester.tap(find.text('ORIGINAL'));
+    await tester.pumpAndSettle();
+    expect(find.text('Выбрано 2 из 2'), findsOneWidget);
+    expect(find.text('Сравнить'), findsOneWidget);
+    expect(find.text('Сгруппировать версии'), findsNothing);
   });
 
   testWidgets('the dialog saves only after a confirmed audio match',
@@ -334,6 +489,28 @@ final class _FingerprintReader extends _Reader
     fingerprintReads++;
     onFingerprint?.call();
     return source == first.source ? left : right;
+  }
+}
+
+final class _CandidateReader extends _Reader implements AudioFingerprintReader {
+  _CandidateReader(this._fingerprint) : super((_, __) async => equalPcm);
+
+  final Future<AudioFingerprint?> Function(
+      AudioSourceReference, LibraryScanControl) _fingerprint;
+  final fingerprintSources = <AudioSourceReference>[];
+  final finished = Completer<void>();
+
+  @override
+  Future<AudioFingerprint?> readFingerprint(
+      AudioSourceReference source, LibraryScanControl control) {
+    fingerprintSources.add(source);
+    return _fingerprint(source, control);
+  }
+
+  @override
+  Future<void> close() async {
+    await super.close();
+    finished.complete();
   }
 }
 
